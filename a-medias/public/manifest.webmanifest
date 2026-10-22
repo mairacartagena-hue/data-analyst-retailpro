@@ -1,0 +1,19 @@
+{
+  "name": "A Medias",
+  "short_name": "A Medias",
+  "description": "Tareas de la casa, compras, recordatorios y mascotas, a medias entre los dos.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "lang": "es-CO",
+  "dir": "ltr",
+  "background_color": "#fffde9",
+  "theme_color": "#7c0116",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

@@ -1,0 +1,90 @@
+"use client";
+
+import Link from "next/link";
+import { Settings } from "lucide-react";
+import { useHousehold } from "@/components/HouseholdProvider";
+import { BalanceBar } from "@/components/BalanceBar";
+import { OccurrenceRow, sortOccurrences } from "@/components/OccurrenceRow";
+import { PantrySoonCard } from "@/components/PantrySoon";
+import { PushButton } from "@/components/PushButton";
+import { PageHeader } from "@/components/ui";
+import { formatLong, todayStr } from "@/lib/dates";
+import { Loading } from "@/components/Loading";
+
+export default function HoyPage() {
+  const { ready, occurrences, tasks, household } = useHousehold();
+  const hoy = todayStr();
+
+  const activas = new Set(tasks.filter((t) => t.activa).map((t) => t.id));
+  const deHoy = sortOccurrences(
+    occurrences.filter((o) => o.fecha === hoy && activas.has(o.task_id)),
+    tasks,
+  );
+  const medIds = new Set(tasks.filter((t) => t.tipo === "medicamento" && t.activa).map((t) => t.id));
+  const tomasAtrasadas = sortOccurrences(
+    occurrences.filter((o) => o.fecha < hoy && !o.completada && medIds.has(o.task_id)),
+    tasks,
+  );
+  const hechas = deHoy.filter((o) => o.completada).length;
+
+  return (
+    <>
+      <PageHeader
+        title="Hoy"
+        subtitle={formatLong(hoy)}
+        right={
+          <Link href="/ajustes" aria-label="Ajustes" className="mt-1 rounded-[10px] border-[3px] border-vino p-2">
+            <Settings size={22} />
+          </Link>
+        }
+      />
+      {!ready ? (
+        <Loading />
+      ) : (
+        <div className="space-y-4">
+          <BalanceBar />
+
+          <section className="card">
+            <div className="flex items-baseline justify-between">
+              <h2 className="titulo text-[20px]">Para hoy</h2>
+              {deHoy.length > 0 && (
+                <span className="text-sm text-sec">
+                  {hechas} de {deHoy.length}
+                </span>
+              )}
+            </div>
+            {deHoy.length === 0 ? (
+              <p className="mt-3 text-sm text-sec">Nada para hoy. Disfruten el día.</p>
+            ) : (
+              <ul className="mt-1">
+                {deHoy.map((o) => (
+                  <OccurrenceRow key={o.id} occurrence={o} />
+                ))}
+              </ul>
+            )}
+          </section>
+
+          {tomasAtrasadas.length > 0 && (
+            <section className="card border-accion!">
+              <h2 className="titulo text-[20px] text-accion">Tomas pendientes</h2>
+              <p className="text-xs text-sec">Quedaron sin marcar en días anteriores.</p>
+              <ul className="mt-1">
+                {tomasAtrasadas.map((o) => (
+                  <OccurrenceRow key={o.id} occurrence={o} showDate />
+                ))}
+              </ul>
+            </section>
+          )}
+
+          <PantrySoonCard />
+
+          <div className="pt-2">
+            <PushButton compact />
+          </div>
+          {household && <p className="pt-2 text-center text-xs text-sec">{household.nombre}</p>}
+        </div>
+      )}
+    </>
+  );
+}
+
