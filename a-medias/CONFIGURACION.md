@@ -11,9 +11,11 @@ Proyecto de Vercel: **a-medias**
 
 ## 1. Supabase: terminar la base de datos
 
-1. **SQL Editor → New query**, pega todo `supabase/pegar_en_sql_editor.sql` y toca **Run**.
-   Instala 0003–0007, activa `pg_cron` y `pg_net`, guarda en Vault la URL y un secreto del cron generado al azar, y programa los dos crons.
-2. La última consulta muestra `push_cron_secret`. Cópialo para el paso 2.
+En **SQL Editor**, corre en orden los 4 archivos de `supabase/sql_por_partes/` (una consulta nueva para cada uno).
+Si Supabase avisa "Potential issues detected", toca **Run without RLS**: no se borra nada y la tabla `t` que menciona no existe.
+Instalan 0003–0007, activan `pg_cron` y `pg_net`, guardan en Vault la URL y un secreto del cron generado al azar, y programan los dos crons.
+No tienen comentarios, así que funcionan aunque el celular quite los saltos de línea al copiar.
+La parte 4 termina mostrando `push_cron_secret`. Cópialo para el paso 2.
 
 ## 2. Supabase: secretos de la Edge Function
 
