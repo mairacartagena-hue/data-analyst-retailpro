@@ -31,7 +31,7 @@ export function ImportarTareas({ open, onClose }: { open: boolean; onClose: () =
 
   function descargar() {
     const texto = plantillaCsv(ENCABEZADOS, EJEMPLOS);
-    const blob = new Blob(["﻿" + texto], { type: "text/csv;charset=utf-8" });
+    const blob = new Blob([texto], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
