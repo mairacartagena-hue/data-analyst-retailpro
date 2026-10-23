@@ -17,6 +17,7 @@ export default function ComprasPage() {
   const [nombre, setNombre] = useState("");
   const [cantidad, setCantidad] = useState("");
   const [categoria, setCategoria] = useState<Categoria>("Abarrotes");
+  const [duracion, setDuracion] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [producto, setProducto] = useState<PantryProduct | "nuevo" | null>(null);
   const pronto = usePantrySoon();
@@ -36,18 +37,65 @@ export default function ComprasPage() {
       cantidad: cantidad.trim() || null,
       categoria: activa === "Droguería" ? ("Otros" as Categoria) : categoria,
       pedido_por: me?.id ?? null,
+      duracion_dias: duracion.trim() ? Math.max(1, parseInt(duracion, 10) || 1) : null,
     };
     setNombre("");
     setCantidad("");
+    setDuracion("");
     const { data, error } = await getSupabase().from("shopping_items").insert(fila).select().single();
     if (error) return setError(errMsg(error));
     if (data) optimistic("items", data as ShoppingItem);
   }
 
   async function toggle(i: ShoppingItem) {
+    // Con duración: al comprarlo pasa a la Despensa y empieza a contar desde hoy
+    if (!i.comprado && i.duracion_dias && !i.pantry_product_id) {
+      return comprarADespensa(i);
+    }
     optimistic("items", { ...i, comprado: !i.comprado });
     const { error } = await getSupabase().from("shopping_items").update({ comprado: !i.comprado }).eq("id", i.id);
     if (error) optimistic("items", { ...i });
+  }
+
+  async function comprarADespensa(i: ShoppingItem) {
+    const sb = getSupabase();
+    const hoy = todayStr();
+    optimistic("items", { ...i, comprado: true });
+    const existente = pantry.find((p) => p.nombre.trim().toLowerCase() === i.nombre.trim().toLowerCase());
+    const { data: prod, error: errProd } = existente
+      ? await sb
+          .from("pantry_products")
+          .update({ duracion_dias: i.duracion_dias, fecha_ultima_compra: hoy })
+          .eq("id", existente.id)
+          .select()
+          .single()
+      : await sb
+          .from("pantry_products")
+          .insert({
+            household_id: i.household_id,
+            nombre: i.nombre,
+            categoria: i.categoria,
+            duracion_dias: i.duracion_dias,
+            fecha_ultima_compra: hoy,
+          })
+          .select()
+          .single();
+    if (errProd || !prod) {
+      optimistic("items", { ...i });
+      return setError(errProd ? errMsg(errProd) : "No pudimos pasar el producto a la Despensa.");
+    }
+    optimistic("pantry", prod as PantryProduct);
+    const { data: it, error } = await sb
+      .from("shopping_items")
+      .update({ comprado: true, pantry_product_id: (prod as PantryProduct).id })
+      .eq("id", i.id)
+      .select()
+      .single();
+    if (error) {
+      optimistic("items", { ...i });
+      return setError(errMsg(error));
+    }
+    if (it) optimistic("items", it as ShoppingItem);
   }
 
   async function borrarComprados() {
@@ -123,6 +171,18 @@ export default function ComprasPage() {
                 aria-label="Producto"
               />
               <input className="input w-20!" value={cantidad} onChange={(e) => setCantidad(e.target.value)} placeholder="Cant." aria-label="Cantidad" />
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="number"
+                min={1}
+                inputMode="numeric"
+                className="input flex-1"
+                value={duracion}
+                onChange={(e) => setDuracion(e.target.value)}
+                placeholder="Días que dura (opcional)"
+                aria-label="Días que dura"
+              />
             </div>
             <div className="flex gap-2">
               {activa !== "Droguería" && (

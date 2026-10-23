@@ -23,9 +23,12 @@ export async function updateSession(request: NextRequest) {
     },
   );
 
+  // getSession lee la sesión de la cookie sin ir a Supabase en cada cambio de hoja.
+  // Los datos siguen protegidos por RLS, y las páginas verifican con getUser al cargar.
   const {
-    data: { user },
-  } = await supabase.auth.getUser();
+    data: { session },
+  } = await supabase.auth.getSession();
+  const user = session?.user ?? null;
 
   const path = request.nextUrl.pathname;
   const esPublica = PUBLICAS.some((p) => path === p || path.startsWith(p + "/"));

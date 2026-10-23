@@ -79,6 +79,7 @@ export interface ShoppingItem {
   comprado_en: string | null;
   es_automatico: boolean;
   pantry_product_id: string | null;
+  duracion_dias?: number | null;
   created_at: string;
 }
 
