@@ -41,7 +41,7 @@ export default function ComprasPage() {
       list_id: lista.id,
       nombre: nombre.trim(),
       cantidad: cantidad.trim() || null,
-      categoria: activa === "Droguería" ? ("Otros" as Categoria) : categoria,
+      categoria: activa === "Droguería" || activa === "Para la casa" ? ("Otros" as Categoria) : categoria,
       pedido_por: me?.id ?? null,
       duracion_dias: duracion.trim() ? Math.max(1, parseInt(duracion, 10) || 1) : null,
     };
@@ -296,7 +296,7 @@ export default function ComprasPage() {
               />
             </div>
             <div className="flex gap-2">
-              {activa !== "Droguería" && (
+              {activa !== "Droguería" && activa !== "Para la casa" && (
                 <select className="input flex-1" value={categoria} onChange={(e) => setCategoria(e.target.value as Categoria)} aria-label="Categoría">
                   {categoriasActivas.map((c) => (
                     <option key={c}>{c}</option>
@@ -462,7 +462,7 @@ function PantrySheet({
     setError(null);
     setNombre(editando?.nombre ?? "");
     setCategoria(editando?.categoria ?? (paraMascotas ? "Frutas y verduras" : "Abarrotes"));
-    setPetId(editando?.pet_id ?? "");
+    setPetId(editando?.pet_id ?? (editando?.es_mascotas ? "todas" : ""));
     setMarca(editando?.marca ?? "");
     setTipoComida(editando?.tipo_comida ?? "");
     setResponsable(editando && !editando.rota && editando.responsable_id ? editando.responsable_id : "rotar");
@@ -486,8 +486,8 @@ function PantrySheet({
       fecha_ultima_compra: ultima,
       pet_id: mascota ? mascota.id : null,
       es_mascotas: mascota ? true : editando ? !!editando.es_mascotas : paraMascotas,
-      marca: mascota && marca.trim() ? marca.trim() : null,
-      tipo_comida: mascota && tipoComida.trim() ? tipoComida.trim() : null,
+      marca: esMascota && marca.trim() ? marca.trim() : null,
+      tipo_comida: esMascota && tipoComida.trim() ? tipoComida.trim() : null,
     };
     const sb = getSupabase();
     const { data, error } = editando
@@ -531,7 +531,7 @@ function PantrySheet({
             Mascota
           </label>
           <select id="p-mascota" className="input" value={petId} onChange={(e) => setPetId(e.target.value)}>
-            <option value="">Ninguna</option>
+            <option value={paraMascotas ? "todas" : ""}>{paraMascotas ? "Todas" : "Ninguna"}</option>
             {pets.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.nombre}
@@ -554,17 +554,11 @@ function PantrySheet({
                 </label>
                 <input
                   id="p-tipo"
-                  list="tipos-comida"
                   className="input"
                   value={tipoComida}
                   onChange={(e) => setTipoComida(e.target.value)}
                   placeholder="Concentrado seco"
                 />
-                <datalist id="tipos-comida">
-                  <option value="Concentrado seco" />
-                  <option value="Concentrado húmedo (lata)" />
-                  <option value="Natural (casera)" />
-                </datalist>
               </div>
             </div>
             <div>
