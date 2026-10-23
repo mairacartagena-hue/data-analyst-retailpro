@@ -183,7 +183,11 @@ export default function ComprasPage() {
                 onChange={(e) => cambiarVa(e.target.value)}
                 aria-label="Quién va"
               >
-                <option value="">Sin definir</option>
+                {!lista.quien_va && !lista.va_juntos && (
+                  <option value="" disabled>
+                    Quién va
+                  </option>
+                )}
                 {members.map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.nombre}

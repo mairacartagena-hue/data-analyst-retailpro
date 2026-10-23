@@ -8,7 +8,6 @@ import { useHousehold } from "@/components/HouseholdProvider";
 import { OccurrenceRow, sortOccurrences } from "@/components/OccurrenceRow";
 import { MedSheet } from "@/components/MedSheet";
 import { PetEventSheet, PetSheet } from "@/components/RecordarSheets";
-import { PetDocs } from "@/components/PetDocs";
 import { Avatar, Empty } from "@/components/ui";
 import { Loading } from "@/components/Loading";
 import { dayNum, formatHora, formatShort, monthShort, todayStr } from "@/lib/dates";
@@ -224,10 +223,6 @@ export default function MascotaPage() {
           })}
         </ul>
       )}
-
-      <div className="mt-4">
-        <PetDocs petId={pet.id} />
-      </div>
 
       <PetSheet open={editarPet} pet={pet} onClose={() => setEditarPet(false)} />
       <MedSheet open={!!med} petId={pet.id} task={med === "nuevo" ? null : med} onClose={() => setMed(null)} />
