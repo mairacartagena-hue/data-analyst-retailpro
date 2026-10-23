@@ -1,64 +1,69 @@
-# Configuración de A Medias (estado y pasos pendientes)
+# A Medias: configuración y estado
 
-Proyecto de Supabase: **A-medias** (`qrciymjmmpfremtjaiof`)
-Proyecto de Vercel: **a-medias**
+Proyecto de Supabase: **A-medias** (`qrciymjmmpfremtjaiof`, región us-east-1)
+Proyecto de Vercel: **a-medias** (dominio: `https://a-medias-eight.vercel.app`)
+Rama de producción: `claude/medias-supabase-vercel-pawhb1`
 
-## Ya hecho
+## Estado
 
-- Las tablas viejas de prueba (hogar "Apto 402 · Nicki y Ari") se movieron al esquema `old_demo`. No se borró nada; la app no las ve.
-- Migraciones `0001_schema` y `0002_rls` aplicadas.
-- Edge Function `send-push` publicada (sin verificación JWT; se protege con `x-cron-secret`).
+**Hecho**
+- Base de datos completa: tablas, reglas de acceso (RLS), funciones, Realtime y los dos trabajos programados (pg_cron): el diario a las 00:05 y el de notificaciones cada 5 minutos.
+- Edge Function `send-push` publicada (versión 3) con sus secretos VAPID y `PUSH_CRON_SECRET`.
+- Login con magic link y redirecciones configuradas para el dominio de Vercel.
+- App publicada en Vercel desde la rama de producción, con las variables de entorno.
+- Seguridad: permisos de funciones internas quitados y `search_path` fijado (migración `0013`).
+- Documentos de mascotas: quitados de la app. La migración `0011` borra lo que queda en la base.
 
-## 1. Supabase: terminar la base de datos
+**Pendiente (lo hace una persona)**
+- [ ] Correr `supabase/migrations/0011_quitar_documentos_mascotas.sql` en el SQL Editor (borra la tabla y el espacio de archivos vacíos de documentos de mascotas).
+- [ ] Activar **Authentication → Providers → Email → Leaked password protection** (aviso de seguridad de Supabase).
+- [ ] Borrar el esquema viejo cuando ya no haga falta: `drop schema old_demo cascade;` (datos de prueba anteriores).
+- [ ] Decidir si la rama `claude/medias-supabase-vercel-pawhb1` se une a `main`, o se deja como rama de producción en Vercel.
 
-En **SQL Editor**, corre en orden los 4 archivos de `supabase/sql_por_partes/` (una consulta nueva para cada uno).
-Si Supabase avisa "Potential issues detected", toca **Run without RLS**: no se borra nada y la tabla `t` que menciona no existe.
-Instalan 0003–0007, activan `pg_cron` y `pg_net`, guardan en Vault la URL y un secreto del cron generado al azar, y programan los dos crons.
-No tienen comentarios, así que funcionan aunque el celular quite los saltos de línea al copiar.
-La parte 4 termina mostrando `push_cron_secret`. Cópialo para el paso 2.
+## Pruebas
 
-## 2. Supabase: secretos de la Edge Function
-
-**Edge Functions → Secrets → Add new secret** (los valores VAPID están en el archivo `claves_vapid.txt` que te envió Claude):
-
-| Nombre | Valor |
+| Prueba | Estado |
 |---|---|
-| `VAPID_PUBLIC_KEY` | de `claves_vapid.txt` |
-| `VAPID_PRIVATE_KEY` | de `claves_vapid.txt` |
-| `VAPID_SUBJECT` | `mailto:` + tu correo |
-| `PUSH_CRON_SECRET` | el valor que copiaste en el paso 1 |
+| Hoy: marcar tareas y quién las hizo | OK |
+| Tareas: crear, filtros, mascotas, cambiar responsable | OK |
+| Compras: "Va:" con persona, "Los dos" y tarea con la fecha | OK |
+| Compras: duración y paso a Despensa | OK |
+| Semana: filtro por persona y sugerencias de mover | OK |
+| Recordar: recordatorios | OK |
+| Notificaciones | OK |
+| Cambiar el color de una persona | OK |
+| Regenerar el código de invitación | OK |
+| Pendientes de antes: "No se hizo" y "Deshacer" | Por validar |
+| Tomas de medicamento: terminar el tratamiento | Por validar |
+| Resumen de las 21:00 | Por validar |
+| Dos personas: lo que hace una aparece en el otro celular | Pendiente |
+| Salir del hogar y volver a entrar | Pendiente |
+| Unirse a un hogar con el código o el link | Pendiente |
+| Magic link y código de 6 dígitos | Pendiente |
+| Lentitud al cambiar de hoja | Mejorada: la primera vez tarda, luego va bien |
 
-## 3. Supabase: login
+## Piezas del sistema
 
-**Authentication → URL Configuration**
+- **Migraciones** (`supabase/migrations/`): `0001` a `0013`, en orden. Las `0001` a `0007` están juntas en `supabase/sql_por_partes/` para pegarlas en el SQL Editor.
+- **Datos de ejemplo:** `supabase/seed_sin_comentarios.sql`. Cambia el correo en la línea 3 antes de correrlo. Borra el hogar de esas dos cuentas.
+- **Edge Function:** `supabase/functions/send-push/`. La llama pg_cron cada 5 minutos con el header `x-cron-secret`.
+- **Claves VAPID:** no están en el repositorio. Están en el archivo `claves_vapid.txt` que se envió en el chat. Si se pierden, hay que generar otras, actualizarlas en Supabase y en Vercel, y las notificaciones activadas dejan de funcionar hasta reactivarlas en la app.
 
-- Site URL: el dominio de Vercel (por ejemplo `https://a-medias.vercel.app`)
-- Redirect URLs: `http://localhost:3000/**` y `https://TU-DOMINIO.vercel.app/**`
+## Variables de entorno en Vercel
 
-**Authentication → Emails → Magic Link**: usa la plantilla del README (paso 4).
+| Variable | Valor | Tipo |
+|---|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | `https://qrciymjmmpfremtjaiof.supabase.co` | Config |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | clave publicable de Supabase | Config |
+| `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | de `claves_vapid.txt` | Config |
+| `VAPID_SUBJECT` | `mailto:` + correo de contacto | Config |
+| `VAPID_PRIVATE_KEY` | de `claves_vapid.txt` | Sensitive |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase → Project Settings → API Keys → service_role | Sensitive |
 
-## 4. Vercel
+Las variables `NEXT_PUBLIC_*` se incluyen en la app al compilarla. Si cambian, hay que volver a publicar.
 
-Rama de producción de Vercel: `claude/medias-supabase-vercel-pawhb1` (así se publica sin tocar `main`).
+## Cómo publicar un cambio
 
-1. **Settings → Git**: conecta el repositorio `mairacartagena-hue/data-analyst-retailpro`.
-2. **Settings → Build and Deployment → Root Directory**: `a-medias` (Framework: Next.js).
-3. **Settings → Environments → Production → Branch**: la app está en la rama `claude/medias-supabase-vercel-pawhb1`. Combínala con `main` o elige esa rama como rama de producción.
-4. **Settings → Environment Variables**:
-
-| Variable | Valor |
-|---|---|
-| `NEXT_PUBLIC_SUPABASE_URL` | `https://qrciymjmmpfremtjaiof.supabase.co` |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `sb_publishable_tYxfeVEHFPvofR9PEjatFw_Yn_faWJE` |
-| `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | de `claves_vapid.txt` |
-| `VAPID_PRIVATE_KEY` | de `claves_vapid.txt` (márcala como Sensitive) |
-| `VAPID_SUBJECT` | `mailto:` + tu correo |
-| `SUPABASE_SERVICE_ROLE_KEY` | Supabase → Project Settings → API Keys → `service_role` (Sensitive) |
-
-5. **Deployments → Redeploy**.
-
-## 5. Probar
-
-Sigue "Pruebas manuales" del README. Para cargar el ejemplo, ver README paso 8.
-
-Cuando todo funcione, puedes borrar el esquema viejo en el SQL Editor con `drop schema old_demo cascade;`.
+1. Subir el cambio a la rama `claude/medias-supabase-vercel-pawhb1`. Vercel publica solo.
+2. Si el cambio incluye SQL, aplicarlo en Supabase antes de publicar el código que lo usa.
+3. Si cambia la Edge Function, publicarla de nuevo en Supabase.
