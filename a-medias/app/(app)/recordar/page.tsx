@@ -84,16 +84,11 @@ export default function RecordarPage() {
         title="Recordar"
         subtitle="Fechas, mascotas y datos de la casa"
         right={
-          <button className="btn btn-primary btn-sm mt-2" onClick={() => setReminderAbierto("nuevo")}>
-            <Plus size={16} /> Nuevo
+          <button className="btn btn-secondary btn-sm mt-2" onClick={() => setImportar(true)}>
+            Importar
           </button>
         }
       />
-      <div className="mb-4 flex">
-        <button className="btn btn-secondary btn-sm" onClick={() => setImportar(true)}>
-          Importar
-        </button>
-      </div>
       <ImportarRecordar open={importar} onClose={() => setImportar(false)} />
 
       {!ready ? (
@@ -213,6 +208,13 @@ export default function RecordarPage() {
       />
       <PetSheet open={petAbierta} onClose={() => setPetAbierta(false)} onCreated={(id) => router.push(`/mascotas/${id}`)} />
       <NoteSheet open={!!nota} note={nota === "nueva" ? null : nota} onClose={() => setNota(null)} />
+      <button
+        onClick={() => setReminderAbierto("nuevo")}
+        aria-label="Nuevo recordatorio"
+        className="fixed bottom-[calc(env(safe-area-inset-bottom)+92px)] right-[max(16px,calc(50%-208px))] z-30 flex h-16 w-16 items-center justify-center rounded-full border-[3px] border-vino bg-accion text-crema"
+      >
+        <Plus size={30} strokeWidth={2.5} />
+      </button>
     </>
   );
 }
