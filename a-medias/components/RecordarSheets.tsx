@@ -12,7 +12,7 @@ import { ErrorText, Pills, Sheet, errMsg } from "./ui";
 // Recordatorio
 // ---------------------------------------------------------------
 export function ReminderSheet({ open, onClose, reminder }: { open: boolean; onClose: () => void; reminder?: Reminder | null }) {
-  const { household, members, optimisticRemove } = useHousehold();
+  const { household, members, optimistic, optimisticRemove } = useHousehold();
   const [titulo, setTitulo] = useState("");
   const [fecha, setFecha] = useState(todayStr());
   const [hora, setHora] = useState("09:00");
@@ -49,10 +49,11 @@ export function ReminderSheet({ open, onClose, reminder }: { open: boolean; onCl
       nota: nota.trim() || null,
     };
     const sb = getSupabase();
-    const { error } = reminder
-      ? await sb.from("reminders").update(fila).eq("id", reminder.id)
-      : await sb.from("reminders").insert(fila);
+    const { data, error } = reminder
+      ? await sb.from("reminders").update(fila).eq("id", reminder.id).select().single()
+      : await sb.from("reminders").insert(fila).select().single();
     if (error) return setError(errMsg(error));
+    if (data) optimistic("reminders", data as Reminder);
     onClose();
   }
 
@@ -252,7 +253,7 @@ export function PetEventSheet({
   petId: string;
   event?: PetEvent | null;
 }) {
-  const { members, optimisticRemove } = useHousehold();
+  const { members, optimistic, optimisticRemove } = useHousehold();
   const [tipo, setTipo] = useState<PetEvent["tipo"]>("vacuna");
   const [titulo, setTitulo] = useState("");
   const [fecha, setFecha] = useState(todayStr());
@@ -288,8 +289,11 @@ export function PetEventSheet({
       nota: nota.trim() || null,
     };
     const sb = getSupabase();
-    const { error } = event ? await sb.from("pet_events").update(fila).eq("id", event.id) : await sb.from("pet_events").insert(fila);
+    const { data, error } = event
+      ? await sb.from("pet_events").update(fila).eq("id", event.id).select().single()
+      : await sb.from("pet_events").insert(fila).select().single();
     if (error) return setError(errMsg(error));
+    if (data) optimistic("petEvents", data as PetEvent);
     onClose();
   }
 
@@ -374,7 +378,7 @@ export function PetEventSheet({
 // Nota de la casa
 // ---------------------------------------------------------------
 export function NoteSheet({ open, onClose, note }: { open: boolean; onClose: () => void; note?: Note | null }) {
-  const { household, optimisticRemove } = useHousehold();
+  const { household, optimistic, optimisticRemove } = useHousehold();
   const [titulo, setTitulo] = useState("");
   const [contenido, setContenido] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -391,8 +395,11 @@ export function NoteSheet({ open, onClose, note }: { open: boolean; onClose: () 
     if (!titulo.trim()) return setError("Ponle un título a la nota.");
     const fila = { household_id: household!.id, titulo: titulo.trim(), contenido };
     const sb = getSupabase();
-    const { error } = note ? await sb.from("notes").update(fila).eq("id", note.id) : await sb.from("notes").insert(fila);
+    const { data, error } = note
+      ? await sb.from("notes").update(fila).eq("id", note.id).select().single()
+      : await sb.from("notes").insert(fila).select().single();
     if (error) return setError(errMsg(error));
+    if (data) optimistic("notes", data as Note);
     onClose();
   }
 

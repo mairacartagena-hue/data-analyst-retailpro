@@ -39,8 +39,9 @@ export default function ComprasPage() {
     };
     setNombre("");
     setCantidad("");
-    const { error } = await getSupabase().from("shopping_items").insert(fila);
-    if (error) setError(errMsg(error));
+    const { data, error } = await getSupabase().from("shopping_items").insert(fila).select().single();
+    if (error) return setError(errMsg(error));
+    if (data) optimistic("items", data as ShoppingItem);
   }
 
   async function toggle(i: ShoppingItem) {
@@ -252,7 +253,7 @@ function ItemRow({
 }
 
 function PantrySheet({ producto, onClose }: { producto: PantryProduct | "nuevo" | null; onClose: () => void }) {
-  const { household, optimisticRemove } = useHousehold();
+  const { household, optimistic, optimisticRemove } = useHousehold();
   const [nombre, setNombre] = useState("");
   const [categoria, setCategoria] = useState<Categoria>("Abarrotes");
   const [duracion, setDuracion] = useState(30);
@@ -274,10 +275,11 @@ function PantrySheet({ producto, onClose }: { producto: PantryProduct | "nuevo" 
     if (!nombre.trim() || duracion < 1) return setError("Completa el nombre y los días.");
     const fila = { household_id: household!.id, nombre: nombre.trim(), categoria, duracion_dias: duracion, fecha_ultima_compra: ultima };
     const sb = getSupabase();
-    const { error } = editando
-      ? await sb.from("pantry_products").update(fila).eq("id", editando.id)
-      : await sb.from("pantry_products").insert(fila);
+    const { data, error } = editando
+      ? await sb.from("pantry_products").update(fila).eq("id", editando.id).select().single()
+      : await sb.from("pantry_products").insert(fila).select().single();
     if (error) return setError(errMsg(error));
+    if (data) optimistic("pantry", data as PantryProduct);
     onClose();
   }
 

@@ -5,10 +5,11 @@ import { Bell, PawPrint, Plus } from "lucide-react";
 import { useHousehold } from "@/components/HouseholdProvider";
 import { TaskSheet } from "@/components/TaskSheet";
 import { MedSheet } from "@/components/MedSheet";
-import { Avatar, Empty, PageHeader, Pills } from "@/components/ui";
+import { Avatar, Empty, ErrorText, PageHeader, Pills, Sheet, errMsg } from "@/components/ui";
 import { Loading } from "@/components/Loading";
-import { DIAS_CORTOS, formatHora } from "@/lib/dates";
-import type { Frecuencia, Task } from "@/lib/types";
+import { getSupabase } from "@/lib/supabase/client";
+import { DIAS_CORTOS, formatHora, todayStr } from "@/lib/dates";
+import type { Frecuencia, Occurrence, Task } from "@/lib/types";
 
 type Filtro = "todas" | "mias" | "otro" | "rotan" | "mascotas";
 
@@ -20,11 +21,30 @@ const GRUPOS: { f: Frecuencia; titulo: string }[] = [
 ];
 
 export default function TareasPage() {
-  const { ready, tasks, me, other, pets, memberById } = useHousehold();
+  const { ready, tasks, me, other, pets, memberById, members, occurrences } = useHousehold();
   const [filtro, setFiltro] = useState<Filtro>("todas");
   const [abierta, setAbierta] = useState(false);
   const [editar, setEditar] = useState<Task | null>(null);
   const [editarMed, setEditarMed] = useState<Task | null>(null);
+  const [turnoDe, setTurnoDe] = useState<Task | null>(null);
+  const [errorTurno, setErrorTurno] = useState<string | null>(null);
+
+  /** La próxima ocurrencia pendiente de una tarea: ahí se cambia quién la hace */
+  function proxima(taskId: string): Occurrence | undefined {
+    const hoy = todayStr();
+    return occurrences
+      .filter((o) => o.task_id === taskId && !o.completada && o.fecha >= hoy)
+      .sort((a, b) => a.fecha.localeCompare(b.fecha) || a.hora.localeCompare(b.hora))[0];
+  }
+
+  async function cambiarTurno(memberId: string | null) {
+    const pr = turnoDe ? proxima(turnoDe.id) : undefined;
+    if (!pr) return setErrorTurno("Esta tarea no tiene una próxima vez para cambiar.");
+    setErrorTurno(null);
+    const { error } = await getSupabase().rpc("change_turn", { p_occurrence_id: pr.id, p_member_id: memberId });
+    if (error) return setErrorTurno(errMsg(error));
+    setTurnoDe(null);
+  }
 
   const visibles = tasks
     .filter((t) => t.activa)
@@ -90,10 +110,12 @@ export default function TareasPage() {
                 {lista.map((t) => {
                   const resp = memberById(t.responsable_fijo);
                   const pet = pets.find((p) => p.id === t.pet_id);
+                  const pr = t.tipo === "tarea" ? proxima(t.id) : undefined;
+                  const quien = pr ? memberById(pr.responsable_id) : memberById(t.responsable_fijo);
                   return (
-                    <li key={t.id} className="border-b-2 border-rosa-claro last:border-b-0">
+                    <li key={t.id} className="flex items-center border-b-2 border-rosa-claro last:border-b-0">
                       <button
-                        className="flex w-full items-center gap-3 px-4 py-3 text-left"
+                        className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left"
                         onClick={() => (t.tipo === "medicamento" ? setEditarMed(t) : setEditar(t))}
                       >
                         <div className="min-w-0 flex-1">
@@ -109,12 +131,17 @@ export default function TareasPage() {
                             {detalle(t) || (t.frecuencia === "diaria" ? "Todos los días" : "")}
                           </p>
                         </div>
-                        {t.modo === "juntos" ? (
-                          <Avatar juntos size={28} />
-                        ) : t.modo === "fija" ? (
-                          <Avatar member={resp} size={28} />
-                        ) : null}
+                        {t.modo === "juntos" && !pr ? <Avatar juntos size={28} /> : null}
                       </button>
+                      {t.tipo === "tarea" && t.modo !== "juntos" && pr && (
+                        <button
+                          className="mr-3 shrink-0 rounded-full"
+                          aria-label={`Cambiar quién hace ${t.titulo}`}
+                          onClick={() => (setErrorTurno(null), setTurnoDe(t))}
+                        >
+                          <Avatar member={quien} juntos={!quien} size={30} />
+                        </button>
+                      )}
                     </li>
                   );
                 })}
@@ -133,6 +160,26 @@ export default function TareasPage() {
       </button>
 
       <TaskSheet open={abierta || !!editar} task={editar} onClose={() => (setAbierta(false), setEditar(null))} />
+      <Sheet open={!!turnoDe} onClose={() => setTurnoDe(null)} title="¿Quién lo hace?">
+        <p className="mb-4 text-sm text-sec">
+          {turnoDe?.titulo}
+          {turnoDe?.modo === "rota" && " · La rotación se reacomoda desde esta vez."}
+        </p>
+        <div className="grid gap-2">
+          {members.map((m) => (
+            <button key={m.id} className="btn btn-secondary justify-start" onClick={() => cambiarTurno(m.id)}>
+              <Avatar member={m} size={26} /> {m.nombre}
+            </button>
+          ))}
+          {turnoDe?.modo !== "rota" && (
+            <button className="btn btn-secondary justify-start" onClick={() => cambiarTurno(null)}>
+              <Avatar juntos size={26} /> Los dos
+            </button>
+          )}
+        </div>
+        <ErrorText>{errorTurno}</ErrorText>
+      </Sheet>
+
       <MedSheet open={!!editarMed} task={editarMed} petId={editarMed?.pet_id ?? undefined} onClose={() => setEditarMed(null)} />
     </>
   );

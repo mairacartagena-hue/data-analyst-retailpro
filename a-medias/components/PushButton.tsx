@@ -39,12 +39,18 @@ export function PushButton({ compact = false }: { compact?: boolean }) {
         return;
       }
       const reg = await navigator.serviceWorker.ready;
-      const sub =
-        (await reg.pushManager.getSubscription()) ??
-        (await reg.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!),
-        }));
+      const clave = urlBase64ToUint8Array(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!);
+      let sub = await reg.pushManager.getSubscription();
+      // Una suscripción creada con otra clave VAPID no sirve: se reemplaza
+      if (sub) {
+        const actual = sub.options?.applicationServerKey ? new Uint8Array(sub.options.applicationServerKey) : null;
+        const igual = !!actual && actual.length === clave.length && actual.every((b, i) => b === clave[i]);
+        if (!igual) {
+          await sub.unsubscribe();
+          sub = null;
+        }
+      }
+      sub ??= await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: clave });
       const json = sub.toJSON();
       const sb = getSupabase();
       const {
@@ -89,9 +95,14 @@ export function PushButton({ compact = false }: { compact?: boolean }) {
         <p className="flex items-center gap-2 text-sm">
           <BellRing size={18} /> Notificaciones activas en este celular.
         </p>
-        <button className="btn btn-secondary btn-sm" onClick={probar} disabled={ocupado}>
-          Enviar una de prueba
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button className="btn btn-secondary btn-sm" onClick={probar} disabled={ocupado}>
+            Enviar una de prueba
+          </button>
+          <button className="btn btn-secondary btn-sm" onClick={activar} disabled={ocupado}>
+            Reactivar
+          </button>
+        </div>
         {mensaje && <p className="text-sm text-sec">{mensaje}</p>}
       </div>
     );
