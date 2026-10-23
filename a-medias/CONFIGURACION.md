@@ -39,6 +39,8 @@ La parte 4 termina mostrando `push_cron_secret`. Cópialo para el paso 2.
 
 ## 4. Vercel
 
+Rama de producción de Vercel: `claude/medias-supabase-vercel-pawhb1` (así se publica sin tocar `main`).
+
 1. **Settings → Git**: conecta el repositorio `mairacartagena-hue/data-analyst-retailpro`.
 2. **Settings → Build and Deployment → Root Directory**: `a-medias` (Framework: Next.js).
 3. **Settings → Environments → Production → Branch**: la app está en la rama `claude/medias-supabase-vercel-pawhb1`. Combínala con `main` o elige esa rama como rama de producción.
