@@ -9,7 +9,7 @@ import { Loading } from "@/components/Loading";
 import { getSupabase } from "@/lib/supabase/client";
 import { todayStr } from "@/lib/dates";
 import { pantryDaysLeft } from "@/lib/logic";
-import { CATEGORIAS, LISTAS, type Categoria, type NombreLista, type PantryProduct, type ShoppingItem, type ShoppingList, type Task } from "@/lib/types";
+import { CATEGORIAS, CATEGORIAS_MASCOTAS, LISTAS, type Categoria, type NombreLista, type PantryProduct, type ShoppingItem, type ShoppingList, type Task } from "@/lib/types";
 
 export default function ComprasPage() {
   const { ready, household, lists, items, me, members, memberById, optimistic, optimisticRemove, pantry, pets, tasks } = useHousehold();
@@ -21,6 +21,12 @@ export default function ComprasPage() {
   const [error, setError] = useState<string | null>(null);
   const [producto, setProducto] = useState<PantryProduct | "nuevo" | null>(null);
   const pronto = usePantrySoon();
+  const categoriasActivas = activa === "Mascotas" ? CATEGORIAS_MASCOTAS : CATEGORIAS;
+
+  // Al cambiar de lista, la categoría del formulario debe ser una de esa lista
+  useEffect(() => {
+    if (!categoriasActivas.includes(categoria)) setCategoria(categoriasActivas[0]);
+  }, [categoriasActivas, categoria]);
 
   const lista = lists.find((l) => l.nombre === activa);
   const propios = items.filter((i) => i.list_id === lista?.id);
@@ -35,7 +41,7 @@ export default function ComprasPage() {
       list_id: lista.id,
       nombre: nombre.trim(),
       cantidad: cantidad.trim() || null,
-      categoria: activa === "Droguería" || activa === "Mascotas" ? ("Otros" as Categoria) : categoria,
+      categoria: activa === "Droguería" ? ("Otros" as Categoria) : categoria,
       pedido_por: me?.id ?? null,
       duracion_dias: duracion.trim() ? Math.max(1, parseInt(duracion, 10) || 1) : null,
     };
@@ -161,7 +167,7 @@ export default function ComprasPage() {
     return actualizarLista({ quien_va: valor || null, va_juntos: false });
   }
 
-  const categorias = CATEGORIAS.filter((c) => pendientes.some((i) => i.categoria === c));
+  const categorias = categoriasActivas.filter((c) => pendientes.some((i) => i.categoria === c));
 
   return (
     <>
@@ -212,6 +218,60 @@ export default function ComprasPage() {
             </section>
           )}
 
+          {activa === "Mascotas" && (
+            <section>
+              <div className="flex items-baseline justify-between">
+                <h2 className="seccion">Despensa de mascotas</h2>
+                <button className="btn btn-secondary btn-sm" onClick={() => setProducto("nuevo")}>
+                  <Plus size={14} /> Producto
+                </button>
+              </div>
+              <p className="-mt-1 mb-3 text-xs text-sec">
+                Cuando a un producto le queda el 20% o menos, se agrega solo a Mascotas con la etiqueta AUTO.
+              </p>
+              {productos.length === 0 ? (
+                <Empty>Agrega lo que siempre compran (café, arroz, jabón) y cuántos días les dura.</Empty>
+              ) : (
+                <ul className="card p-0!">
+                  {[...productos]
+                    .sort((a, b) => pantryDaysLeft(a) - pantryDaysLeft(b))
+                    .map((p) => {
+                      const d = pantryDaysLeft(p);
+                      const pct = Math.max(0, Math.min(100, (d / p.duracion_dias) * 100));
+                      return (
+                        <li key={p.id} className="border-b-2 border-rosa-claro last:border-b-0">
+                          <button className="flex w-full items-center gap-3 px-4 py-3 text-left" onClick={() => setProducto(p)}>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-[15px] font-semibold">{pets.find((x) => x.id === p.pet_id)?.nombre ?? p.nombre}</p>
+                              {(p.pet_id || p.marca || p.tipo_comida || p.rota || p.responsable_id) && (
+                                <p className="text-xs text-sec">
+                                  {[
+                                    p.pet_id ? p.nombre : null,
+                                    p.marca,
+                                    p.tipo_comida,
+                                    p.rota ? "Responsable: rotar" : p.responsable_id ? `Responsable: ${memberById(p.responsable_id)?.nombre ?? ""}` : null,
+                                  ]
+                                    .filter(Boolean)
+                                    .join(" · ")}
+                                </p>
+                              )}
+                              <div className="mt-1.5 h-2.5 overflow-hidden rounded-full border-2 border-vino">
+                                <div className={`h-full ${pct <= 20 ? "bg-accion" : "bg-rosa"}`} style={{ width: `${pct}%` }} />
+                              </div>
+                            </div>
+                            <span className={`w-24 text-right text-xs font-semibold ${pct <= 20 ? "text-accion" : "text-sec"}`}>
+                              {diasTexto(d)}
+                            </span>
+                            <Pencil size={14} className="text-sec" />
+                          </button>
+                        </li>
+                      );
+                    })}
+                </ul>
+              )}
+            </section>
+          )}
+          {activa === "Mascotas" && <h2 className="seccion">Comida natural</h2>}
           <form onSubmit={agregar} className="card mt-5 space-y-2 p-3!">
             <div className="flex gap-2">
               <input
@@ -236,9 +296,9 @@ export default function ComprasPage() {
               />
             </div>
             <div className="flex gap-2">
-              {activa !== "Droguería" && activa !== "Mascotas" && (
+              {activa !== "Droguería" && (
                 <select className="input flex-1" value={categoria} onChange={(e) => setCategoria(e.target.value as Categoria)} aria-label="Categoría">
-                  {CATEGORIAS.map((c) => (
+                  {categoriasActivas.map((c) => (
                     <option key={c}>{c}</option>
                   ))}
                 </select>
@@ -285,10 +345,10 @@ export default function ComprasPage() {
             </section>
           )}
 
-          {(activa === "Mercado" || activa === "Mascotas") && (
+          {activa === "Mercado" && (
             <section>
               <div className="flex items-baseline justify-between">
-                <h2 className="seccion">{activa === "Mascotas" ? "Despensa de mascotas" : "Despensa"}</h2>
+                <h2 className="seccion">Despensa</h2>
                 <button className="btn btn-secondary btn-sm" onClick={() => setProducto("nuevo")}>
                   <Plus size={14} /> Producto
                 </button>
@@ -309,11 +369,11 @@ export default function ComprasPage() {
                         <li key={p.id} className="border-b-2 border-rosa-claro last:border-b-0">
                           <button className="flex w-full items-center gap-3 px-4 py-3 text-left" onClick={() => setProducto(p)}>
                             <div className="min-w-0 flex-1">
-                              <p className="text-[15px] font-semibold">{p.nombre}</p>
+                              <p className="text-[15px] font-semibold">{pets.find((x) => x.id === p.pet_id)?.nombre ?? p.nombre}</p>
                               {(p.pet_id || p.marca || p.tipo_comida || p.rota || p.responsable_id) && (
                                 <p className="text-xs text-sec">
                                   {[
-                                    pets.find((x) => x.id === p.pet_id)?.nombre,
+                                    p.pet_id ? p.nombre : null,
                                     p.marca,
                                     p.tipo_comida,
                                     p.rota ? "Responsable: rotar" : p.responsable_id ? `Responsable: ${memberById(p.responsable_id)?.nombre ?? ""}` : null,
@@ -401,7 +461,7 @@ function PantrySheet({
     if (!producto) return;
     setError(null);
     setNombre(editando?.nombre ?? "");
-    setCategoria(editando?.categoria ?? "Abarrotes");
+    setCategoria(editando?.categoria ?? (paraMascotas ? "Frutas y verduras" : "Abarrotes"));
     setPetId(editando?.pet_id ?? "");
     setMarca(editando?.marca ?? "");
     setTipoComida(editando?.tipo_comida ?? "");
@@ -419,7 +479,7 @@ function PantrySheet({
     const fila = {
       household_id: household!.id,
       nombre: nombreFinal,
-      categoria: esMascota ? ("Otros" as Categoria) : categoria,
+      categoria: esMascota && !CATEGORIAS_MASCOTAS.includes(categoria) ? ("Otros" as Categoria) : categoria,
       responsable_id: esMascota && responsable !== "rotar" ? responsable : null,
       rota: esMascota && responsable === "rotar",
       duracion_dias: duracion,
@@ -454,18 +514,16 @@ function PantrySheet({
           </label>
           <input id="p-nombre" className="input" value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Café" />
         </div>
-        {!esMascota && (
-          <div>
-            <label className="label" htmlFor="p-cat">
-              Categoría
-            </label>
-            <select id="p-cat" className="input" value={categoria} onChange={(e) => setCategoria(e.target.value as Categoria)}>
-              {CATEGORIAS.map((c) => (
-                <option key={c}>{c}</option>
-              ))}
-            </select>
-          </div>
-        )}
+        <div>
+          <label className="label" htmlFor="p-cat">
+            Categoría
+          </label>
+          <select id="p-cat" className="input" value={categoria} onChange={(e) => setCategoria(e.target.value as Categoria)}>
+            {(esMascota ? CATEGORIAS_MASCOTAS : CATEGORIAS).map((c) => (
+              <option key={c}>{c}</option>
+            ))}
+          </select>
+        </div>
         <div>
           <label className="label" htmlFor="p-mascota">
             Mascota

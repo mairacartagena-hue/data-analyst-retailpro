@@ -1,8 +1,27 @@
 export type Color = "rosa" | "bordo";
 export type Frecuencia = "diaria" | "semanal" | "quincenal" | "mensual";
 export type Modo = "fija" | "rota" | "juntos";
-export type Categoria = "Abarrotes" | "Frutas y verduras" | "Carnes" | "Lácteos" | "Aseo" | "Otros";
+export type Categoria =
+  | "Abarrotes"
+  | "Frutas y verduras"
+  | "Carnes"
+  | "Lácteos"
+  | "Aseo"
+  | "Otros"
+  | "Proteína"
+  | "Carbohidratos"
+  | "Hueso carnoso"
+  | "Vísceras";
 export const CATEGORIAS: Categoria[] = ["Abarrotes", "Frutas y verduras", "Carnes", "Lácteos", "Aseo", "Otros"];
+/** Categorías de la comida natural de las mascotas */
+export const CATEGORIAS_MASCOTAS: Categoria[] = [
+  "Frutas y verduras",
+  "Proteína",
+  "Carbohidratos",
+  "Hueso carnoso",
+  "Vísceras",
+  "Otros",
+];
 export type NombreLista = "Mercado" | "Droguería" | "Para la casa" | "Mascotas";
 export const LISTAS: NombreLista[] = ["Mercado", "Droguería", "Para la casa", "Mascotas"];
 
