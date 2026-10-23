@@ -2,7 +2,7 @@
 
 Proyecto de Supabase: **A-medias** (`qrciymjmmpfremtjaiof`, región us-east-1)
 Proyecto de Vercel: **a-medias** (dominio: `https://a-medias-eight.vercel.app`)
-Rama de producción: `claude/medias-supabase-vercel-pawhb1`
+Rama de producción: `main` (la app se unió a `main` por PR #3 y #4)
 
 ## Estado
 
@@ -18,7 +18,7 @@ Rama de producción: `claude/medias-supabase-vercel-pawhb1`
 - [ ] Correr `supabase/migrations/0011_quitar_documentos_mascotas.sql` en el SQL Editor (borra la tabla y el espacio de archivos vacíos de documentos de mascotas).
 - [ ] Activar **Authentication → Providers → Email → Leaked password protection** (aviso de seguridad de Supabase).
 - [ ] Borrar el esquema viejo cuando ya no haga falta: `drop schema old_demo cascade;` (datos de prueba anteriores).
-- [ ] Decidir si la rama `claude/medias-supabase-vercel-pawhb1` se une a `main`, o se deja como rama de producción en Vercel.
+- [x] Rama de producción en Vercel: `main`.
 
 ## Pruebas
 
@@ -32,6 +32,7 @@ Rama de producción: `claude/medias-supabase-vercel-pawhb1`
 | Recordar: recordatorios | OK |
 | Notificaciones | OK |
 | Cambiar el color de una persona | OK |
+| Tareas y medicamentos recién creados aparecen sin refrescar | OK |
 | Regenerar el código de invitación | OK |
 | Pendientes de antes: "No se hizo" y "Deshacer" | Por validar |
 | Tomas de medicamento: terminar el tratamiento | Por validar |
@@ -64,6 +65,6 @@ Las variables `NEXT_PUBLIC_*` se incluyen en la app al compilarla. Si cambian, h
 
 ## Cómo publicar un cambio
 
-1. Subir el cambio a la rama `claude/medias-supabase-vercel-pawhb1`. Vercel publica solo.
+1. Subir el cambio a una rama y abrir un pull request hacia `main`. Al unirlo, Vercel publica solo.
 2. Si el cambio incluye SQL, aplicarlo en Supabase antes de publicar el código que lo usa.
 3. Si cambia la Edge Function, publicarla de nuevo en Supabase.

@@ -12,7 +12,7 @@ import { pantryDaysLeft } from "@/lib/logic";
 import { CATEGORIAS, LISTAS, type Categoria, type NombreLista, type PantryProduct, type ShoppingItem, type ShoppingList, type Task } from "@/lib/types";
 
 export default function ComprasPage() {
-  const { ready, household, lists, items, me, members, memberById, optimistic, optimisticRemove, pantry, tasks } = useHousehold();
+  const { ready, household, lists, items, me, members, memberById, optimistic, optimisticRemove, pantry, tasks, pets, reload } = useHousehold();
   const [activa, setActiva] = useState<NombreLista>("Mercado");
   const [nombre, setNombre] = useState("");
   const [cantidad, setCantidad] = useState("");
@@ -26,6 +26,44 @@ export default function ComprasPage() {
   const propios = items.filter((i) => i.list_id === lista?.id);
   const pendientes = propios.filter((i) => !i.comprado);
   const comprados = propios.filter((i) => i.comprado);
+  const productos = pantry.filter((p) => (activa === "Mascotas" ? p.es_mascotas : !p.es_mascotas));
+  const tareaMascotas = lista?.tarea_id ? tasks.find((t) => t.id === lista.tarea_id) : undefined;
+  const quienCompraMascotas = tareaMascotas ? (tareaMascotas.modo === "rota" ? "rotar" : tareaMascotas.responsable_fijo ?? "") : "";
+
+  /** Quién compra para las mascotas: una persona o rotar. Crea o actualiza la tarea semanal. */
+  async function cambiarQuienCompraMascotas(valor: string) {
+    if (!lista || !household || !valor) return;
+    const rota = valor === "rotar";
+    const campos = { modo: rota ? "rota" : "fija", responsable_fijo: rota ? null : valor, activa: true };
+    const sb = getSupabase();
+    if (tareaMascotas) {
+      const { data, error } = await sb.from("tasks").update(campos).eq("id", tareaMascotas.id).select().single();
+      if (error) return setError(errMsg(error));
+      if (data) optimistic("tasks", data as Task);
+    } else {
+      const hoy = todayStr();
+      const diaIso = ((new Date(hoy + "T12:00:00").getDay() + 6) % 7) + 1;
+      const { data, error } = await sb
+        .from("tasks")
+        .insert({
+          household_id: household.id,
+          titulo: "Comprar para las mascotas",
+          tipo: "tarea",
+          frecuencia: "semanal",
+          dias_semana: [diaIso],
+          fecha_inicio: hoy,
+          hora_recordatorio: "09:00",
+          ...campos,
+        })
+        .select()
+        .single();
+      if (error || !data) return setError(error ? errMsg(error) : "No pudimos crear la tarea.");
+      optimistic("tasks", data as Task);
+      await sb.from("shopping_lists").update({ tarea_id: (data as Task).id }).eq("id", lista.id);
+      optimistic("lists", { ...lista, tarea_id: (data as Task).id });
+    }
+    reload();
+  }
 
   async function agregar(e: React.FormEvent) {
     e.preventDefault();
@@ -174,7 +212,7 @@ export default function ComprasPage() {
         </div>
       ) : (
         <>
-          {lista && (
+          {lista && activa !== "Mascotas" && (
             <div className="mt-4 flex items-center gap-2 text-sm">
               <span className="text-sec">Va:</span>
               <select
@@ -202,6 +240,30 @@ export default function ComprasPage() {
                 onChange={(e) => actualizarLista({ fecha: e.target.value || null })}
                 aria-label="Cuándo"
               />
+            </div>
+          )}
+
+          {lista && activa === "Mascotas" && (
+            <div className="mt-4 flex items-center gap-2 text-sm">
+              <span className="text-sec">Compra:</span>
+              <select
+                className="input w-auto! py-1.5!"
+                value={quienCompraMascotas}
+                onChange={(e) => cambiarQuienCompraMascotas(e.target.value)}
+                aria-label="Quién compra para las mascotas"
+              >
+                {!quienCompraMascotas && (
+                  <option value="" disabled>
+                    Quién compra
+                  </option>
+                )}
+                {members.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.nombre}
+                  </option>
+                ))}
+                <option value="rotar">Rotar</option>
+              </select>
             </div>
           )}
 
@@ -285,10 +347,10 @@ export default function ComprasPage() {
             </section>
           )}
 
-          {activa === "Mercado" && (
+          {(activa === "Mercado" || activa === "Mascotas") && (
             <section>
               <div className="flex items-baseline justify-between">
-                <h2 className="seccion">Despensa</h2>
+                <h2 className="seccion">{activa === "Mascotas" ? "Despensa de mascotas" : "Despensa"}</h2>
                 <button className="btn btn-secondary btn-sm" onClick={() => setProducto("nuevo")}>
                   <Plus size={14} /> Producto
                 </button>
@@ -296,11 +358,11 @@ export default function ComprasPage() {
               <p className="-mt-1 mb-3 text-xs text-sec">
                 Cuando a un producto le queda el 20% o menos, se agrega solo a Mercado con la etiqueta AUTO.
               </p>
-              {pantry.length === 0 ? (
+              {productos.length === 0 ? (
                 <Empty>Agrega lo que siempre compran (café, arroz, jabón) y cuántos días les dura.</Empty>
               ) : (
                 <ul className="card p-0!">
-                  {[...pantry]
+                  {[...productos]
                     .sort((a, b) => pantryDaysLeft(a) - pantryDaysLeft(b))
                     .map((p) => {
                       const d = pantryDaysLeft(p);
@@ -310,6 +372,11 @@ export default function ComprasPage() {
                           <button className="flex w-full items-center gap-3 px-4 py-3 text-left" onClick={() => setProducto(p)}>
                             <div className="min-w-0 flex-1">
                               <p className="text-[15px] font-semibold">{p.nombre}</p>
+                              {(p.pet_id || p.marca || p.tipo_comida) && (
+                                <p className="text-xs text-sec">
+                                  {[pets.find((x) => x.id === p.pet_id)?.nombre, p.marca, p.tipo_comida].filter(Boolean).join(" · ")}
+                                </p>
+                              )}
                               <div className="mt-1.5 h-2.5 overflow-hidden rounded-full border-2 border-vino">
                                 <div className={`h-full ${pct <= 20 ? "bg-accion" : "bg-rosa"}`} style={{ width: `${pct}%` }} />
                               </div>
@@ -329,7 +396,7 @@ export default function ComprasPage() {
         </>
       )}
 
-      <PantrySheet producto={producto} onClose={() => setProducto(null)} />
+      <PantrySheet producto={producto} onClose={() => setProducto(null)} paraMascotas={activa === "Mascotas"} />
     </>
   );
 }
@@ -363,10 +430,21 @@ function ItemRow({
   );
 }
 
-function PantrySheet({ producto, onClose }: { producto: PantryProduct | "nuevo" | null; onClose: () => void }) {
-  const { household, optimistic, optimisticRemove } = useHousehold();
+function PantrySheet({
+  producto,
+  onClose,
+  paraMascotas = false,
+}: {
+  producto: PantryProduct | "nuevo" | null;
+  onClose: () => void;
+  paraMascotas?: boolean;
+}) {
+  const { household, pets, optimistic, optimisticRemove } = useHousehold();
   const [nombre, setNombre] = useState("");
   const [categoria, setCategoria] = useState<Categoria>("Abarrotes");
+  const [petId, setPetId] = useState("");
+  const [marca, setMarca] = useState("");
+  const [tipoComida, setTipoComida] = useState("");
   const [duracion, setDuracion] = useState(30);
   const [ultima, setUltima] = useState(todayStr());
   const [error, setError] = useState<string | null>(null);
@@ -377,14 +455,30 @@ function PantrySheet({ producto, onClose }: { producto: PantryProduct | "nuevo" 
     setError(null);
     setNombre(editando?.nombre ?? "");
     setCategoria(editando?.categoria ?? "Abarrotes");
+    setPetId(editando?.pet_id ?? "");
+    setMarca(editando?.marca ?? "");
+    setTipoComida(editando?.tipo_comida ?? "");
     setDuracion(editando?.duracion_dias ?? 30);
     setUltima(editando?.fecha_ultima_compra ?? todayStr());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [producto]);
 
   async function guardar() {
-    if (!nombre.trim() || duracion < 1) return setError("Completa el nombre y los días.");
-    const fila = { household_id: household!.id, nombre: nombre.trim(), categoria, duracion_dias: duracion, fecha_ultima_compra: ultima };
+    const mascota = pets.find((p) => p.id === petId);
+    // Si es comida de una mascota, el nombre puede quedar vacío: se arma solo
+    const nombreFinal = nombre.trim() || (mascota ? `Comida de ${mascota.nombre}` : "");
+    if (!nombreFinal || duracion < 1) return setError("Completa el nombre y los días.");
+    const fila = {
+      household_id: household!.id,
+      nombre: nombreFinal,
+      categoria,
+      duracion_dias: duracion,
+      fecha_ultima_compra: ultima,
+      pet_id: mascota ? mascota.id : null,
+      es_mascotas: mascota ? true : editando ? !!editando.es_mascotas : paraMascotas,
+      marca: mascota && marca.trim() ? marca.trim() : null,
+      tipo_comida: mascota && tipoComida.trim() ? tipoComida.trim() : null,
+    };
     const sb = getSupabase();
     const { data, error } = editando
       ? await sb.from("pantry_products").update(fila).eq("id", editando.id).select().single()
@@ -420,6 +514,47 @@ function PantrySheet({ producto, onClose }: { producto: PantryProduct | "nuevo" 
             ))}
           </select>
         </div>
+        <div>
+          <label className="label" htmlFor="p-mascota">
+            Es comida de
+          </label>
+          <select id="p-mascota" className="input" value={petId} onChange={(e) => setPetId(e.target.value)}>
+            <option value="">Nadie (producto de casa)</option>
+            {pets.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.nombre}
+              </option>
+            ))}
+          </select>
+        </div>
+        {petId && (
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label" htmlFor="p-marca">
+                Marca
+              </label>
+              <input id="p-marca" className="input" value={marca} onChange={(e) => setMarca(e.target.value)} placeholder="Ej. Royal Canin" />
+            </div>
+            <div>
+              <label className="label" htmlFor="p-tipo">
+                Tipo
+              </label>
+              <input
+                id="p-tipo"
+                list="tipos-comida"
+                className="input"
+                value={tipoComida}
+                onChange={(e) => setTipoComida(e.target.value)}
+                placeholder="Concentrado seco"
+              />
+              <datalist id="tipos-comida">
+                <option value="Concentrado seco" />
+                <option value="Concentrado húmedo (lata)" />
+                <option value="Natural (casera)" />
+              </datalist>
+            </div>
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="label" htmlFor="p-dur">
