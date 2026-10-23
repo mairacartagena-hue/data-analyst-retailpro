@@ -84,16 +84,16 @@ export default function RecordarPage() {
         title="Recordar"
         subtitle="Fechas, mascotas y datos de la casa"
         right={
-          <div className="mt-2 flex gap-2">
-            <button className="btn btn-secondary btn-sm" onClick={() => setImportar(true)}>
-              Importar
-            </button>
-            <button className="btn btn-primary btn-sm" onClick={() => setReminderAbierto("nuevo")}>
-              <Plus size={16} /> Nuevo
-            </button>
-          </div>
+          <button className="btn btn-primary btn-sm mt-2" onClick={() => setReminderAbierto("nuevo")}>
+            <Plus size={16} /> Nuevo
+          </button>
         }
       />
+      <div className="mb-4 flex">
+        <button className="btn btn-secondary btn-sm" onClick={() => setImportar(true)}>
+          Importar
+        </button>
+      </div>
       <ImportarRecordar open={importar} onClose={() => setImportar(false)} />
 
       {!ready ? (
@@ -152,7 +152,7 @@ export default function RecordarPage() {
             </ul>
           )}
 
-          <div className="flex items-baseline justify-between">
+          <div className="flex items-center justify-between">
             <h2 className="seccion">Mascotas</h2>
             <button className="btn btn-secondary btn-sm" onClick={() => setPetAbierta(true)}>
               <Plus size={14} /> Mascota
@@ -179,7 +179,7 @@ export default function RecordarPage() {
             </ul>
           )}
 
-          <div className="flex items-baseline justify-between">
+          <div className="flex items-center justify-between">
             <h2 className="seccion">Notas de la casa</h2>
             <button className="btn btn-secondary btn-sm" onClick={() => setNota("nueva")}>
               <Plus size={14} /> Nota
