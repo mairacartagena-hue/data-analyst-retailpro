@@ -10,11 +10,43 @@ export function LoginForm() {
   const params = useSearchParams();
   const router = useRouter();
   const next = params.get("next") || "/";
+  const [modo, setModo] = useState<"clave" | "link">("clave");
+  const [crear, setCrear] = useState(false);
   const [email, setEmail] = useState("");
+  const [clave, setClave] = useState("");
   const [enviado, setEnviado] = useState(false);
   const [codigo, setCodigo] = useState("");
+  const [aviso, setAviso] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(params.get("error") ? "El link venció o ya se usó. Pide uno nuevo." : null);
   const [ocupado, setOcupado] = useState(false);
+
+  function entrar() {
+    router.replace(next);
+    router.refresh();
+  }
+
+  async function conClave(e: React.FormEvent) {
+    e.preventDefault();
+    setOcupado(true);
+    setError(null);
+    setAviso(null);
+    const sb = getSupabase();
+    if (crear) {
+      const { data, error } = await sb.auth.signUp({ email: email.trim(), password: clave });
+      setOcupado(false);
+      if (error) return setError(errMsg(error));
+      if (data.session) return entrar();
+      // Si Supabase pide confirmar el correo, la cuenta existe pero aún no entra
+      setAviso("Cuenta creada. Ahora entra con tu correo y contraseña.");
+      setCrear(false);
+      setClave("");
+      return;
+    }
+    const { error } = await sb.auth.signInWithPassword({ email: email.trim(), password: clave });
+    setOcupado(false);
+    if (error) return setError("Correo o contraseña incorrectos. Si es tu primera vez, toca “Crear cuenta”.");
+    entrar();
+  }
 
   async function enviar(e: React.FormEvent) {
     e.preventDefault();
@@ -36,13 +68,10 @@ export function LoginForm() {
     const { error } = await getSupabase().auth.verifyOtp({ email: email.trim(), token: codigo.trim(), type: "email" });
     setOcupado(false);
     if (error) setError("Ese código no funcionó. Revisa el correo o pide uno nuevo.");
-    else {
-      router.replace(next);
-      router.refresh();
-    }
+    else entrar();
   }
 
-  if (enviado) {
+  if (modo === "link" && enviado) {
     return (
       <div className="card space-y-4">
         <h2 className="titulo text-[26px]">Revisa tu correo</h2>
@@ -75,8 +104,38 @@ export function LoginForm() {
     );
   }
 
+  if (modo === "link") {
+    return (
+      <form onSubmit={enviar} className="card space-y-4">
+        <div>
+          <label className="label" htmlFor="email-link">
+            Tu correo
+          </label>
+          <input
+            id="email-link"
+            type="email"
+            required
+            autoComplete="email"
+            className="input"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="tu@correo.com"
+          />
+        </div>
+        <button className="btn btn-primary w-full" disabled={ocupado}>
+          <Mail size={18} /> {ocupado ? "Enviando..." : "Enviarme el link para entrar"}
+        </button>
+        <ErrorText>{error}</ErrorText>
+        <button className="text-sm font-semibold text-accion underline" onClick={() => setModo("clave")}>
+          Entrar con contraseña
+        </button>
+      </form>
+    );
+  }
+
   return (
-    <form onSubmit={enviar} className="card space-y-4">
+    <form onSubmit={conClave} className="card space-y-4">
+      <h2 className="titulo text-[24px]">{crear ? "Crear cuenta" : "Entrar"}</h2>
       <div>
         <label className="label" htmlFor="email">
           Tu correo
@@ -92,11 +151,41 @@ export function LoginForm() {
           placeholder="tu@correo.com"
         />
       </div>
+      <div>
+        <label className="label" htmlFor="clave">
+          Contraseña
+        </label>
+        <input
+          id="clave"
+          type="password"
+          required
+          minLength={6}
+          autoComplete={crear ? "new-password" : "current-password"}
+          className="input"
+          value={clave}
+          onChange={(e) => setClave(e.target.value)}
+          placeholder="Mínimo 6 caracteres"
+        />
+      </div>
       <button className="btn btn-primary w-full" disabled={ocupado}>
-        <Mail size={18} /> {ocupado ? "Enviando..." : "Enviarme el link para entrar"}
+        {ocupado ? "Un momento..." : crear ? "Crear cuenta" : "Entrar"}
       </button>
-      <p className="text-xs text-sec">Sin contraseñas: te llega un link mágico al correo y la sesión queda guardada.</p>
+      <button
+        type="button"
+        className="w-full text-sm font-semibold text-accion underline"
+        onClick={() => {
+          setCrear(!crear);
+          setError(null);
+          setAviso(null);
+        }}
+      >
+        {crear ? "Ya tengo cuenta" : "Es mi primera vez: crear cuenta"}
+      </button>
+      {aviso && <p className="text-sm text-sec">{aviso}</p>}
       <ErrorText>{error}</ErrorText>
+      <button type="button" className="w-full text-xs text-sec underline" onClick={() => setModo("link")}>
+        Prefiero recibir un link al correo
+      </button>
     </form>
   );
 }
