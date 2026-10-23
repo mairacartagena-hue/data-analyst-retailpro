@@ -3,8 +3,8 @@ export type Frecuencia = "diaria" | "semanal" | "quincenal" | "mensual";
 export type Modo = "fija" | "rota" | "juntos";
 export type Categoria = "Abarrotes" | "Frutas y verduras" | "Carnes" | "Lácteos" | "Aseo" | "Otros";
 export const CATEGORIAS: Categoria[] = ["Abarrotes", "Frutas y verduras", "Carnes", "Lácteos", "Aseo", "Otros"];
-export type NombreLista = "Mercado" | "Droguería" | "Para la casa";
-export const LISTAS: NombreLista[] = ["Mercado", "Droguería", "Para la casa"];
+export type NombreLista = "Mercado" | "Droguería" | "Para la casa" | "Mascotas";
+export const LISTAS: NombreLista[] = ["Mercado", "Droguería", "Para la casa", "Mascotas"];
 
 export interface Household {
   id: string;
@@ -106,6 +106,7 @@ export interface PantryProduct {
   duracion_dias: number;
   fecha_ultima_compra: string;
   pet_id?: string | null;
+  es_mascotas?: boolean;
   marca?: string | null;
   tipo_comida?: string | null;
 }
