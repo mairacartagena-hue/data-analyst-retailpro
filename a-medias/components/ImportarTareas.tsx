@@ -49,7 +49,9 @@ export function ImportarTareas({ open, onClose }: { open: boolean; onClose: () =
 
     const faltan = ENCABEZADOS.filter((h) => h !== "dias" && h !== "hora" && h !== "fecha_inicio" && !encabezados.includes(h));
     if (faltan.length > 0) {
-      setError(`Al archivo le faltan columnas: ${faltan.join(", ")}. Usa la plantilla.`);
+      setError(
+        `Al archivo le faltan columnas: ${faltan.join(", ")}. La app leyó estos encabezados: ${encabezados.join(" | ") || "(ninguno)"}`,
+      );
       return;
     }
 
