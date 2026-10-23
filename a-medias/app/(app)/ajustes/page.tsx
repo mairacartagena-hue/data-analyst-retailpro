@@ -8,6 +8,7 @@ import { useHousehold } from "@/components/HouseholdProvider";
 import { InstallButton } from "@/components/InstallButton";
 import { PushButton } from "@/components/PushButton";
 import { ErrorText, PageHeader, errMsg } from "@/components/ui";
+import { ExportarDatos } from "@/components/ExportarDatos";
 import { Loading } from "@/components/Loading";
 import { getSupabase } from "@/lib/supabase/client";
 import type { Color, Member } from "@/lib/types";
@@ -130,6 +131,11 @@ export default function AjustesPage() {
       <h2 className="seccion">App</h2>
       <section className="card">
         <InstallButton className="w-full" />
+      </section>
+
+      <h2 className="seccion">Respaldo</h2>
+      <section className="card">
+        <ExportarDatos />
       </section>
 
       <ErrorText>{error}</ErrorText>
