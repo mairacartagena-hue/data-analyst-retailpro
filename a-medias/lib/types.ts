@@ -114,6 +114,7 @@ export interface ShoppingItem {
   es_automatico: boolean;
   pantry_product_id: string | null;
   duracion_dias?: number | null;
+  pet_id?: string | null;
   created_at: string;
 }
 

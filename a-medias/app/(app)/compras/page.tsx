@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { useHousehold } from "@/components/HouseholdProvider";
+import { ImportarCompras } from "@/components/ImportarCompras";
 import { PantryCards, diasTexto, usePantrySoon } from "@/components/PantrySoon";
 import { Avatar, Checkbox, Empty, ErrorText, PageHeader, Pills, Sheet, errMsg } from "@/components/ui";
 import { Loading } from "@/components/Loading";
@@ -20,6 +21,7 @@ export default function ComprasPage() {
   const [duracion, setDuracion] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [producto, setProducto] = useState<PantryProduct | "nuevo" | null>(null);
+  const [importar, setImportar] = useState(false);
   const pronto = usePantrySoon();
   const categoriasActivas = activa === "Mascotas" ? CATEGORIAS_MASCOTAS : CATEGORIAS;
 
@@ -86,6 +88,7 @@ export default function ComprasPage() {
             duracion_dias: i.duracion_dias,
             fecha_ultima_compra: hoy,
             es_mascotas: esMascotas,
+            pet_id: i.pet_id ?? null,
           })
           .select()
           .single();
@@ -174,7 +177,16 @@ export default function ComprasPage() {
 
   return (
     <>
-      <PageHeader title="Compras" subtitle="Lo que hay que traer" />
+      <PageHeader
+        title="Compras"
+        subtitle="Lo que hay que traer"
+        right={
+          <button className="btn btn-secondary btn-sm mt-1" onClick={() => setImportar(true)}>
+            Importar
+          </button>
+        }
+      />
+      <ImportarCompras open={importar} onClose={() => setImportar(false)} />
       <Pills<NombreLista> options={LISTAS.map((l) => ({ value: l, label: l }))} value={activa} onChange={setActiva} />
 
       {!ready ? (
