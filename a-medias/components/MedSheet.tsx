@@ -32,7 +32,7 @@ export function MedSheet({
   petId?: string;
   task?: Task | null;
 }) {
-  const { members, me, household, pets, optimisticRemove } = useHousehold();
+  const { members, me, household, pets, optimisticRemove, reload } = useHousehold();
   const editando = !!task;
 
   const [mascota, setMascota] = useState("");
@@ -122,6 +122,8 @@ export function MedSheet({
     const { error } = task ? await sb.from("tasks").update(fila).eq("id", task.id) : await sb.from("tasks").insert(fila);
     setOcupado(false);
     if (error) return setError(errMsg(error));
+    // Las tomas se crean en la base: se vuelve a cargar para que aparezcan ya
+    reload();
     onClose();
   }
 

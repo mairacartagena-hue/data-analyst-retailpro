@@ -17,7 +17,7 @@ const FRECUENCIAS: { value: Frecuencia; label: string }[] = [
 ];
 
 export function TaskSheet({ open, onClose, task }: { open: boolean; onClose: () => void; task?: Task | null }) {
-  const { members, me, household, pets, memberById, optimisticRemove } = useHousehold();
+  const { members, me, household, pets, memberById, optimisticRemove, reload } = useHousehold();
   const editando = !!task;
 
   const [titulo, setTitulo] = useState("");
@@ -101,6 +101,8 @@ export function TaskSheet({ open, onClose, task }: { open: boolean; onClose: () 
       : await sb.from("tasks").insert(fila);
     setOcupado(false);
     if (error) return setError(errMsg(error));
+    // Los turnos se crean en la base: se vuelve a cargar para que aparezcan ya
+    reload();
     onClose();
   }
 
