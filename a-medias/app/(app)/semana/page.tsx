@@ -4,7 +4,7 @@ import { useState } from "react";
 import { ChevronLeft, ChevronRight, Lightbulb } from "lucide-react";
 import { useHousehold } from "@/components/HouseholdProvider";
 import { sortOccurrences } from "@/components/OccurrenceRow";
-import { ErrorText, PageHeader, errMsg, personColors } from "@/components/ui";
+import { ErrorText, PageHeader, Pills, errMsg, personColors } from "@/components/ui";
 import { Loading } from "@/components/Loading";
 import { getSupabase } from "@/lib/supabase/client";
 import { addDays, dayNum, formatHora, formatShort, mondayOf, monthShort, todayStr, weekDays, weekdayName, weekdayShort } from "@/lib/dates";
@@ -15,6 +15,7 @@ export default function SemanaPage() {
   const hoy = todayStr();
   const [lunes, setLunes] = useState(mondayOf(hoy));
   const [error, setError] = useState<string | null>(null);
+  const [persona, setPersona] = useState<string>("todas");
   const dias = weekDays(lunes);
   const activas = new Map(tasks.filter((t) => t.activa || t.tipo === "medicamento").map((t) => [t.id, t]));
   const semana = occurrences.filter((o) => o.fecha >= dias[0] && o.fecha <= dias[6] && activas.has(o.task_id));
@@ -63,6 +64,13 @@ export default function SemanaPage() {
         </button>
       </div>
 
+      <Pills<string>
+        className="mb-4"
+        options={[{ value: "todas", label: "Todas" }, ...members.map((m) => ({ value: m.id, label: m.nombre }))]}
+        value={persona}
+        onChange={setPersona}
+      />
+
       {sugerencia && (
         <section className="card mb-4 bg-rosa-claro!">
           <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-sec">
@@ -92,7 +100,7 @@ export default function SemanaPage() {
         <div className="card p-0!">
           {dias.map((d) => {
             const delDia = sortOccurrences(
-              semana.filter((o) => o.fecha === d),
+              semana.filter((o) => o.fecha === d && (persona === "todas" || o.responsable_id === persona)),
               tasks,
             );
             const esHoy = d === hoy;
@@ -118,7 +126,7 @@ export default function SemanaPage() {
                         key={o.id}
                         className={`inline-flex max-w-full items-center rounded-full border-2 border-vino px-2.5 py-1 text-[12px] font-medium ${
                           m ? personColors(m) : "bg-crema text-vino"
-                        } ${o.completada ? "line-through opacity-60" : ""}`}
+                        } ${o.completada ? "line-through opacity-60" : ""} ${o.omitida ? "opacity-40" : ""}`}
                         title={m ? m.nombre : "Juntos"}
                       >
                         <span className="truncate">

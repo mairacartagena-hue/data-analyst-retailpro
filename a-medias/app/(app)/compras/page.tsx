@@ -9,14 +9,15 @@ import { Loading } from "@/components/Loading";
 import { getSupabase } from "@/lib/supabase/client";
 import { todayStr } from "@/lib/dates";
 import { pantryDaysLeft } from "@/lib/logic";
-import { CATEGORIAS, LISTAS, type Categoria, type NombreLista, type PantryProduct, type ShoppingItem } from "@/lib/types";
+import { CATEGORIAS, LISTAS, type Categoria, type NombreLista, type PantryProduct, type ShoppingItem, type ShoppingList, type Task } from "@/lib/types";
 
 export default function ComprasPage() {
-  const { ready, lists, items, me, members, memberById, optimistic, optimisticRemove, pantry } = useHousehold();
+  const { ready, household, lists, items, me, members, memberById, optimistic, optimisticRemove, pantry, tasks } = useHousehold();
   const [activa, setActiva] = useState<NombreLista>("Mercado");
   const [nombre, setNombre] = useState("");
   const [cantidad, setCantidad] = useState("");
   const [categoria, setCategoria] = useState<Categoria>("Abarrotes");
+  const [duracion, setDuracion] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [producto, setProducto] = useState<PantryProduct | "nuevo" | null>(null);
   const pronto = usePantrySoon();
@@ -36,17 +37,65 @@ export default function ComprasPage() {
       cantidad: cantidad.trim() || null,
       categoria: activa === "Droguería" ? ("Otros" as Categoria) : categoria,
       pedido_por: me?.id ?? null,
+      duracion_dias: duracion.trim() ? Math.max(1, parseInt(duracion, 10) || 1) : null,
     };
     setNombre("");
     setCantidad("");
-    const { error } = await getSupabase().from("shopping_items").insert(fila);
-    if (error) setError(errMsg(error));
+    setDuracion("");
+    const { data, error } = await getSupabase().from("shopping_items").insert(fila).select().single();
+    if (error) return setError(errMsg(error));
+    if (data) optimistic("items", data as ShoppingItem);
   }
 
   async function toggle(i: ShoppingItem) {
+    // Con duración: al comprarlo pasa a la Despensa y empieza a contar desde hoy
+    if (!i.comprado && i.duracion_dias && !i.pantry_product_id) {
+      return comprarADespensa(i);
+    }
     optimistic("items", { ...i, comprado: !i.comprado });
     const { error } = await getSupabase().from("shopping_items").update({ comprado: !i.comprado }).eq("id", i.id);
     if (error) optimistic("items", { ...i });
+  }
+
+  async function comprarADespensa(i: ShoppingItem) {
+    const sb = getSupabase();
+    const hoy = todayStr();
+    optimistic("items", { ...i, comprado: true });
+    const existente = pantry.find((p) => p.nombre.trim().toLowerCase() === i.nombre.trim().toLowerCase());
+    const { data: prod, error: errProd } = existente
+      ? await sb
+          .from("pantry_products")
+          .update({ duracion_dias: i.duracion_dias, fecha_ultima_compra: hoy })
+          .eq("id", existente.id)
+          .select()
+          .single()
+      : await sb
+          .from("pantry_products")
+          .insert({
+            household_id: i.household_id,
+            nombre: i.nombre,
+            categoria: i.categoria,
+            duracion_dias: i.duracion_dias,
+            fecha_ultima_compra: hoy,
+          })
+          .select()
+          .single();
+    if (errProd || !prod) {
+      optimistic("items", { ...i });
+      return setError(errProd ? errMsg(errProd) : "No pudimos pasar el producto a la Despensa.");
+    }
+    optimistic("pantry", prod as PantryProduct);
+    const { data: it, error } = await sb
+      .from("shopping_items")
+      .update({ comprado: true, pantry_product_id: (prod as PantryProduct).id })
+      .eq("id", i.id)
+      .select()
+      .single();
+    if (error) {
+      optimistic("items", { ...i });
+      return setError(errMsg(error));
+    }
+    if (it) optimistic("items", it as ShoppingItem);
   }
 
   async function borrarComprados() {
@@ -60,10 +109,56 @@ export default function ComprasPage() {
     await getSupabase().from("shopping_items").delete().eq("id", i.id);
   }
 
-  async function actualizarLista(campos: { quien_va?: string | null; fecha?: string | null }) {
-    if (!lista) return;
-    optimistic("lists", { ...lista, ...campos });
-    await getSupabase().from("shopping_lists").update(campos).eq("id", lista.id);
+  async function actualizarLista(campos: Partial<Pick<ShoppingList, "quien_va" | "va_juntos" | "fecha">>) {
+    if (!lista || !household) return;
+    const nueva: ShoppingList = { ...lista, ...campos };
+    optimistic("lists", nueva);
+    const { error } = await getSupabase().from("shopping_lists").update(campos).eq("id", lista.id);
+    if (error) return setError(errMsg(error));
+    await sincronizarTarea(nueva);
+  }
+
+  /** Quién va + fecha = una tarea en Tareas ("Ir a comprar: Mercado"). Sin alguno de los dos, no hay tarea. */
+  async function sincronizarTarea(l: ShoppingList) {
+    if (!household) return;
+    const sb = getSupabase();
+    const quien = l.va_juntos || !!l.quien_va;
+    const titulo = `Ir a comprar: ${l.nombre}`;
+
+    if (l.fecha && quien) {
+      const fila = {
+        household_id: household.id,
+        titulo,
+        tipo: "tarea" as const,
+        frecuencia: "diaria" as const,
+        modo: l.va_juntos ? ("juntos" as const) : ("fija" as const),
+        responsable_fijo: l.va_juntos ? null : l.quien_va,
+        fecha_inicio: l.fecha,
+        fecha_fin: l.fecha,
+        hora_recordatorio: "08:00",
+        activa: true,
+      };
+      if (l.tarea_id) {
+        const { data, error } = await sb.from("tasks").update(fila).eq("id", l.tarea_id).select().single();
+        if (error) return setError(errMsg(error));
+        if (data) optimistic("tasks", data as Task);
+      } else {
+        const { data, error } = await sb.from("tasks").insert(fila).select().single();
+        if (error || !data) return setError(error ? errMsg(error) : "No pudimos crear la tarea.");
+        optimistic("tasks", data as Task);
+        await sb.from("shopping_lists").update({ tarea_id: (data as Task).id }).eq("id", l.id);
+        optimistic("lists", { ...l, tarea_id: (data as Task).id });
+      }
+    } else if (l.tarea_id) {
+      await sb.from("tasks").update({ activa: false }).eq("id", l.tarea_id);
+      optimistic("tasks", { ...(tasks.find((t) => t.id === l.tarea_id) as Task), activa: false });
+    }
+  }
+
+  /** Valor del selector: "" sin definir, "juntos" o el id de la persona */
+  function cambiarVa(valor: string) {
+    if (valor === "juntos") return actualizarLista({ quien_va: null, va_juntos: true });
+    return actualizarLista({ quien_va: valor || null, va_juntos: false });
   }
 
   const categorias = CATEGORIAS.filter((c) => pendientes.some((i) => i.categoria === c));
@@ -84,16 +179,21 @@ export default function ComprasPage() {
               <span className="text-sec">Va:</span>
               <select
                 className="input w-auto! py-1.5!"
-                value={lista.quien_va ?? ""}
-                onChange={(e) => actualizarLista({ quien_va: e.target.value || null })}
+                value={lista.va_juntos ? "juntos" : lista.quien_va ?? ""}
+                onChange={(e) => cambiarVa(e.target.value)}
                 aria-label="Quién va"
               >
-                <option value="">Sin definir</option>
+                {!lista.quien_va && !lista.va_juntos && (
+                  <option value="" disabled>
+                    Quién va
+                  </option>
+                )}
                 {members.map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.nombre}
                   </option>
                 ))}
+                <option value="juntos">Los dos</option>
               </select>
               <input
                 type="date"
@@ -122,6 +222,18 @@ export default function ComprasPage() {
                 aria-label="Producto"
               />
               <input className="input w-20!" value={cantidad} onChange={(e) => setCantidad(e.target.value)} placeholder="Cant." aria-label="Cantidad" />
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="number"
+                min={1}
+                inputMode="numeric"
+                className="input flex-1"
+                value={duracion}
+                onChange={(e) => setDuracion(e.target.value)}
+                placeholder="Días que dura (opcional)"
+                aria-label="Días que dura"
+              />
             </div>
             <div className="flex gap-2">
               {activa !== "Droguería" && (
@@ -252,7 +364,7 @@ function ItemRow({
 }
 
 function PantrySheet({ producto, onClose }: { producto: PantryProduct | "nuevo" | null; onClose: () => void }) {
-  const { household, optimisticRemove } = useHousehold();
+  const { household, optimistic, optimisticRemove } = useHousehold();
   const [nombre, setNombre] = useState("");
   const [categoria, setCategoria] = useState<Categoria>("Abarrotes");
   const [duracion, setDuracion] = useState(30);
@@ -274,10 +386,11 @@ function PantrySheet({ producto, onClose }: { producto: PantryProduct | "nuevo" 
     if (!nombre.trim() || duracion < 1) return setError("Completa el nombre y los días.");
     const fila = { household_id: household!.id, nombre: nombre.trim(), categoria, duracion_dias: duracion, fecha_ultima_compra: ultima };
     const sb = getSupabase();
-    const { error } = editando
-      ? await sb.from("pantry_products").update(fila).eq("id", editando.id)
-      : await sb.from("pantry_products").insert(fila);
+    const { data, error } = editando
+      ? await sb.from("pantry_products").update(fila).eq("id", editando.id).select().single()
+      : await sb.from("pantry_products").insert(fila).select().single();
     if (error) return setError(errMsg(error));
+    if (data) optimistic("pantry", data as PantryProduct);
     onClose();
   }
 

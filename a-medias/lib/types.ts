@@ -57,6 +57,19 @@ export interface Occurrence {
   completada: boolean;
   completada_por: string | null;
   completada_en: string | null;
+  omitida?: boolean;
+}
+
+export interface PetDocument {
+  id: string;
+  household_id: string;
+  pet_id: string;
+  titulo: string;
+  fecha: string;
+  tipo: "pdf" | "imagen";
+  ruta: string;
+  tamano: number;
+  created_at: string;
 }
 
 export interface ShoppingList {
@@ -64,6 +77,8 @@ export interface ShoppingList {
   household_id: string;
   nombre: NombreLista;
   quien_va: string | null;
+  va_juntos?: boolean;
+  tarea_id?: string | null;
   fecha: string | null;
 }
 
@@ -79,6 +94,7 @@ export interface ShoppingItem {
   comprado_en: string | null;
   es_automatico: boolean;
   pantry_product_id: string | null;
+  duracion_dias?: number | null;
   created_at: string;
 }
 

@@ -23,6 +23,7 @@ export async function POST() {
   const { data: subs } = await admin.from("push_subscriptions").select("id, endpoint, keys").eq("user_id", user.id);
 
   let enviadas = 0;
+  const codigos: number[] = [];
   const vencidas: string[] = [];
   await Promise.all(
     (subs ?? []).map(async (s) => {
@@ -33,13 +34,19 @@ export async function POST() {
         );
         enviadas++;
       } catch (e) {
-        const status = (e as { statusCode?: number }).statusCode;
+        const status = (e as { statusCode?: number }).statusCode ?? 0;
+        codigos.push(status);
         if (status === 404 || status === 410) vencidas.push(s.id);
       }
     }),
   );
   if (vencidas.length) await admin.from("push_subscriptions").delete().in("id", vencidas);
 
-  if (!enviadas) return NextResponse.json({ error: "No hay suscripciones activas en este celular. Actívalas de nuevo." }, { status: 404 });
+  if (!enviadas) {
+    const error = !subs?.length
+      ? "No hay suscripciones activas en este celular. Actívalas de nuevo."
+      : `El servicio de notificaciones rechazó el envío (código ${codigos[0] ?? "desconocido"}). Toca "Reactivar" y prueba otra vez.`;
+    return NextResponse.json({ error }, { status: 404 });
+  }
   return NextResponse.json({ enviadas });
 }

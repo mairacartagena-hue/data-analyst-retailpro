@@ -28,7 +28,9 @@ Deno.serve(async (req) => {
 
   const { data: due, error } = await db.rpc("due_notifications");
   if (error) return Response.json({ error: error.message }, { status: 500 });
-  const pendientes = (due ?? []) as Due[];
+  const { data: resumen, error: errResumen } = await db.rpc("due_resumen_pendientes");
+  if (errResumen) return Response.json({ error: errResumen.message }, { status: 500 });
+  const pendientes = [...((due ?? []) as Due[]), ...((resumen ?? []) as Due[])];
   if (pendientes.length === 0) return Response.json({ enviadas: 0 });
 
   // Reclamar cada aviso en push_log; solo se envía lo que se insertó ahora
