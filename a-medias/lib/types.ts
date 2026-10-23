@@ -64,6 +64,8 @@ export interface ShoppingList {
   household_id: string;
   nombre: NombreLista;
   quien_va: string | null;
+  va_juntos?: boolean;
+  tarea_id?: string | null;
   fecha: string | null;
 }
 

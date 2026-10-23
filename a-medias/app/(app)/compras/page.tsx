@@ -9,10 +9,10 @@ import { Loading } from "@/components/Loading";
 import { getSupabase } from "@/lib/supabase/client";
 import { todayStr } from "@/lib/dates";
 import { pantryDaysLeft } from "@/lib/logic";
-import { CATEGORIAS, LISTAS, type Categoria, type NombreLista, type PantryProduct, type ShoppingItem } from "@/lib/types";
+import { CATEGORIAS, LISTAS, type Categoria, type NombreLista, type PantryProduct, type ShoppingItem, type ShoppingList, type Task } from "@/lib/types";
 
 export default function ComprasPage() {
-  const { ready, lists, items, me, members, memberById, optimistic, optimisticRemove, pantry } = useHousehold();
+  const { ready, household, lists, items, me, members, memberById, optimistic, optimisticRemove, pantry, tasks } = useHousehold();
   const [activa, setActiva] = useState<NombreLista>("Mercado");
   const [nombre, setNombre] = useState("");
   const [cantidad, setCantidad] = useState("");
@@ -109,10 +109,56 @@ export default function ComprasPage() {
     await getSupabase().from("shopping_items").delete().eq("id", i.id);
   }
 
-  async function actualizarLista(campos: { quien_va?: string | null; fecha?: string | null }) {
-    if (!lista) return;
-    optimistic("lists", { ...lista, ...campos });
-    await getSupabase().from("shopping_lists").update(campos).eq("id", lista.id);
+  async function actualizarLista(campos: Partial<Pick<ShoppingList, "quien_va" | "va_juntos" | "fecha">>) {
+    if (!lista || !household) return;
+    const nueva: ShoppingList = { ...lista, ...campos };
+    optimistic("lists", nueva);
+    const { error } = await getSupabase().from("shopping_lists").update(campos).eq("id", lista.id);
+    if (error) return setError(errMsg(error));
+    await sincronizarTarea(nueva);
+  }
+
+  /** Quién va + fecha = una tarea en Tareas ("Ir a comprar: Mercado"). Sin alguno de los dos, no hay tarea. */
+  async function sincronizarTarea(l: ShoppingList) {
+    if (!household) return;
+    const sb = getSupabase();
+    const quien = l.va_juntos || !!l.quien_va;
+    const titulo = `Ir a comprar: ${l.nombre}`;
+
+    if (l.fecha && quien) {
+      const fila = {
+        household_id: household.id,
+        titulo,
+        tipo: "tarea" as const,
+        frecuencia: "diaria" as const,
+        modo: l.va_juntos ? ("juntos" as const) : ("fija" as const),
+        responsable_fijo: l.va_juntos ? null : l.quien_va,
+        fecha_inicio: l.fecha,
+        fecha_fin: l.fecha,
+        hora_recordatorio: "08:00",
+        activa: true,
+      };
+      if (l.tarea_id) {
+        const { data, error } = await sb.from("tasks").update(fila).eq("id", l.tarea_id).select().single();
+        if (error) return setError(errMsg(error));
+        if (data) optimistic("tasks", data as Task);
+      } else {
+        const { data, error } = await sb.from("tasks").insert(fila).select().single();
+        if (error || !data) return setError(error ? errMsg(error) : "No pudimos crear la tarea.");
+        optimistic("tasks", data as Task);
+        await sb.from("shopping_lists").update({ tarea_id: (data as Task).id }).eq("id", l.id);
+        optimistic("lists", { ...l, tarea_id: (data as Task).id });
+      }
+    } else if (l.tarea_id) {
+      await sb.from("tasks").update({ activa: false }).eq("id", l.tarea_id);
+      optimistic("tasks", { ...(tasks.find((t) => t.id === l.tarea_id) as Task), activa: false });
+    }
+  }
+
+  /** Valor del selector: "" sin definir, "juntos" o el id de la persona */
+  function cambiarVa(valor: string) {
+    if (valor === "juntos") return actualizarLista({ quien_va: null, va_juntos: true });
+    return actualizarLista({ quien_va: valor || null, va_juntos: false });
   }
 
   const categorias = CATEGORIAS.filter((c) => pendientes.some((i) => i.categoria === c));
@@ -133,8 +179,8 @@ export default function ComprasPage() {
               <span className="text-sec">Va:</span>
               <select
                 className="input w-auto! py-1.5!"
-                value={lista.quien_va ?? ""}
-                onChange={(e) => actualizarLista({ quien_va: e.target.value || null })}
+                value={lista.va_juntos ? "juntos" : lista.quien_va ?? ""}
+                onChange={(e) => cambiarVa(e.target.value)}
                 aria-label="Quién va"
               >
                 <option value="">Sin definir</option>
@@ -143,6 +189,7 @@ export default function ComprasPage() {
                     {m.nombre}
                   </option>
                 ))}
+                <option value="juntos">Los dos</option>
               </select>
               <input
                 type="date"

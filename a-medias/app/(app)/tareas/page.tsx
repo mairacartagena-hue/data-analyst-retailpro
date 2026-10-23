@@ -47,7 +47,7 @@ export default function TareasPage() {
   }
 
   const visibles = tasks
-    .filter((t) => t.activa)
+    .filter((t) => t.activa && (!t.fecha_fin || t.fecha_fin >= todayStr()))
     .filter((t) => {
       switch (filtro) {
         case "mias":
