@@ -2,23 +2,30 @@
 
 Proyecto de Supabase: **A-medias** (`qrciymjmmpfremtjaiof`, región us-east-1)
 Proyecto de Vercel: **a-medias** (dominio: `https://a-medias-eight.vercel.app`)
-Rama de producción: `main` (la app se unió a `main` por PR #3 y #4)
+Rama de producción: `main`
 
-## Estado
+## Estado de la configuración
 
 **Hecho**
-- Base de datos completa: tablas, reglas de acceso (RLS), funciones, Realtime y los dos trabajos programados (pg_cron): el diario a las 00:05 y el de notificaciones cada 5 minutos.
-- Edge Function `send-push` publicada (versión 3) con sus secretos VAPID y `PUSH_CRON_SECRET`.
-- Login con magic link y redirecciones configuradas para el dominio de Vercel.
-- App publicada en Vercel desde la rama de producción, con las variables de entorno.
+- Base de datos: tablas, reglas de acceso (RLS), funciones, Realtime y dos trabajos programados (pg_cron): el diario (00:05) y el de notificaciones (cada 5 minutos, incluido el resumen de las 21:00).
+- Migraciones `0001` a `0018` aplicadas. La `0011` ya quitó la tabla de documentos de mascotas.
+- Esquema viejo `old_demo` eliminado.
+- Bucket `mascotas-docs` eliminado.
+- Edge Function `send-push` publicada, con sus secretos VAPID y `PUSH_CRON_SECRET`.
 - Seguridad: permisos de funciones internas quitados y `search_path` fijado (migración `0013`).
-- Documentos de mascotas: quitados de la app. La migración `0011` borra lo que queda en la base.
+- Login con correo y contraseña. La opción de link al correo queda como alternativa.
+- Confirmación de correo desactivada en Supabase, para que las cuentas nuevas entren sin confirmar.
+- Correo de Supabase: Resend desactivado (o pendiente de confirmar por la persona que lo revisa).
+- App en Vercel desde `main`, con variables de entorno.
 
-**Pendiente (lo hace una persona)**
-- [ ] Correr `supabase/migrations/0011_quitar_documentos_mascotas.sql` en el SQL Editor (borra la tabla y el espacio de archivos vacíos de documentos de mascotas).
-- [ ] Activar **Authentication → Providers → Email → Leaked password protection** (aviso de seguridad de Supabase).
-- [ ] Borrar el esquema viejo cuando ya no haga falta: `drop schema old_demo cascade;` (datos de prueba anteriores).
-- [x] Rama de producción en Vercel: `main`.
+**Avisos de seguridad que quedan (aceptados)**
+- `push_log` tiene RLS sin políticas: es intencional, solo lo usa el servidor.
+- `pg_net` está en el esquema `public`: riesgo bajo; moverlo podría romper los avisos automáticos.
+- Funciones `SECURITY DEFINER` llamables por usuarios: son las que usa la app (crear hogar, unirse, cambiar turno, etc.). `is_member` la necesitan las reglas de acceso.
+- Protección de contraseñas filtradas: solo está disponible en el plan Pro.
+
+**Pendiente**
+- [ ] Revisar que el correo de Supabase (interno) entregue el link a otras direcciones. Si no, usar siempre la contraseña.
 
 ## Pruebas
 
@@ -26,26 +33,34 @@ Rama de producción: `main` (la app se unió a `main` por PR #3 y #4)
 |---|---|
 | Hoy: marcar tareas y quién las hizo | OK |
 | Tareas: crear, filtros, mascotas, cambiar responsable | OK |
+| Tareas y medicamentos recién creados aparecen sin refrescar | OK |
 | Compras: "Va:" con persona, "Los dos" y tarea con la fecha | OK |
 | Compras: duración y paso a Despensa | OK |
+| Compras: comida natural (lista Mascotas) con mascota | Por validar |
 | Semana: filtro por persona y sugerencias de mover | OK |
 | Recordar: recordatorios | OK |
 | Notificaciones | OK |
 | Cambiar el color de una persona | OK |
-| Tareas y medicamentos recién creados aparecen sin refrescar | OK |
 | Regenerar el código de invitación | OK |
 | Pendientes de antes: "No se hizo" y "Deshacer" | Por validar |
 | Tomas de medicamento: terminar el tratamiento | Por validar |
 | Resumen de las 21:00 | Por validar |
+| Importar tareas (CSV, vista previa y actualización) | Por validar |
+| Importar compras (despensa y lista de compras) | Por validar |
+| Importar recordar (recordatorios, mascotas y vacunas, notas) | Por validar |
+| Plantilla CSV abierta en Google Sheets (sin caracteres raros) | Por validar |
+| Exportar todo (ZIP) y abrirlo en Google Sheets | Por validar |
+| Login con correo y contraseña: crear cuenta y entrar | Por validar |
+| Definir contraseña desde Ajustes para una cuenta sin contraseña | Por validar |
+| Link al correo para una cuenta nueva | Pendiente (depende del correo de Supabase) |
 | Dos personas: lo que hace una aparece en el otro celular | Pendiente |
 | Salir del hogar y volver a entrar | Pendiente |
 | Unirse a un hogar con el código o el link | Pendiente |
-| Magic link y código de 6 dígitos | Pendiente |
 | Lentitud al cambiar de hoja | Mejorada: la primera vez tarda, luego va bien |
 
 ## Piezas del sistema
 
-- **Migraciones** (`supabase/migrations/`): `0001` a `0013`, en orden. Las `0001` a `0007` están juntas en `supabase/sql_por_partes/` para pegarlas en el SQL Editor.
+- **Migraciones** (`supabase/migrations/`): `0001` a `0018`, en orden. Las `0001` a `0007` están juntas en `supabase/sql_por_partes/` para pegarlas en el SQL Editor.
 - **Datos de ejemplo:** `supabase/seed_sin_comentarios.sql`. Cambia el correo en la línea 3 antes de correrlo. Borra el hogar de esas dos cuentas.
 - **Edge Function:** `supabase/functions/send-push/`. La llama pg_cron cada 5 minutos con el header `x-cron-secret`.
 - **Claves VAPID:** no están en el repositorio. Están en el archivo `claves_vapid.txt` que se envió en el chat. Si se pierden, hay que generar otras, actualizarlas en Supabase y en Vercel, y las notificaciones activadas dejan de funcionar hasta reactivarlas en la app.
