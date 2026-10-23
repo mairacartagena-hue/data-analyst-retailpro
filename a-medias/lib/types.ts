@@ -107,6 +107,8 @@ export interface PantryProduct {
   fecha_ultima_compra: string;
   pet_id?: string | null;
   es_mascotas?: boolean;
+  responsable_id?: string | null;
+  rota?: boolean;
   marca?: string | null;
   tipo_comida?: string | null;
 }
