@@ -25,7 +25,7 @@ export default function HoyPage() {
     tasks,
   );
   const pendientesAntes = sortOccurrences(
-    occurrences.filter((o) => o.fecha < hoy && !o.completada && !o.omitida && activas.has(o.task_id) && deDePersona(o)),
+    occurrences.filter((o) => o.fecha < hoy && !o.completada && activas.has(o.task_id) && deDePersona(o)),
     tasks,
   );
   const hechas = deHoy.filter((o) => o.completada).length;
