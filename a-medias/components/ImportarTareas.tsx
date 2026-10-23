@@ -12,8 +12,8 @@ const ENCABEZADOS = ["titulo", "frecuencia", "dias", "responsable", "hora", "fec
 const EJEMPLOS = [
   ["Lavar los platos de la noche", "diaria", "", "Rotar", "21:00", "25/10/2026"],
   ["Sacar la basura y reciclaje", "semanal", "lun;jue", "Rotar", "20:00", "26/10/2026"],
-  ["Limpiar el baño a fondo", "semanal", "sab", "Ari", "", "31/10/2026"],
-  ["Pagar administración", "mensual", "", "Los dos", "09:00", "05/11/2026"],
+  ["Limpiar el bano a fondo", "semanal", "sab", "Ari", "", "31/10/2026"],
+  ["Pagar administracion", "mensual", "", "Los dos", "09:00", "05/11/2026"],
 ];
 const FRECUENCIAS: Frecuencia[] = ["diaria", "semanal", "quincenal", "mensual"];
 const DIAS: Record<string, number> = { lun: 1, mar: 2, mie: 3, jue: 4, vie: 5, sab: 6, dom: 7 };
@@ -31,7 +31,7 @@ export function ImportarTareas({ open, onClose }: { open: boolean; onClose: () =
 
   function descargar() {
     const texto = plantillaCsv(ENCABEZADOS, EJEMPLOS);
-    const blob = new Blob(["﻿" + texto], { type: "text/csv;charset=utf-8" });
+    const blob = new Blob([texto], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -49,7 +49,9 @@ export function ImportarTareas({ open, onClose }: { open: boolean; onClose: () =
 
     const faltan = ENCABEZADOS.filter((h) => h !== "dias" && h !== "hora" && h !== "fecha_inicio" && !encabezados.includes(h));
     if (faltan.length > 0) {
-      setError(`Al archivo le faltan columnas: ${faltan.join(", ")}. Usa la plantilla.`);
+      setError(
+        `Al archivo le faltan columnas: ${faltan.join(", ")}. La app leyó estos encabezados: ${encabezados.join(" | ") || "(ninguno)"}`,
+      );
       return;
     }
 

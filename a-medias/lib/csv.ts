@@ -44,7 +44,8 @@ export function parseCsv(texto: string): { encabezados: string[]; filas: string[
   const [encabezados = [], ...resto] = filas;
   return {
     // Quita restos de la marca de codificación (por ejemplo "ï»¿titulo") del primer encabezado
-    encabezados: encabezados.map((h) => arreglarTexto(h).trim().toLowerCase().replace(/^[^a-z]+/, "")),
+    // Solo letras y guion bajo: "ï»¿titulo" queda "titulo"
+    encabezados: encabezados.map((h) => arreglarTexto(h).toLowerCase().replace(/[^a-z_]/g, "")),
     filas: resto
       .map((f) => f.map(arreglarTexto))
       .filter((f) => f.some((c) => c.trim() !== "")),
