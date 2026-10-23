@@ -84,7 +84,7 @@ export default function RecordarPage() {
         title="Recordar"
         subtitle="Fechas, mascotas y datos de la casa"
         right={
-          <button className="btn btn-secondary btn-sm mt-2" onClick={() => setImportar(true)}>
+          <button className="btn btn-secondary btn-sm mt-1" onClick={() => setImportar(true)}>
             Importar
           </button>
         }
