@@ -66,6 +66,8 @@ export default function ComprasPage() {
   async function comprarADespensa(i: ShoppingItem) {
     const sb = getSupabase();
     const hoy = todayStr();
+    // Lo que se compra en la lista Mascotas va a la despensa de mascotas
+    const esMascotas = lists.find((l) => l.id === i.list_id)?.nombre === "Mascotas";
     optimistic("items", { ...i, comprado: true });
     const existente = pantry.find((p) => p.nombre.trim().toLowerCase() === i.nombre.trim().toLowerCase());
     const { data: prod, error: errProd } = existente
@@ -83,6 +85,7 @@ export default function ComprasPage() {
             categoria: i.categoria,
             duracion_dias: i.duracion_dias,
             fecha_ultima_compra: hoy,
+            es_mascotas: esMascotas,
           })
           .select()
           .single();
