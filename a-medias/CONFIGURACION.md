@@ -25,7 +25,7 @@ Rama de producción: `main`
 - Protección de contraseñas filtradas: solo está disponible en el plan Pro.
 
 **Pendiente**
-- [ ] Revisar que el correo de Supabase (interno) entregue el link a otras direcciones. Si no, usar siempre la contraseña.
+- [x] Correo de Supabase (interno): el link llega a otras direcciones (probado).
 
 ## Pruebas
 
@@ -42,19 +42,20 @@ Rama de producción: `main`
 | Notificaciones | OK |
 | Cambiar el color de una persona | OK |
 | Regenerar el código de invitación | OK |
-| Pendientes de antes: "No se hizo" y "Deshacer" | Por validar |
-| Tomas de medicamento: terminar el tratamiento | Por validar |
-| Resumen de las 21:00 | Por validar |
-| Importar tareas (CSV, vista previa y actualización) | Por validar |
-| Importar compras (despensa y lista de compras) | Por validar |
-| Importar recordar (recordatorios, mascotas y vacunas, notas) | Por validar |
-| Plantilla CSV abierta en Google Sheets (sin caracteres raros) | Por validar |
-| Exportar todo (ZIP) y abrirlo en Google Sheets | Por validar |
-| Login con correo y contraseña: crear cuenta y entrar | Por validar |
-| Definir contraseña desde Ajustes para una cuenta sin contraseña | Por validar |
-| Link al correo para una cuenta nueva | Pendiente (depende del correo de Supabase) |
-| Dos personas: lo que hace una aparece en el otro celular | Pendiente |
-| Salir del hogar y volver a entrar | Pendiente |
+| Pendientes de antes: "No se hizo" y "Deshacer" | OK |
+| Tomas de medicamento: marcar tomas | OK |
+| Tomas de medicamento: terminar el tratamiento (fin: 26/10/2026) | Pendiente: se prueba al marcar las últimas tomas o al pasar la fecha de fin |
+| Resumen de las 21:00 | Parcial: el servidor lo envió el 22/10 a las 21:15; confirmar que llegó al celular |
+| Importar tareas (CSV, vista previa y actualización) | OK |
+| Importar compras (despensa y lista de compras) | OK |
+| Importar recordar (recordatorios, mascotas y vacunas, notas) | OK |
+| Plantilla CSV abierta en Google Sheets (sin caracteres raros) | OK |
+| Exportar todo (ZIP) y abrirlo en Google Sheets | OK |
+| Login con correo y contraseña: crear cuenta y entrar | OK |
+| Definir contraseña desde Ajustes para una cuenta sin contraseña | OK |
+| Link al correo para una cuenta nueva | OK |
+| Dos personas: lo que hace una aparece en el otro celular | OK |
+| Salir del hogar y volver a entrar | OK |
 | Unirse a un hogar con el código o el link | Pendiente |
 | Lentitud al cambiar de hoja | Mejorada: la primera vez tarda, luego va bien |
 
