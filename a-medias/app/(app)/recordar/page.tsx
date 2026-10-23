@@ -7,6 +7,7 @@ import { Cat, ChevronRight, Dog, PawPrint, Plus, Repeat, StickyNote } from "luci
 import { useHousehold } from "@/components/HouseholdProvider";
 import { NoteSheet, PetSheet, ReminderSheet } from "@/components/RecordarSheets";
 import { Avatar, Empty, PageHeader } from "@/components/ui";
+import { ImportarRecordar } from "@/components/ImportarRecordar";
 import { Loading } from "@/components/Loading";
 import { dayNum, diffDays, formatHora, monthShort, nowTimeStr, splitTimestamp, todayStr, weekdayName } from "@/lib/dates";
 import { nextPetEventDate, nextReminderDate } from "@/lib/logic";
@@ -37,6 +38,7 @@ export default function RecordarPage() {
   const { ready, reminders, petEvents, pets, notes, memberById } = useHousehold();
   const [reminderAbierto, setReminderAbierto] = useState<Reminder | "nuevo" | null>(null);
   const [petAbierta, setPetAbierta] = useState(false);
+  const [importar, setImportar] = useState(false);
   const [nota, setNota] = useState<Note | "nueva" | null>(null);
 
   const ahora = new Date();
@@ -82,11 +84,17 @@ export default function RecordarPage() {
         title="Recordar"
         subtitle="Fechas, mascotas y datos de la casa"
         right={
-          <button className="btn btn-primary btn-sm mt-2" onClick={() => setReminderAbierto("nuevo")}>
-            <Plus size={16} /> Nuevo
-          </button>
+          <div className="mt-2 flex gap-2">
+            <button className="btn btn-secondary btn-sm" onClick={() => setImportar(true)}>
+              Importar
+            </button>
+            <button className="btn btn-primary btn-sm" onClick={() => setReminderAbierto("nuevo")}>
+              <Plus size={16} /> Nuevo
+            </button>
+          </div>
         }
       />
+      <ImportarRecordar open={importar} onClose={() => setImportar(false)} />
 
       {!ready ? (
         <Loading />
