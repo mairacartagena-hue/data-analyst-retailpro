@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { getSupabase } from "@/lib/supabase/client";
-import { fechaDesdeTexto, horaDesdeTexto, normalizar, parseCsv, plantillaCsv } from "@/lib/csv";
+import { fechaDesdeTexto, horaDesdeTexto, normalizar, parseCsv } from "@/lib/csv";
+import { leerXlsx, plantillaXlsx, type Columna } from "@/lib/xlsx";
 import { todayStr } from "@/lib/dates";
 import type { Frecuencia, Task } from "@/lib/types";
 import { useHousehold } from "./HouseholdProvider";
@@ -17,6 +18,7 @@ const EJEMPLOS = [
 ];
 const FRECUENCIAS: Frecuencia[] = ["diaria", "semanal", "quincenal", "mensual"];
 const DIAS: Record<string, number> = { lun: 1, mar: 2, mie: 3, jue: 4, vie: 5, sab: 6, dom: 7 };
+const DIAS_LISTA = ["lun", "mar", "mie", "jue", "vie", "sab", "dom"];
 
 type FilaValida = { numero: number; titulo: string; fila: Record<string, unknown>; idExistente?: string };
 type FilaError = { numero: number; motivo: string };
@@ -29,13 +31,21 @@ export function ImportarTareas({ open, onClose }: { open: boolean; onClose: () =
   const [error, setError] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
 
-  function descargar() {
-    const texto = plantillaCsv(ENCABEZADOS, EJEMPLOS);
-    const blob = new Blob(["﻿" + texto], { type: "text/csv;charset=utf-8" });
+  async function descargar() {
+    if (!household) return;
+    const columnas: Columna[] = [
+      { nombre: "titulo", ancho: 34 },
+      { nombre: "frecuencia", ancho: 14, lista: FRECUENCIAS, listaEstricta: true },
+      { nombre: "dias", ancho: 18, lista: DIAS_LISTA, listaEstricta: false },
+      { nombre: "responsable", ancho: 20, lista: ["Rotar", "Los dos", ...members.map((m) => m.nombre)], listaEstricta: true },
+      { nombre: "hora", ancho: 10, hora: true },
+      { nombre: "fecha_inicio", ancho: 16, fecha: true },
+    ];
+    const blob = await plantillaXlsx("Tareas", columnas, EJEMPLOS);
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "plantilla_tareas.csv";
+    a.download = "plantilla_tareas.xlsx";
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -45,7 +55,8 @@ export function ImportarTareas({ open, onClose }: { open: boolean; onClose: () =
     e.target.value = "";
     if (!archivo || !household) return;
     setError(null);
-    const { encabezados, filas } = parseCsv(await archivo.text());
+    const esExcel = archivo.name.toLowerCase().endsWith(".xlsx");
+    const { encabezados, filas } = esExcel ? await leerXlsx(archivo) : parseCsv(await archivo.text());
 
     const faltan = ENCABEZADOS.filter((h) => h !== "dias" && h !== "hora" && h !== "fecha_inicio" && !encabezados.includes(h));
     if (faltan.length > 0) {
@@ -167,17 +178,17 @@ export function ImportarTareas({ open, onClose }: { open: boolean; onClose: () =
       {paso === "inicio" ? (
         <div className="space-y-4">
           <p className="text-sm">
-            <b>1.</b> Descarga la plantilla, llénala en Excel o Google Sheets y guárdala como CSV.
+            <b>1.</b> Descarga la plantilla, llénala en Excel. Tiene listas para elegir persona y frecuencia.
           </p>
           <button className="btn btn-secondary w-full" onClick={descargar}>
-            Descargar plantilla
+            Descargar plantilla (Excel)
           </button>
           <p className="text-sm">
-            <b>2.</b> Carga el archivo que llenaste. Si una tarea ya existe (mismo título), se actualiza.
+            <b>2.</b> Carga el archivo que llenaste (Excel o CSV). Si una tarea ya existe (mismo título), se actualiza.
           </p>
           <label className="btn btn-primary w-full cursor-pointer">
             Cargar archivo
-            <input type="file" accept=".csv,text/csv" className="hidden" onChange={leer} />
+            <input type="file" accept=".xlsx,.csv" className="hidden" onChange={leer} />
           </label>
           <ErrorText>{error}</ErrorText>
         </div>
