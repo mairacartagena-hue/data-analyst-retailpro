@@ -43,9 +43,25 @@ export function parseCsv(texto: string): { encabezados: string[]; filas: string[
 
   const [encabezados = [], ...resto] = filas;
   return {
-    encabezados: encabezados.map((h) => h.trim().toLowerCase()),
-    filas: resto.filter((f) => f.some((c) => c.trim() !== "")),
+    // Quita restos de la marca de codificación (por ejemplo "ï»¿titulo") del primer encabezado
+    encabezados: encabezados.map((h) => arreglarTexto(h).trim().toLowerCase().replace(/^[^a-z]+/, "")),
+    filas: resto
+      .map((f) => f.map(arreglarTexto))
+      .filter((f) => f.some((c) => c.trim() !== "")),
   };
+}
+
+/**
+ * Corrige texto leído con la codificación equivocada (por ejemplo "baÃ±o" -> "baño").
+ * Si el texto no tiene ese problema, se devuelve igual.
+ */
+export function arreglarTexto(t: string): string {
+  if (!/[ÃÂ]/.test(t)) return t;
+  try {
+    return decodeURIComponent(escape(t));
+  } catch {
+    return t;
+  }
 }
 
 function celda(valor: string) {
