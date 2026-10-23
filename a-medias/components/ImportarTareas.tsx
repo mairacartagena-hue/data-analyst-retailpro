@@ -12,8 +12,8 @@ const ENCABEZADOS = ["titulo", "frecuencia", "dias", "responsable", "hora", "fec
 const EJEMPLOS = [
   ["Lavar los platos de la noche", "diaria", "", "Rotar", "21:00", "25/10/2026"],
   ["Sacar la basura y reciclaje", "semanal", "lun;jue", "Rotar", "20:00", "26/10/2026"],
-  ["Limpiar el baño a fondo", "semanal", "sab", "Ari", "", "31/10/2026"],
-  ["Pagar administración", "mensual", "", "Los dos", "09:00", "05/11/2026"],
+  ["Limpiar el bano a fondo", "semanal", "sab", "Ari", "", "31/10/2026"],
+  ["Pagar administracion", "mensual", "", "Los dos", "09:00", "05/11/2026"],
 ];
 const FRECUENCIAS: Frecuencia[] = ["diaria", "semanal", "quincenal", "mensual"];
 const DIAS: Record<string, number> = { lun: 1, mar: 2, mie: 3, jue: 4, vie: 5, sab: 6, dom: 7 };
