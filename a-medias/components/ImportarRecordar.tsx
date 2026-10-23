@@ -9,33 +9,28 @@ import { ErrorText, Sheet, errMsg } from "./ui";
 
 const ENC = {
   recordatorios: ["titulo", "fecha", "hora", "para", "repeticion", "aviso_previo_dias", "nota"],
-  mascotas: ["nombre", "especie"],
-  vacunas: ["mascota", "titulo", "tipo", "fecha", "repeticion", "aviso_previo_dias", "responsable", "nota"],
+  mascotas: ["mascota", "especie", "evento", "tipo", "fecha", "repeticion", "aviso_previo_dias", "responsable", "nota"],
   notas: ["titulo", "contenido"],
 };
 type Clase = keyof typeof ENC;
-const NOMBRE_CLASE: Record<Clase, string> = {
-  recordatorios: "recordatorios",
-  mascotas: "mascotas",
-  vacunas: "vacunas y controles",
-  notas: "notas",
-};
 
-type Op = { tabla: "reminders" | "pets" | "pet_events" | "notes"; fila: Record<string, unknown>; idExistente?: string };
 type Err = { numero: number; motivo: string };
+type PetOp = { clave: string; nombre: string; especie?: string; idExistente?: string };
+type EvOp = { clave: string; fila: Record<string, unknown>; idExistente?: string };
+type OtraOp = { tabla: "reminders" | "notes"; fila: Record<string, unknown>; idExistente?: string };
 
 export function ImportarRecordar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { household, members, pets, reminders, petEvents, notes, reload } = useHousehold();
   const [paso, setPaso] = useState<"inicio" | "revisar">("inicio");
-  const [ops, setOps] = useState<Op[]>([]);
+  const [mascotas, setMascotas] = useState<PetOp[]>([]);
+  const [eventos, setEventos] = useState<EvOp[]>([]);
+  const [otras, setOtras] = useState<OtraOp[]>([]);
   const [errores, setErrores] = useState<Err[]>([]);
   const [clase, setClase] = useState<Clase | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
 
   const m1 = members[0]?.nombre ?? "Persona 1";
-  const m2 = members[1]?.nombre ?? m1;
-  const p1 = pets[0]?.nombre ?? "Mascota";
 
   function descargar(nombre: string, texto: string) {
     const blob = new Blob([texto], { type: "text/csv;charset=utf-8" });
@@ -53,10 +48,11 @@ export function ImportarRecordar({ open, onClose }: { open: boolean; onClose: ()
         ["Pagar administracion y arriendo", "05/11/2026", "09:00", "Los dos", "mensual", "2", "Transferir antes del corte"],
         ["Revision gas natural", "15/12/2026", "10:00", m1, "anual", "7", "Llamar a agendar"],
       ],
-      mascotas: pets.length > 0 ? pets.map((p) => [p.nombre, p.especie]) : [["Cleo", "gato"]],
-      vacunas: [
-        [p1, "Vacuna antirrabica", "vacuna", "15/11/2026", "anual", "7", m1, "Llevar carnet"],
-        [p1, "Control veterinario", "control", "20/12/2026", "ninguna", "3", "", ""],
+      mascotas: [
+        [pets[0]?.nombre ?? "Cleo", pets[0]?.especie ?? "gato", "Vacuna antirrabica", "vacuna", "15/11/2026", "anual", "7", m1, "Llevar carnet"],
+        [pets[0]?.nombre ?? "Cleo", "", "Control veterinario", "control", "20/12/2026", "ninguna", "3", "", ""],
+        [pets[1]?.nombre ?? "Ragnar", pets[1]?.especie ?? "perro", "", "", "", "", "", "", ""],
+        ["Nombre nueva", "gato", "", "", "", "", "", "", ""],
       ],
       notas: [
         ["Wifi de la casa", "Clave en la caja de la sala"],
@@ -76,11 +72,10 @@ export function ImportarRecordar({ open, onClose }: { open: boolean; onClose: ()
 
     let tipo: Clase | null = null;
     if (tiene("contenido") && tiene("titulo")) tipo = "notas";
-    else if (tiene("mascota") && tiene("titulo")) tipo = "vacunas";
     else if (tiene("para") && tiene("fecha")) tipo = "recordatorios";
-    else if (tiene("especie") && tiene("nombre")) tipo = "mascotas";
+    else if (tiene("mascota")) tipo = "mascotas";
     if (!tipo) {
-      setError("No reconozco el archivo. Usa una de las plantillas (recordatorios, mascotas, vacunas o notas).");
+      setError("No reconozco el archivo. Usa una de las plantillas (recordatorios, mascotas y vacunas, o notas).");
       return;
     }
 
@@ -88,8 +83,10 @@ export function ImportarRecordar({ open, onClose }: { open: boolean; onClose: ()
       const i = encabezados.indexOf(nombre);
       return i >= 0 ? (fila[i] ?? "").trim() : "";
     };
-    const nuevas: Op[] = [];
     const malas: Err[] = [];
+    const mascotaOps = new Map<string, PetOp>();
+    const eventoOps: EvOp[] = [];
+    const otrasOps: OtraOp[] = [];
     const personaId = (txt: string): string | null | undefined => {
       if (!txt) return null;
       const p = members.find((m) => normalizar(m.nombre) === normalizar(txt));
@@ -101,37 +98,29 @@ export function ImportarRecordar({ open, onClose }: { open: boolean; onClose: ()
       const fallo = (motivo: string) => malas.push({ numero, motivo });
 
       if (tipo === "mascotas") {
-        const nombre = col(fila, "nombre");
-        if (!nombre) return fallo("falta el nombre");
-        const especie = normalizar(col(fila, "especie"));
-        if (especie !== "gato" && especie !== "perro") return fallo(`especie "${col(fila, "especie")}" debe ser gato o perro`);
-        const existente = pets.find((p) => normalizar(p.nombre) === normalizar(nombre));
-        nuevas.push({
-          tabla: "pets",
-          idExistente: existente?.id,
-          fila: { household_id: household.id, nombre, especie },
-        });
-        return;
-      }
+        const nombre = col(fila, "mascota");
+        if (!nombre) return fallo("falta el nombre de la mascota");
+        const clave = normalizar(nombre);
+        const existente = pets.find((p) => normalizar(p.nombre) === clave);
+        const especieTxt = normalizar(col(fila, "especie"));
+        if (especieTxt && especieTxt !== "gato" && especieTxt !== "perro") return fallo(`especie "${col(fila, "especie")}" debe ser gato o perro`);
+        if (!existente && !especieTxt) return fallo(`la mascota "${nombre}" es nueva: falta la especie (gato o perro)`);
 
-      if (tipo === "notas") {
-        const titulo = col(fila, "titulo");
-        if (!titulo) return fallo("falta el título");
-        const existente = notes.find((n) => normalizar(n.titulo) === normalizar(titulo));
-        nuevas.push({
-          tabla: "notes",
-          idExistente: existente?.id,
-          fila: { household_id: household.id, titulo, contenido: col(fila, "contenido") },
-        });
-        return;
-      }
+        // Una mascota puede aparecer varias veces (una fila por vacuna): se junta
+        const previa = mascotaOps.get(clave);
+        if (!previa) {
+          mascotaOps.set(clave, {
+            clave,
+            nombre: existente?.nombre ?? nombre,
+            especie: especieTxt ? especieTxt : undefined,
+            idExistente: existente?.id,
+          });
+        } else if (especieTxt) {
+          previa.especie = especieTxt;
+        }
 
-      if (tipo === "vacunas") {
-        const titulo = col(fila, "titulo");
-        if (!titulo) return fallo("falta el título");
-        const mascotaTxt = col(fila, "mascota");
-        const pet = pets.find((p) => normalizar(p.nombre) === normalizar(mascotaTxt));
-        if (!pet) return fallo(`la mascota "${mascotaTxt}" no existe (impórtala primero en la plantilla de mascotas)`);
+        const titulo = col(fila, "evento");
+        if (!titulo) return;
         const fecha = fechaDesdeTexto(col(fila, "fecha"));
         if (!fecha) return fallo(`fecha "${col(fila, "fecha")}" no es DD/MM/AAAA`);
         const tipoTxt = normalizar(col(fila, "tipo")) || "vacuna";
@@ -142,13 +131,14 @@ export function ImportarRecordar({ open, onClose }: { open: boolean; onClose: ()
         if (!(aviso >= 0)) return fallo("aviso_previo_dias debe ser un número (0 o más)");
         const resp = personaId(col(fila, "responsable"));
         if (resp === undefined) return fallo(`la persona "${col(fila, "responsable")}" no existe en el hogar`);
-        const existente = petEvents.find((e) => e.pet_id === pet.id && normalizar(e.titulo) === normalizar(titulo) && e.fecha === fecha);
-        nuevas.push({
-          tabla: "pet_events",
-          idExistente: existente?.id,
+        const existeEvento = existente
+          ? petEvents.find((ev) => ev.pet_id === existente.id && normalizar(ev.titulo) === normalizar(titulo) && ev.fecha === fecha)
+          : undefined;
+        eventoOps.push({
+          clave,
+          idExistente: existeEvento?.id,
           fila: {
             household_id: household.id,
-            pet_id: pet.id,
             titulo,
             fecha,
             tipo: tipoTxt,
@@ -157,6 +147,18 @@ export function ImportarRecordar({ open, onClose }: { open: boolean; onClose: ()
             responsable_id: resp,
             nota: col(fila, "nota") || null,
           },
+        });
+        return;
+      }
+
+      if (tipo === "notas") {
+        const titulo = col(fila, "titulo");
+        if (!titulo) return fallo("falta el título");
+        const existente = notes.find((n) => normalizar(n.titulo) === normalizar(titulo));
+        otrasOps.push({
+          tabla: "notes",
+          idExistente: existente?.id,
+          fila: { household_id: household.id, titulo, contenido: col(fila, "contenido") },
         });
         return;
       }
@@ -185,7 +187,7 @@ export function ImportarRecordar({ open, onClose }: { open: boolean; onClose: ()
       const existente = reminders.find(
         (r) => normalizar(r.titulo) === normalizar(titulo) && new Date(r.fecha_hora).getTime() === new Date(iso).getTime(),
       );
-      nuevas.push({
+      otrasOps.push({
         tabla: "reminders",
         idExistente: existente?.id,
         fila: {
@@ -201,7 +203,9 @@ export function ImportarRecordar({ open, onClose }: { open: boolean; onClose: ()
     });
 
     setClase(tipo);
-    setOps(nuevas);
+    setMascotas([...mascotaOps.values()]);
+    setEventos(eventoOps);
+    setOtras(otrasOps);
     setErrores(malas);
     setPaso("revisar");
   }
@@ -211,15 +215,43 @@ export function ImportarRecordar({ open, onClose }: { open: boolean; onClose: ()
     setError(null);
     const sb = getSupabase();
     let fallidas = 0;
-    for (const op of ops) {
-      const { error } = op.idExistente
-        ? await sb.from(op.tabla).update(op.fila).eq("id", op.idExistente)
-        : await sb.from(op.tabla).insert(op.fila);
-      if (error) {
-        fallidas++;
-        setError(errMsg(error));
+    const ids = new Map<string, string>(); // mascota (normalizada) -> id
+
+    for (const m of mascotas) {
+      if (m.idExistente) {
+        ids.set(m.clave, m.idExistente);
+        if (m.especie) {
+          const { error } = await sb.from("pets").update({ especie: m.especie }).eq("id", m.idExistente);
+          if (error) { fallidas++; setError(errMsg(error)); }
+        }
+      } else {
+        const { data, error } = await sb
+          .from("pets")
+          .insert({ household_id: household!.id, nombre: m.nombre, especie: m.especie })
+          .select("id")
+          .single();
+        if (error || !data) { fallidas++; setError(error ? errMsg(error) : "No se pudo crear la mascota."); continue; }
+        ids.set(m.clave, (data as { id: string }).id);
       }
     }
+
+    for (const ev of eventos) {
+      const petId = ids.get(ev.clave);
+      if (!petId) { fallidas++; continue; }
+      const fila = { ...ev.fila, pet_id: petId };
+      const { error } = ev.idExistente
+        ? await sb.from("pet_events").update(fila).eq("id", ev.idExistente)
+        : await sb.from("pet_events").insert(fila);
+      if (error) { fallidas++; setError(errMsg(error)); }
+    }
+
+    for (const o of otras) {
+      const { error } = o.idExistente
+        ? await sb.from(o.tabla).update(o.fila).eq("id", o.idExistente)
+        : await sb.from(o.tabla).insert(o.fila);
+      if (error) { fallidas++; setError(errMsg(error)); }
+    }
+
     setGuardando(false);
     reload();
     if (fallidas === 0) cerrar();
@@ -228,15 +260,21 @@ export function ImportarRecordar({ open, onClose }: { open: boolean; onClose: ()
 
   function cerrar() {
     setPaso("inicio");
-    setOps([]);
+    setMascotas([]);
+    setEventos([]);
+    setOtras([]);
     setErrores([]);
     setClase(null);
     setError(null);
     onClose();
   }
 
-  const nuevas = ops.filter((o) => !o.idExistente).length;
-  const actualizar = ops.length - nuevas;
+  const totalOps = mascotas.length + eventos.length + otras.length;
+  const nuevasMascotas = mascotas.filter((m) => !m.idExistente).length;
+  const actualizadasMascotas = mascotas.length - nuevasMascotas;
+  const nuevos =
+    mascotas.filter((m) => !m.idExistente).length + eventos.filter((e) => !e.idExistente).length + otras.filter((o) => !o.idExistente).length;
+  const actualizan = totalOps - nuevos;
 
   return (
     <Sheet open={open} onClose={cerrar} title="Importar recordar">
@@ -250,20 +288,17 @@ export function ImportarRecordar({ open, onClose }: { open: boolean; onClose: ()
               Plantilla de recordatorios
             </button>
             <button className="btn btn-secondary w-full" onClick={() => plantilla("mascotas")}>
-              Plantilla de mascotas
-            </button>
-            <button className="btn btn-secondary w-full" onClick={() => plantilla("vacunas")}>
-              Plantilla de vacunas y controles
+              Plantilla de mascotas y vacunas
             </button>
             <button className="btn btn-secondary w-full" onClick={() => plantilla("notas")}>
               Plantilla de notas
             </button>
           </div>
           <p className="text-xs text-sec">
-            En Google Sheets: <b>Archivo → Descargar → Valores separados por comas (.csv)</b>. Primero carga las mascotas y luego las vacunas.
+            En Google Sheets: <b>Archivo → Descargar → Valores separados por comas (.csv)</b>.
           </p>
           <p className="text-sm">
-            <b>2.</b> Carga el archivo. La app reconoce de qué tipo es.
+            <b>2.</b> En la plantilla de mascotas, una fila por mascota. Si la mascota no existe, se crea; si ya existe, se actualiza. Las vacunas y controles van en la misma fila, en las columnas de evento.
           </p>
           <label className="btn btn-primary w-full cursor-pointer">
             Cargar archivo
@@ -274,9 +309,14 @@ export function ImportarRecordar({ open, onClose }: { open: boolean; onClose: ()
       ) : (
         <div className="space-y-4">
           <p className="text-sm">
-            Archivo de <b>{clase ? NOMBRE_CLASE[clase] : ""}</b>. Nuevos: <b>{nuevas}</b> · Se actualizan: <b>{actualizar}</b> · Con error:{" "}
-            <b>{errores.length}</b>
+            Archivo de <b>{clase === "mascotas" ? "mascotas y vacunas" : clase === "notas" ? "notas" : "recordatorios"}</b>. Nuevos:{" "}
+            <b>{nuevos}</b> · Se actualizan: <b>{actualizan}</b> · Con error: <b>{errores.length}</b>
           </p>
+          {clase === "mascotas" && (
+            <p className="text-sm text-sec">
+              Mascotas nuevas: {nuevasMascotas} · Actualizadas: {actualizadasMascotas} · Vacunas y controles: {eventos.length}
+            </p>
+          )}
           {errores.length > 0 && (
             <div className="rounded-xl border-2 border-accion p-3 text-sm">
               <p className="mb-1 font-semibold">Estas filas no se cargan:</p>
@@ -294,8 +334,8 @@ export function ImportarRecordar({ open, onClose }: { open: boolean; onClose: ()
             <button className="btn btn-secondary flex-1" onClick={() => setPaso("inicio")} disabled={guardando}>
               Volver
             </button>
-            <button className="btn btn-primary flex-1" onClick={confirmar} disabled={ops.length === 0 || guardando}>
-              {guardando ? "Guardando…" : `Confirmar (${ops.length})`}
+            <button className="btn btn-primary flex-1" onClick={confirmar} disabled={totalOps === 0 || guardando}>
+              {guardando ? "Guardando…" : `Confirmar (${totalOps})`}
             </button>
           </div>
           <ErrorText>{error}</ErrorText>
