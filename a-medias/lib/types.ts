@@ -105,6 +105,9 @@ export interface PantryProduct {
   categoria: Categoria;
   duracion_dias: number;
   fecha_ultima_compra: string;
+  pet_id?: string | null;
+  marca?: string | null;
+  tipo_comida?: string | null;
 }
 
 export interface Reminder {
