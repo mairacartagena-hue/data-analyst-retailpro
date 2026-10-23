@@ -5,6 +5,7 @@ import { Bell, PawPrint, Plus } from "lucide-react";
 import { useHousehold } from "@/components/HouseholdProvider";
 import { TaskSheet } from "@/components/TaskSheet";
 import { MedSheet } from "@/components/MedSheet";
+import { ImportarTareas } from "@/components/ImportarTareas";
 import { Avatar, Empty, ErrorText, PageHeader, Pills, Sheet, errMsg } from "@/components/ui";
 import { Loading } from "@/components/Loading";
 import { getSupabase } from "@/lib/supabase/client";
@@ -27,6 +28,7 @@ export default function TareasPage() {
   const [editar, setEditar] = useState<Task | null>(null);
   const [editarMed, setEditarMed] = useState<Task | null>(null);
   const [turnoDe, setTurnoDe] = useState<Task | null>(null);
+  const [importar, setImportar] = useState(false);
   const [errorTurno, setErrorTurno] = useState<string | null>(null);
 
   /** La próxima ocurrencia pendiente de una tarea: ahí se cambia quién la hace */
@@ -78,7 +80,15 @@ export default function TareasPage() {
 
   return (
     <>
-      <PageHeader title="Tareas" subtitle="Todo lo que hay que hacer en la casa" />
+      <PageHeader
+        title="Tareas"
+        subtitle="Todo lo que hay que hacer en la casa"
+        right={
+          <button className="btn btn-secondary btn-sm mt-1" onClick={() => setImportar(true)}>
+            Importar
+          </button>
+        }
+      />
       <Pills<Filtro>
         options={[
           { value: "todas", label: "Todas" },
@@ -159,6 +169,7 @@ export default function TareasPage() {
         <Plus size={30} strokeWidth={2.5} />
       </button>
 
+      <ImportarTareas open={importar} onClose={() => setImportar(false)} />
       <TaskSheet open={abierta || !!editar} task={editar} onClose={() => (setAbierta(false), setEditar(null))} />
       <Sheet open={!!turnoDe} onClose={() => setTurnoDe(null)} title="¿Quién lo hace?">
         <p className="mb-4 text-sm text-sec">
