@@ -24,9 +24,8 @@ export default function HoyPage() {
     occurrences.filter((o) => o.fecha === hoy && activas.has(o.task_id) && deDePersona(o)),
     tasks,
   );
-  const medIds = new Set(tasks.filter((t) => t.tipo === "medicamento" && t.activa).map((t) => t.id));
-  const tomasAtrasadas = sortOccurrences(
-    occurrences.filter((o) => o.fecha < hoy && !o.completada && medIds.has(o.task_id) && deDePersona(o)),
+  const pendientesAntes = sortOccurrences(
+    occurrences.filter((o) => o.fecha < hoy && !o.completada && !o.omitida && activas.has(o.task_id) && deDePersona(o)),
     tasks,
   );
   const hechas = deHoy.filter((o) => o.completada).length;
@@ -74,12 +73,12 @@ export default function HoyPage() {
             )}
           </section>
 
-          {tomasAtrasadas.length > 0 && (
+          {pendientesAntes.length > 0 && (
             <section className="card border-accion!">
-              <h2 className="titulo text-[20px] text-accion">Tomas pendientes</h2>
-              <p className="text-xs text-sec">Quedaron sin marcar en días anteriores.</p>
+              <h2 className="titulo text-[20px] text-accion">Pendientes de antes</h2>
+              <p className="text-xs text-sec">Quedaron sin marcar. Márcalas o toca &quot;No se hizo&quot;.</p>
               <ul className="mt-1">
-                {tomasAtrasadas.map((o) => (
+                {pendientesAntes.map((o) => (
                   <OccurrenceRow key={o.id} occurrence={o} showDate />
                 ))}
               </ul>

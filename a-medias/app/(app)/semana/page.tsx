@@ -126,7 +126,7 @@ export default function SemanaPage() {
                         key={o.id}
                         className={`inline-flex max-w-full items-center rounded-full border-2 border-vino px-2.5 py-1 text-[12px] font-medium ${
                           m ? personColors(m) : "bg-crema text-vino"
-                        } ${o.completada ? "line-through opacity-60" : ""}`}
+                        } ${o.completada ? "line-through opacity-60" : ""} ${o.omitida ? "opacity-40" : ""}`}
                         title={m ? m.nombre : "Juntos"}
                       >
                         <span className="truncate">

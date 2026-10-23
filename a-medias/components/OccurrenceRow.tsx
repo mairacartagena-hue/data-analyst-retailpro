@@ -34,8 +34,15 @@ export function useToggleOccurrence() {
 }
 
 export function OccurrenceRow({ occurrence: o, showDate = false }: { occurrence: Occurrence; showDate?: boolean }) {
-  const { tasks, pets, memberById, members } = useHousehold();
+  const { tasks, pets, memberById, members, optimistic } = useHousehold();
   const toggle = useToggleOccurrence();
+
+  /** Para pendientes de días anteriores: se cierra sin marcarla como hecha */
+  async function omitir() {
+    optimistic("occurrences", { ...o, omitida: true });
+    const { error } = await getSupabase().from("task_occurrences").update({ omitida: true }).eq("id", o.id);
+    if (error) optimistic("occurrences", { ...o });
+  }
   const [turnoAbierto, setTurnoAbierto] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -70,6 +77,11 @@ export function OccurrenceRow({ occurrence: o, showDate = false }: { occurrence:
           {task.modo === "rota" && <span className="tag">Rota</span>}
           {pendiente && <span className="tag tag-alerta">Pendiente</span>}
           {o.completada && quien && <span>Lo hizo {quien.nombre}</span>}
+          {showDate && !o.completada && (
+            <button className="font-semibold text-accion" onClick={omitir}>
+              No se hizo
+            </button>
+          )}
         </div>
       </div>
       <Avatar

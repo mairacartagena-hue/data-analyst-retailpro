@@ -57,6 +57,7 @@ export interface Occurrence {
   completada: boolean;
   completada_por: string | null;
   completada_en: string | null;
+  omitida?: boolean;
 }
 
 export interface PetDocument {
