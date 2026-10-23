@@ -59,6 +59,18 @@ export interface Occurrence {
   completada_en: string | null;
 }
 
+export interface PetDocument {
+  id: string;
+  household_id: string;
+  pet_id: string;
+  titulo: string;
+  fecha: string;
+  tipo: "pdf" | "imagen";
+  ruta: string;
+  tamano: number;
+  created_at: string;
+}
+
 export interface ShoppingList {
   id: string;
   household_id: string;
