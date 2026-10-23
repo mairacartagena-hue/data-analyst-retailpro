@@ -479,7 +479,7 @@ function PantrySheet({
     const fila = {
       household_id: household!.id,
       nombre: nombreFinal,
-      categoria: esMascota && !CATEGORIAS_MASCOTAS.includes(categoria) ? ("Otros" as Categoria) : categoria,
+      categoria: esMascota ? ("Otros" as Categoria) : categoria,
       responsable_id: esMascota && responsable !== "rotar" ? responsable : null,
       rota: esMascota && responsable === "rotar",
       duracion_dias: duracion,
@@ -514,16 +514,18 @@ function PantrySheet({
           </label>
           <input id="p-nombre" className="input" value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Café" />
         </div>
-        <div>
-          <label className="label" htmlFor="p-cat">
-            Categoría
-          </label>
-          <select id="p-cat" className="input" value={categoria} onChange={(e) => setCategoria(e.target.value as Categoria)}>
-            {(esMascota ? CATEGORIAS_MASCOTAS : CATEGORIAS).map((c) => (
-              <option key={c}>{c}</option>
-            ))}
-          </select>
-        </div>
+        {!esMascota && (
+          <div>
+            <label className="label" htmlFor="p-cat">
+              Categoría
+            </label>
+            <select id="p-cat" className="input" value={categoria} onChange={(e) => setCategoria(e.target.value as Categoria)}>
+              {CATEGORIAS.map((c) => (
+                <option key={c}>{c}</option>
+              ))}
+            </select>
+          </div>
+        )}
         <div>
           <label className="label" htmlFor="p-mascota">
             Mascota
