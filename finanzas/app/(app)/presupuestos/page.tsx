@@ -7,6 +7,7 @@ import { PeriodSwitcher, SwipePeriods } from "@/components/PeriodSwitcher";
 import { BudgetBar } from "@/components/BudgetBar";
 import { useShell } from "@/components/AppShell";
 import { CategorySheet } from "@/components/CategorySheet";
+import { BudgetDetailSheet } from "@/components/BudgetDetailSheet";
 import { MemberBadge } from "@/components/MemberBadge";
 import { Button } from "@/components/ui/button";
 import { Card, SectionTitle } from "@/components/ui/card";
@@ -18,6 +19,7 @@ export default function PresupuestosPage() {
   const state = useFinance();
   const { categories, period, me, partner, memberById, budgets } = state;
   const { openPayment } = useShell();
+  const [detail, setDetail] = useState<Category | null>(null);
   const [editing, setEditing] = useState<Category | null>(null);
   const [open, setOpen] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
@@ -107,7 +109,7 @@ export default function PresupuestosPage() {
               {g.items.map((c) => (
                 budgets.some((b) => b.category_id === c.id) ? (
                   <BudgetBar key={c.id} category={c} status={statuses.get(c.id)} memberById={memberById} meId={me.user_id}
-                  onPay={(amount) => openPayment({ categoryId: c.id, amount })} onClick={() => edit(c)} />
+                  onPay={(amount) => openPayment({ categoryId: c.id, amount })} onClick={() => setDetail(c)} />
                 ) : (
                   <button key={c.id} onClick={() => edit(c)} className="flex w-full items-center justify-between rounded-2xl border border-border bg-surface p-3.5 text-left">
                     <span className="flex items-center gap-2"><span className="text-lg">{c.icon || "•"}</span><span className="font-semibold">{c.name}</span></span>
@@ -154,6 +156,7 @@ export default function PresupuestosPage() {
       </SwipePeriods>
 
       <CategorySheet open={open} onOpenChange={setOpen} category={editing} kind={newKind} />
+      <BudgetDetailSheet category={detail} status={detail ? statuses.get(detail.id) : undefined} onClose={() => setDetail(null)} onEdit={(c) => edit(c)} />
     </main>
   );
 }

@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CreditCard, Landmark, Lock, Plus, Smartphone, Wallet } from "lucide-react";
+import Link from "next/link";
+import { ArrowLeft, CreditCard, Landmark, Lock, Plus, Smartphone, Wallet } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { AccountSheet, AssetSheet } from "@/components/AccountSheet";
 import { MemberBadge } from "@/components/MemberBadge";
@@ -72,7 +73,10 @@ export default function CuentasPage() {
   return (
     <main className="px-4 pt-[calc(12px+env(safe-area-inset-top))]">
       <div className="flex items-center justify-between py-2">
-        <h1 className="font-display text-3xl">{view === "cruce" ? "Cruce de cuentas" : "Cuentas"}</h1>
+        <div className="flex items-center gap-2">
+          <Link href="/mas" aria-label="Volver" className="rounded-full p-2 text-muted hover:bg-surface-2"><ArrowLeft size={20} /></Link>
+          <h1 className="font-display text-3xl">{view === "cruce" ? "Cruce" : "Cuentas"}</h1>
+        </div>
         {view === "cuentas" && <Button size="sm" onClick={() => { setEditing(null); setOpen(true); }}><Plus size={16} /> Nueva</Button>}
       </div>
       <Segmented className="mb-2" value={view} onChange={changeView} options={[

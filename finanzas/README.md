@@ -67,6 +67,16 @@ Ajustes → **Cierre del mes** (`app/(app)/cierre`), con recordatorio en el inic
 - **¿Qué hace falta?:** obligaciones del hogar sin pagar, movimientos por revisar, avisos no reconocidos y cuentas sin conciliar.
 - Cada cuenta guarda la **fecha de su saldo inicial** (`opening_at`): lo que ocurrió antes ya estaba incluido en ese saldo y no se vuelve a restar.
 
+## Organización de la app
+
+Pestañas: **Inicio · Movimientos · + · Presupuesto · Informes · Más**. “Más” agrupa Cuentas y cruce, Cierre del mes, Etiquetas, Captura automática y Ajustes.
+
+- **Presupuesto:** al tocar una barra se ven los pagos que la forman y cómo llegó cada uno (correo, SMS, notificación o a mano).
+- **Movimientos:** filtros por etiqueta, categoría y cuenta (también por enlace: `?etiqueta=`, `?categoria=`, `?cuenta=`).
+- **Etiquetas:** renombrar, unificar (renombrar a una existente) y quitar; `#suscripcion` es una etiqueta más, con sugerencias de posibles suscripciones.
+- **Informes:** gastos por categoría, por persona (hogar/personal) y tendencia de 6 meses, con vista de tabla y descarga CSV para Excel (separador “;”).
+- **Categorías de ingresos** (`categories.kind = INCOME`): personales y sin presupuesto; se crean desde el formulario con “+ Nueva”.
+
 ## Decisiones de la Fase 1
 
 1. **Tarjeta de crédito:** la compra consume el presupuesto al comprar; pagar la tarjeta es una transferencia y no vuelve a consumir presupuesto.
@@ -82,7 +92,7 @@ Ajustes → **Cierre del mes** (`app/(app)/cierre`), con recordatorio en el inic
 ## Configuración
 
 ### 1. Base de datos (Supabase, proyecto `finanzas-pareja`)
-Las migraciones están en `supabase/migrations/` (0001 → 0012). Para aplicarlas a mano, pega cada archivo completo en **SQL Editor → Run**, en orden. Se pueden correr más de una vez.
+Las migraciones están en `supabase/migrations/` (0001 → 0015). Para aplicarlas a mano, pega cada archivo completo en **SQL Editor → Run**, en orden. Se pueden correr más de una vez.
 
 ### 2. Autenticación
 En Supabase → **Authentication → URL Configuration**:

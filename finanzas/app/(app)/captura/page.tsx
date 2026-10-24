@@ -110,7 +110,7 @@ export default function CapturaPage() {
   return (
     <main className="px-4 pt-[calc(12px+env(safe-area-inset-top))]">
       <div className="flex items-center gap-2 py-2">
-        <Link href="/ajustes" aria-label="Volver" className="rounded-full p-2 text-muted hover:bg-surface-2"><ArrowLeft size={20} /></Link>
+        <Link href="/mas" aria-label="Volver" className="rounded-full p-2 text-muted hover:bg-surface-2"><ArrowLeft size={20} /></Link>
         <h1 className="font-display text-3xl">Captura automática</h1>
       </div>
       <p className="px-1 text-sm text-muted">

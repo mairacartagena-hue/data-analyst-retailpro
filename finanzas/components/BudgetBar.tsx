@@ -35,7 +35,7 @@ export function BudgetBar({
 
   return (
     <div className="w-full rounded-2xl border border-border bg-surface">
-    <button onClick={onClick} className="w-full rounded-t-2xl p-3.5 pb-2.5 text-left transition-colors hover:bg-surface-2" aria-label={`Editar ${category.name}`}>
+    <button onClick={onClick} className="w-full rounded-t-2xl p-3.5 pb-2.5 text-left transition-colors hover:bg-surface-2" aria-label={`Ver pagos de ${category.name}`}>
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           <span className="text-lg">{category.icon || "•"}</span>
@@ -84,7 +84,7 @@ export function BudgetBar({
         {covered ? (
           <span className="flex items-center gap-1 text-sm font-medium text-olive"><Check size={15} /> Cubierto este periodo</span>
         ) : (
-          <span className="flex items-center gap-1 text-xs text-muted"><Pencil size={12} /> Toca arriba para editar</span>
+          <span className="flex items-center gap-1 text-xs text-muted"><Pencil size={12} /> Toca para ver sus pagos</span>
         )}
         <button onClick={() => onPay(covered ? 0 : suggested)}
           className={cn("flex items-center gap-1 rounded-full px-3 py-1.5 text-sm font-semibold", covered ? "text-muted hover:bg-surface-2" : "bg-olive-soft text-text")}>
