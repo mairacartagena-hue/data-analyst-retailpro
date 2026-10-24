@@ -1,0 +1,95 @@
+@import "tailwindcss";
+
+/* Modo oscuro por clase en <html>; el script del layout la pone según la preferencia guardada o el sistema. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Warm Minimal: madera, lino y verde oliva */
+:root {
+  --bg: #f4efe6;
+  --surface: #fffaf2;
+  --surface-2: #efe7da;
+  --text: #2e2922;
+  --muted: #7a6e60;
+  --border: #e3d9c8;
+  --wood: #a0703f;
+  --wood-soft: #e9d8c2;
+  --olive: #5f6d33;
+  --olive-soft: #dfe4c9;
+  --on-olive: #fbf8f1;
+  --danger: #a4452c;
+  --danger-soft: #f3d9cf;
+  --warning: #b9822b;
+  --warning-soft: #f4e3c3;
+  --household: #8a7a63;
+  --shadow: 0 1px 2px rgb(60 45 25 / 0.06), 0 4px 16px rgb(60 45 25 / 0.06);
+}
+
+.dark {
+  --bg: #1b1814;
+  --surface: #25211c;
+  --surface-2: #2f2a23;
+  --text: #efe6d8;
+  --muted: #a99b88;
+  --border: #3a332a;
+  --wood: #c99764;
+  --wood-soft: #3d3024;
+  --olive: #a3b46a;
+  --olive-soft: #343a24;
+  --on-olive: #1b1814;
+  --danger: #e08467;
+  --danger-soft: #45261d;
+  --warning: #e0b05a;
+  --warning-soft: #44351b;
+  --household: #b8a68b;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 4px 16px rgb(0 0 0 / 0.25);
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-border: var(--border);
+  --color-wood: var(--wood);
+  --color-wood-soft: var(--wood-soft);
+  --color-olive: var(--olive);
+  --color-olive-soft: var(--olive-soft);
+  --color-on-olive: var(--on-olive);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-household: var(--household);
+  --font-sans: var(--font-body), system-ui, sans-serif;
+  --font-display: var(--font-display-face), Georgia, serif;
+  --shadow-soft: var(--shadow);
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--text);
+}
+
+body {
+  font-family: var(--font-sans);
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+/* Espacio para la barra inferior y el área segura de Android */
+.pb-nav {
+  padding-bottom: calc(96px + env(safe-area-inset-bottom));
+}

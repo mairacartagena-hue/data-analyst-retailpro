@@ -1,0 +1,74 @@
+"use client";
+
+import { motion } from "motion/react";
+import { AlertTriangle, Lock, Users } from "lucide-react";
+import type { Category, Member } from "@/lib/types";
+import type { CategoryStatus } from "@/lib/finance/budget";
+import { formatCop, formatCopShort } from "@/lib/finance/money";
+import { MemberBadge } from "@/components/MemberBadge";
+import { cn } from "@/lib/utils";
+
+/** Barra de progreso de una categoría: quién es responsable, cuánto lleva cada uno y alerta de tope. */
+export function BudgetBar({
+  category, status, memberById, onClick,
+}: {
+  category: Category;
+  status: CategoryStatus | undefined;
+  memberById: (id: string | null | undefined) => Member | null;
+  onClick?: () => void;
+}) {
+  const available = status?.totalAvailable ?? 0;
+  const spent = status?.totalSpent ?? 0;
+  const level = status?.level ?? "ok";
+  const allocations = status?.allocations ?? [];
+  const spenders = Object.entries(status?.spentByUser ?? {}).filter(([, v]) => v > 0);
+  const scale = Math.max(available, spent, 1);
+  const left = available - spent;
+
+  return (
+    <button onClick={onClick} className="w-full rounded-2xl border border-border bg-surface p-3.5 text-left transition-colors hover:bg-surface-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="text-lg">{category.icon || "•"}</span>
+          <span className="truncate font-semibold">{category.name}</span>
+          {category.responsibility === "PRIVATE" && <Lock size={14} className="shrink-0 text-muted" aria-label="Privada" />}
+          {category.is_shared_progress && <Users size={14} className="shrink-0 text-muted" aria-label="Progreso compartido" />}
+          {level !== "ok" && (
+            <AlertTriangle size={15} className={cn("shrink-0", level === "over" ? "text-danger" : "text-warning")}
+              aria-label={level === "over" ? "Pasó el tope" : "Cerca del tope"} />
+          )}
+        </div>
+        <div className="flex shrink-0 -space-x-1.5">
+          {allocations.map((a) => <MemberBadge key={a.userId} member={memberById(a.userId)} size={22} className="ring-2 ring-surface" />)}
+        </div>
+      </div>
+
+      <div className="mt-3 flex h-2.5 w-full overflow-hidden rounded-full bg-surface-2">
+        {spenders.map(([userId, value]) => (
+          <motion.span key={userId} className="h-full" style={{ background: level === "over" ? "var(--danger)" : (memberById(userId)?.color ?? "var(--household)") }}
+            initial={{ width: 0 }} animate={{ width: `${(value / scale) * 100}%` }} transition={{ type: "spring", stiffness: 120, damping: 20 }} />
+        ))}
+      </div>
+
+      <div className="mt-2 flex items-baseline justify-between text-sm">
+        <span className="num text-muted">
+          {formatCopShort(spent)} de {formatCopShort(available)}
+        </span>
+        <span className={cn("num font-semibold", left < 0 ? "text-danger" : level === "warning" ? "text-warning" : "text-text")}>
+          {left < 0 ? `Pasó ${formatCop(-left)}` : `Quedan ${formatCop(left)}`}
+        </span>
+      </div>
+
+      {category.responsibility === "FIXED_AMOUNTS" && allocations.length > 1 && (
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          {allocations.map((a) => (
+            <div key={a.userId} className="rounded-xl bg-surface-2 px-2.5 py-1.5 text-xs">
+              <span className="font-medium">{memberById(a.userId)?.display_name}</span>
+              <span className="num block text-muted">{formatCopShort(a.spent)} de {formatCopShort(a.available)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </button>
+  );
+}

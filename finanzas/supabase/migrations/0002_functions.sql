@@ -308,6 +308,13 @@ begin
     raise exception 'Esa categoría no existe';
   end if;
 
+  -- Quien no ve el progreso de una categoría no puede volverla compartida,
+  -- reasignarla ni cambiarle el presupuesto (así no se salta la privacidad).
+  if v_id is not null and not can_see_budget(v_id) then
+    select responsibility, is_shared_progress into v_resp, v_shared from categories where id = v_id;
+    v_budget := null;
+  end if;
+
   if v_resp = 'PRIVATE' then
     v_owner := v_uid;
     v_obligation := false;
