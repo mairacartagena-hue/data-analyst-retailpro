@@ -3,7 +3,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowRightLeft, ChevronRight, Download, LogOut, RefreshCw, Share2 } from "lucide-react";
+import { ArrowRightLeft, ChevronRight, Download, LogOut, RefreshCw, Share2, Zap } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { MemberBadge } from "@/components/MemberBadge";
 import { Button } from "@/components/ui/button";
@@ -144,6 +144,10 @@ export default function AjustesPage() {
             </div>
           </>
         )}
+        <Link href="/captura" className="flex items-center justify-between rounded-2xl bg-surface-2 px-3 py-3 text-sm font-medium">
+          <span className="flex items-center gap-2"><Zap size={16} /> Captura automática (notificaciones, SMS y correos)</span>
+          <ChevronRight size={16} />
+        </Link>
         <Link href="/cruce" className="flex items-center justify-between rounded-2xl bg-surface-2 px-3 py-3 text-sm font-medium">
           <span className="flex items-center gap-2"><ArrowRightLeft size={16} /> Cruce de cuentas y préstamos</span>
           <ChevronRight size={16} />

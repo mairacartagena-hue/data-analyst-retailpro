@@ -21,7 +21,7 @@ PWA privada de finanzas personales y en pareja (Android y escritorio). Todo en p
 | Dashboard con vistas Mis finanzas / Hogar / Vista global | `app/(app)/page.tsx` |
 | RLS en todas las tablas, Realtime en ambos celulares, PWA instalable, modo claro/oscuro | `supabase/migrations` |
 
-Pendiente para fases siguientes: ingesta automática (Fase 2), voz/OCR/Telegram/offline con cola (Fase 3), metas de ahorro, recurrentes, Web Push, búsqueda avanzada, IA y CSV (Fase 4). Mientras no existan metas de ahorro, “Ahorros programados pendientes” vale 0 en el Saldo Seguro.
+Pendiente para fases siguientes: voz/OCR/Telegram/offline con cola (Fase 3), metas de ahorro, recurrentes, Web Push, búsqueda avanzada, IA y CSV (Fase 4). Mientras no existan metas de ahorro, “Ahorros programados pendientes” vale 0 en el Saldo Seguro.
 
 **Créditos (decidido para la Fase 4):** por ahora se registran como pasivo manual en Cuentas → “Otros activos y pasivos” (tipo Crédito o Hipoteca) y la cuota como gasto en una categoría. En la Fase 4 serán un tipo de cuenta propio:
 - Datos del crédito: saldo de capital, tasa de interés (efectiva anual, en pesos; UVR queda fuera por ahora), plazo, día de pago, seguros y otros costos.
@@ -29,6 +29,32 @@ Pendiente para fases siguientes: ingesta automática (Fase 2), voz/OCR/Telegram/
 - Saldo Seguro: se reserva la cuota del periodo hasta que se pague, no el saldo total. Patrimonio: resta el saldo de capital real.
 - La responsabilidad de la cuota se asigna igual que cualquier partida (ej. hipoteca 100 % de un miembro).
 - Aviso mensual para confirmar el saldo con el extracto: “¿El saldo de tu hipoteca es $X? Confirmar / Corregir”.
+
+## Fase 2 — Ingesta automática
+
+| Incluido | Dónde |
+|---|---|
+| Webhook único `POST /api/webhook/android-ingest` con token por persona (`Authorization: Bearer …`) | `app/api/webhook/android-ingest` |
+| Parsers por banco, en un registro extensible | `lib/ingest/registry.ts`, `lib/ingest/parsers/` |
+| Bancolombia (SMS y correo): compras con T.Deb/T.Cred, pagos PSE, transferencias enviadas y recibidas, pagos recibidos | `parsers/bancolombia.ts` |
+| BBVA (notificación “Compra Exitosa”); avisos de ingreso a la app se ignoran | `parsers/bbva.ts` |
+| Banco Caja Social (SMS de pagos aprobados; rechazados se ignoran) | `parsers/cajaSocial.ts` |
+| Respaldo con Gemini (Flash-Lite, nivel gratuito) solo si las reglas no reconocen el texto; se envía enmascarado | `lib/ingest/gemini.ts` |
+| Deduplicación sin IA: mismo monto, ±5 min, comercio parecido (`pg_trgm`) y cuenta compatible → se fusiona | `ingest_event()` |
+| Transferencias entre cuentas propias: la salida y la entrada se unen en una transferencia | `ingest_event()` |
+| Retiros: transferencia a la cuenta de efectivo | `ingest_event()` |
+| Cola “Por revisar” en el inicio con sugerencia de un toque y “Aplicar siempre sin preguntar” | `components/PendingReview.tsx` |
+| Memoria de comercios de cada persona (comercio, NIT, cuenta o celular) | `merchant_memory`, `remember_merchant()` |
+| Registro de eventos (`ingest_logs`), texto crudo borrado a los 30 días | Ajustes → Captura automática |
+| Guía MacroDroid (notificaciones y SMS) y Google Apps Script para Gmail | Ajustes → Captura automática |
+
+Pendiente de ejemplos reales: Nequi, Banco de Bogotá y Google Wallet (mientras tanto los lee Gemini).
+
+Variables de entorno de la Fase 2 (solo servidor, en Vercel):
+```
+GEMINI_API_KEY=...          # Google AI Studio, gratis
+GEMINI_MODEL=...            # opcional; por defecto gemini-flash-lite-latest
+```
 
 ## Decisiones de la Fase 1
 
@@ -45,7 +71,7 @@ Pendiente para fases siguientes: ingesta automática (Fase 2), voz/OCR/Telegram/
 ## Configuración
 
 ### 1. Base de datos (Supabase, proyecto `finanzas-pareja`)
-Las migraciones están en `supabase/migrations/` (0001 → 0005). Para aplicarlas a mano, pega cada archivo completo en **SQL Editor → Run**, en orden. Se pueden correr más de una vez.
+Las migraciones están en `supabase/migrations/` (0001 → 0007). Para aplicarlas a mano, pega cada archivo completo en **SQL Editor → Run**, en orden. Se pueden correr más de una vez.
 
 ### 2. Autenticación
 En Supabase → **Authentication → URL Configuration**:

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { ArrowRightLeft, Plus, Scissors, Trash2, X } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import type { Category, Transaction, TxKind } from "@/lib/types";
+import { CHANNEL_LABEL } from "@/lib/types";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { ErrorText, Field, Input, Select } from "@/components/ui/input";
@@ -59,6 +60,7 @@ export function TransactionSheet({
   const usable = categories.filter((c) => !c.archived);
 
   const readOnly = !!editing && (editing.created_by !== me.user_id || editing.kind === "SETTLEMENT");
+  const isPendingReview = editing?.status === "PENDING_REVIEW";
 
   const [kind, setKind] = useState<FormKind>("EXPENSE");
   const [amount, setAmount] = useState("");
@@ -72,6 +74,8 @@ export function TransactionSheet({
   const [splits, setSplits] = useState<SplitRow[]>([]);
   const [isShared, setIsShared] = useState(false);
   const [fixedPrompt, setFixedPrompt] = useState<FixedPrompt | null>(null);
+  const [remember, setRemember] = useState(true);
+  const [autoApply, setAutoApply] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -95,8 +99,18 @@ export function TransactionSheet({
         setSplits(sp.map((s) => ({ key: s.id, amount: String(s.amount), categoryId: s.category_id ?? "", responsibleId: s.responsible_user_id })));
       } else {
         setSplitMode(false);
-        setCategoryId(sp[0]?.category_id ?? "");
-        setResponsibleId(sp[0]?.responsible_user_id ?? me.user_id);
+        const pendingCat = editing.status === "PENDING_REVIEW" && !sp[0]?.category_id ? editing.suggested_category_id ?? "" : "";
+        setCategoryId(sp[0]?.category_id ?? pendingCat);
+        setResponsibleId(pendingCat ? (editing.suggested_responsible_user_id ?? me.user_id) : (sp[0]?.responsible_user_id ?? me.user_id));
+      }
+      setRemember(true);
+      setAutoApply(false);
+      // Un pago de tarjeta que llegó solo se revisa como transferencia hacia la tarjeta
+      if (editing.status === "PENDING_REVIEW" && editing.movement_type === "CARD_PAYMENT") {
+        setKind("TRANSFER");
+        const card = editing.suggested_to_account_id ?? "";
+        setToAccountId(card);
+        if (card && editing.account_id === card) setAccountId("");
       }
       return;
     }
@@ -225,6 +239,9 @@ export function TransactionSheet({
         })),
       },
     });
+    if (!error && isPendingReview && kind === "EXPENSE" && !splitMode && remember && (editing?.merchant_norm || (editing?.splits.length ?? 0) > 0)) {
+      await supabase.rpc("remember_merchant", { p_transaction_id: editing!.id, p_auto_apply: autoApply });
+    }
     setBusy(false);
     if (error) return setError(errMsg(error));
     try { if (accountId) localStorage.setItem(LAST_ACCOUNT_KEY, accountId); } catch {}
@@ -250,7 +267,7 @@ export function TransactionSheet({
   const crossing = kind === "EXPENSE" && !splitMode && responsibleId !== me.user_id;
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} title={editing ? "Editar movimiento" : preset ? "Registrar pago" : "Registrar"}>
+    <Sheet open={open} onOpenChange={onOpenChange} title={isPendingReview ? "Revisar movimiento" : editing ? "Editar movimiento" : preset ? "Registrar pago" : "Registrar"}>
       {myAccounts.length === 0 ? (
         <div className="space-y-3 py-6 text-center">
           <p className="text-[15px]">Primero agrega una cuenta (ahorros, Nequi, efectivo o tarjeta) en la pestaña Cuentas.</p>
@@ -277,7 +294,13 @@ export function TransactionSheet({
         </div>
       ) : (
         <div className="space-y-4 pb-2">
-          {!editing && (
+          {isPendingReview && (
+            <p className="rounded-2xl bg-warning-soft px-3 py-2.5 text-sm">
+              Llegó automáticamente{editing?.source ? ` (${CHANNEL_LABEL[editing.source] ?? editing.source})` : ""}. Revisa los datos y guarda para confirmarlo.
+            </p>
+          )}
+
+          {(!editing || isPendingReview) && (
             <Segmented value={kind} onChange={setKind} options={[
               { value: "EXPENSE", label: "Gasto" },
               { value: "INCOME", label: "Ingreso" },
@@ -402,6 +425,17 @@ export function TransactionSheet({
             </div>
           )}
 
+          {isPendingReview && kind === "EXPENSE" && !splitMode && (
+            <div className="rounded-2xl border border-border bg-surface px-3">
+              <SwitchRow label="Recordar este comercio" hint="La próxima vez te sugiero la misma categoría y responsable."
+                checked={remember} onCheckedChange={setRemember} />
+              {remember && (
+                <SwitchRow label="Aplicar siempre sin preguntar" hint="Se confirma solo cuando llegue otro pago igual."
+                  checked={autoApply} onCheckedChange={setAutoApply} />
+              )}
+            </div>
+          )}
+
           <ErrorText>{error}</ErrorText>
 
           <div className="flex gap-3 pt-1">
@@ -411,7 +445,7 @@ export function TransactionSheet({
               </Button>
             )}
             <Button className="flex-1" size="lg" disabled={busy} onClick={() => save()}>
-              {busy ? "Guardando..." : "Guardar"}
+              {busy ? "Guardando..." : isPendingReview ? "Confirmar" : "Guardar"}
             </Button>
           </div>
         </div>

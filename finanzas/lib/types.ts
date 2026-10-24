@@ -114,8 +114,45 @@ export interface Transaction {
   tags: string[];
   created_by: string;
   created_at: string;
+  occurred_at?: string | null;
+  merchant_norm?: string | null;
+  movement_type?: "PURCHASE" | "TRANSFER_OUT" | "TRANSFER_IN" | "WITHDRAWAL" | "CARD_PAYMENT" | "INCOME" | "OWN_TRANSFER" | null;
+  card_last4?: string | null;
+  suggested_category_id?: string | null;
+  suggested_responsible_user_id?: string | null;
+  suggested_to_account_id?: string | null;
   splits: Split[];
 }
+
+export interface IngestLog {
+  id: string;
+  channel: string;
+  source: string | null;
+  raw_text: string | null;
+  parser: string | null;
+  result: "ACCEPTED" | "MERGED" | "DISCARDED" | "IGNORED" | "UNRECOGNIZED" | "ERROR";
+  reason: string | null;
+  transaction_id: string | null;
+  received_at: string;
+}
+
+export interface MerchantMemory {
+  id: string;
+  identifier_type: "MERCHANT" | "NIT" | "ACCOUNT" | "PHONE" | "KEYWORD";
+  identifier: string;
+  category_id: string | null;
+  responsible_user_id: string | null;
+  tag: string | null;
+  auto_apply: boolean;
+  hits: number;
+}
+
+export const CHANNEL_LABEL: Record<string, string> = {
+  ANDROID_NOTIFICATION: "Notificación",
+  ANDROID_SMS: "SMS",
+  GMAIL: "Correo",
+  MANUAL: "Manual",
+};
 
 export interface LedgerRow {
   id: string;
