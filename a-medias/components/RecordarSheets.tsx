@@ -3,10 +3,10 @@
 import { useEffect, useState } from "react";
 import { Cat, Dog, Trash2 } from "lucide-react";
 import { getSupabase } from "@/lib/supabase/client";
-import { splitTimestamp, toBogotaISO, todayStr } from "@/lib/dates";
+import { ageParts, birthFromAge, formatAge, splitTimestamp, toBogotaISO, todayStr } from "@/lib/dates";
 import type { Note, Pet, PetEvent, Reminder } from "@/lib/types";
 import { useHousehold } from "./HouseholdProvider";
-import { ErrorText, Pills, Sheet, errMsg } from "./ui";
+import { ErrorText, Pills, Sheet, errMsg, quienOptions } from "./ui";
 
 // ---------------------------------------------------------------
 // Recordatorio
@@ -16,7 +16,7 @@ export function ReminderSheet({ open, onClose, reminder }: { open: boolean; onCl
   const [titulo, setTitulo] = useState("");
   const [fecha, setFecha] = useState(todayStr());
   const [hora, setHora] = useState("09:00");
-  const [para, setPara] = useState<string>("ambos");
+  const [para, setPara] = useState<string>("juntos");
   const [repeticion, setRepeticion] = useState<Reminder["repeticion"]>("ninguna");
   const [aviso, setAviso] = useState(0);
   const [nota, setNota] = useState("");
@@ -30,7 +30,7 @@ export function ReminderSheet({ open, onClose, reminder }: { open: boolean; onCl
     setTitulo(r?.titulo ?? "");
     setFecha(fh?.fecha ?? todayStr());
     setHora(fh?.hora ?? "09:00");
-    setPara(r && r.responsables.length === 1 ? r.responsables[0] : "ambos");
+    setPara(r && r.responsables.length === 1 ? r.responsables[0] : "juntos");
     setRepeticion(r?.repeticion ?? "ninguna");
     setAviso(r?.aviso_previo_dias ?? 0);
     setNota(r?.nota ?? "");
@@ -43,7 +43,7 @@ export function ReminderSheet({ open, onClose, reminder }: { open: boolean; onCl
       household_id: household!.id,
       titulo: titulo.trim(),
       fecha_hora: toBogotaISO(fecha, hora),
-      responsables: para === "ambos" ? [] : [para],
+      responsables: para === "juntos" ? [] : [para],
       repeticion,
       aviso_previo_dias: aviso,
       nota: nota.trim() || null,
@@ -90,7 +90,7 @@ export function ReminderSheet({ open, onClose, reminder }: { open: boolean; onCl
         <div>
           <span className="label">¿Para quién?</span>
           <Pills
-            options={[{ value: "ambos", label: "Los dos" }, ...members.map((m) => ({ value: m.id, label: m.nombre }))]}
+            options={quienOptions(members)}
             value={para}
             onChange={setPara}
           />
@@ -160,9 +160,13 @@ export function PetSheet({
   pet?: Pet | null;
   onCreated?: (id: string) => void;
 }) {
-  const { household, optimisticRemove } = useHousehold();
+  const { household, optimistic, optimisticRemove } = useHousehold();
   const [nombre, setNombre] = useState("");
   const [especie, setEspecie] = useState<Pet["especie"]>("gato");
+  const [modoNac, setModoNac] = useState<"fecha" | "aprox" | "no">("no");
+  const [fechaNac, setFechaNac] = useState("");
+  const [anios, setAnios] = useState(0);
+  const [meses, setMeses] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -170,23 +174,43 @@ export function PetSheet({
     setError(null);
     setNombre(pet?.nombre ?? "");
     setEspecie(pet?.especie ?? "gato");
+    const nac = pet?.fecha_nacimiento ?? null;
+    setModoNac(!nac ? "no" : pet?.fecha_nacimiento_aproximada ? "aprox" : "fecha");
+    setFechaNac(nac ?? "");
+    const partes = nac ? ageParts(nac) : { anios: 0, meses: 0 };
+    setAnios(partes.anios);
+    setMeses(partes.meses);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, pet?.id]);
 
+  // Fecha que se guarda: la exacta, una estimada desde la edad, o ninguna
+  const nacimiento =
+    modoNac === "fecha" ? fechaNac || null : modoNac === "aprox" && anios * 12 + meses > 0 ? birthFromAge(anios, meses) : null;
+
   async function guardar() {
     if (!nombre.trim()) return setError("¿Cómo se llama?");
+    if (modoNac === "fecha" && !fechaNac) return setError("Elige la fecha de nacimiento.");
+    if (modoNac === "fecha" && fechaNac > todayStr()) return setError("La fecha de nacimiento no puede ser futura.");
+    if (modoNac === "aprox" && anios * 12 + meses <= 0) return setError("Escribe la edad aproximada.");
+    const datos = {
+      nombre: nombre.trim(),
+      especie,
+      fecha_nacimiento: nacimiento,
+      fecha_nacimiento_aproximada: modoNac === "aprox",
+    };
     const sb = getSupabase();
     if (pet) {
-      const { error } = await sb.from("pets").update({ nombre: nombre.trim(), especie }).eq("id", pet.id);
+      const { error } = await sb.from("pets").update(datos).eq("id", pet.id);
       if (error) return setError(errMsg(error));
       onClose();
     } else {
       const { data, error } = await sb
         .from("pets")
-        .insert({ household_id: household!.id, nombre: nombre.trim(), especie })
-        .select("id")
-        .single();
+        .insert({ household_id: household!.id, ...datos })
+        .select("*")
+        .single<Pet>();
       if (error) return setError(errMsg(error));
+      optimistic("pets", data); // para que la ficha la encuentre sin esperar a Realtime
       onClose();
       onCreated?.(data.id);
     }
@@ -225,6 +249,72 @@ export function PetSheet({
             );
           })}
         </div>
+        <div>
+          <span className="label">Nacimiento</span>
+          <Pills<"fecha" | "aprox" | "no">
+            options={[
+              { value: "fecha", label: "Sé la fecha" },
+              { value: "aprox", label: "Edad aproximada" },
+              { value: "no", label: "No sé" },
+            ]}
+            value={modoNac}
+            onChange={setModoNac}
+          />
+        </div>
+        {modoNac === "fecha" && (
+          <div>
+            <label className="label" htmlFor="pet-nac">
+              Fecha de nacimiento
+            </label>
+            <input
+              id="pet-nac"
+              type="date"
+              className="input"
+              max={todayStr()}
+              value={fechaNac}
+              onChange={(e) => setFechaNac(e.target.value)}
+            />
+          </div>
+        )}
+        {modoNac === "aprox" && (
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label" htmlFor="pet-anios">
+                Años
+              </label>
+              <input
+                id="pet-anios"
+                type="number"
+                min={0}
+                max={40}
+                inputMode="numeric"
+                className="input"
+                value={anios}
+                onChange={(e) => setAnios(Math.max(0, Number(e.target.value)))}
+              />
+            </div>
+            <div>
+              <label className="label" htmlFor="pet-meses">
+                Meses
+              </label>
+              <input
+                id="pet-meses"
+                type="number"
+                min={0}
+                max={11}
+                inputMode="numeric"
+                className="input"
+                value={meses}
+                onChange={(e) => setMeses(Math.min(11, Math.max(0, Number(e.target.value))))}
+              />
+            </div>
+          </div>
+        )}
+        {nacimiento && (
+          <p className="rounded-[10px] bg-rosa-claro px-3 py-2 text-sm">
+            Edad: <strong>{formatAge(nacimiento, modoNac === "aprox")}</strong>
+          </p>
+        )}
         <ErrorText>{error}</ErrorText>
         <button className="btn btn-primary w-full" onClick={guardar}>
           Guardar mascota
@@ -259,7 +349,7 @@ export function PetEventSheet({
   const [fecha, setFecha] = useState(todayStr());
   const [repeticion, setRepeticion] = useState<PetEvent["repeticion"]>("ninguna");
   const [aviso, setAviso] = useState(1);
-  const [resp, setResp] = useState("ambos");
+  const [resp, setResp] = useState("juntos");
   const [nota, setNota] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -271,7 +361,7 @@ export function PetEventSheet({
     setFecha(event?.fecha ?? todayStr());
     setRepeticion(event?.repeticion ?? "anual");
     setAviso(event?.aviso_previo_dias ?? 3);
-    setResp(event?.responsable_id ?? "ambos");
+    setResp(event?.responsable_id ?? "juntos");
     setNota(event?.nota ?? "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, event?.id]);
@@ -285,7 +375,7 @@ export function PetEventSheet({
       fecha,
       repeticion,
       aviso_previo_dias: aviso,
-      responsable_id: resp === "ambos" ? null : resp,
+      responsable_id: resp === "juntos" ? null : resp,
       nota: nota.trim() || null,
     };
     const sb = getSupabase();
@@ -349,7 +439,7 @@ export function PetEventSheet({
         <div>
           <span className="label">¿Quién lo lleva?</span>
           <Pills
-            options={[{ value: "ambos", label: "Los dos" }, ...members.map((m) => ({ value: m.id, label: m.nombre }))]}
+            options={quienOptions(members)}
             value={resp}
             onChange={setResp}
           />

@@ -149,6 +149,8 @@ export interface Pet {
   household_id: string;
   nombre: string;
   especie: "gato" | "perro";
+  fecha_nacimiento: string | null;
+  fecha_nacimiento_aproximada: boolean;
   created_at: string;
 }
 

@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { Check, X } from "lucide-react";
 import type { Member } from "@/lib/types";
+import { useHouseholdOptional } from "./HouseholdProvider";
 
 export function PageHeader({ title, subtitle, right }: { title: string; subtitle?: string; right?: React.ReactNode }) {
   return (
@@ -17,6 +18,18 @@ export function PageHeader({ title, subtitle, right }: { title: string; subtitle
 }
 
 /** Colores por persona: rosa con letra oscura, bordó con letra clara. */
+/** Texto único para "los dos" en toda la app */
+export const JUNTOS = "Juntos";
+
+/** Opciones de "¿Quién?": Persona 1, Persona 2, [Rotar], Juntos (siempre en ese orden) */
+export function quienOptions(members: Member[], { rotar = false }: { rotar?: boolean } = {}) {
+  return [
+    ...members.map((m) => ({ value: m.id, label: m.nombre })),
+    ...(rotar && members.length > 1 ? [{ value: "rota", label: "Rotar" }] : []),
+    { value: "juntos", label: JUNTOS },
+  ];
+}
+
 export function personColors(m?: Pick<Member, "color"> | null) {
   if (!m) return "bg-rosa-claro text-vino";
   return m.color === "rosa" ? "bg-rosa text-vino" : "bg-vino text-crema";
@@ -36,7 +49,29 @@ export function Avatar({
   label?: string;
 }) {
   const Comp = onClick ? "button" : "span";
+  const pareja = useHouseholdOptional()?.members ?? [];
   if (juntos || !member) {
+    // Juntos: las iniciales de los dos, superpuestas
+    if (pareja.length === 2) {
+      return (
+        <Comp
+          onClick={onClick}
+          aria-label={label ?? `Juntos: ${pareja[0].nombre} y ${pareja[1].nombre}`}
+          title={`${pareja[0].nombre} y ${pareja[1].nombre}`}
+          className="inline-flex shrink-0 items-center"
+        >
+          {pareja.map((m, i) => (
+            <span
+              key={m.id}
+              className={`inline-flex items-center justify-center rounded-full border-2 border-vino font-semibold ${personColors(m)}`}
+              style={{ width: size, height: size, fontSize: size * 0.42, marginLeft: i ? -size * 0.3 : 0 }}
+            >
+              {m.nombre.charAt(0).toUpperCase()}
+            </span>
+          ))}
+        </Comp>
+      );
+    }
     return (
       <Comp
         onClick={onClick}

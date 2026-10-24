@@ -5,7 +5,7 @@ import { Pencil, Plus, Trash2 } from "lucide-react";
 import { useHousehold } from "@/components/HouseholdProvider";
 import { ImportarCompras } from "@/components/ImportarCompras";
 import { PantryCards, diasTexto, usePantrySoon } from "@/components/PantrySoon";
-import { Avatar, Checkbox, Empty, ErrorText, PageHeader, Pills, Sheet, errMsg } from "@/components/ui";
+import { Avatar, Checkbox, Empty, ErrorText, JUNTOS, PageHeader, Pills, Sheet, errMsg } from "@/components/ui";
 import { Loading } from "@/components/Loading";
 import { getSupabase } from "@/lib/supabase/client";
 import { todayStr } from "@/lib/dates";
@@ -214,7 +214,7 @@ export default function ComprasPage() {
                     {m.nombre}
                   </option>
                 ))}
-                <option value="juntos">Los dos</option>
+                <option value="juntos">{JUNTOS}</option>
               </select>
               <input
                 type="date"

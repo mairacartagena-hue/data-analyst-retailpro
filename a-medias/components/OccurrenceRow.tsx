@@ -5,7 +5,7 @@ import { getSupabase } from "@/lib/supabase/client";
 import { formatHora, formatShort, nowTimeStr, todayStr } from "@/lib/dates";
 import type { Occurrence, Task } from "@/lib/types";
 import { useHousehold } from "./HouseholdProvider";
-import { Avatar, Checkbox, ErrorText, Sheet, errMsg } from "./ui";
+import { Avatar, Checkbox, ErrorText, JUNTOS, Sheet, errMsg } from "./ui";
 
 /** "Michi · Amoxicilina 5 ml · 8:00" o el título de la tarea */
 export function occurrenceLabel(task: Task, petName?: string) {
@@ -114,11 +114,10 @@ export function OccurrenceRow({ occurrence: o, showDate = false }: { occurrence:
               <Avatar member={m} size={26} /> {m.nombre}
             </button>
           ))}
-          {task.modo !== "rota" && (
-            <button className={`btn ${!o.responsable_id ? "btn-primary" : "btn-secondary"} justify-start`} onClick={() => cambiar(null)}>
-              <Avatar juntos size={26} /> Los dos
-            </button>
-          )}
+          <button className={`btn ${!o.responsable_id ? "btn-primary" : "btn-secondary"} justify-start`} onClick={() => cambiar(null)}>
+            <Avatar juntos size={26} /> {JUNTOS}
+            {task.modo === "rota" && <span className="text-xs font-normal opacity-80">· solo este día</span>}
+          </button>
         </div>
         <ErrorText>{error}</ErrorText>
       </Sheet>

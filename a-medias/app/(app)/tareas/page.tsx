@@ -6,13 +6,13 @@ import { useHousehold } from "@/components/HouseholdProvider";
 import { TaskSheet } from "@/components/TaskSheet";
 import { MedSheet } from "@/components/MedSheet";
 import { ImportarTareas } from "@/components/ImportarTareas";
-import { Avatar, Empty, ErrorText, PageHeader, Pills, Sheet, errMsg } from "@/components/ui";
+import { Avatar, Empty, ErrorText, JUNTOS, PageHeader, Pills, Sheet, errMsg } from "@/components/ui";
 import { Loading } from "@/components/Loading";
 import { getSupabase } from "@/lib/supabase/client";
 import { DIAS_CORTOS, formatHora, todayStr } from "@/lib/dates";
 import type { Frecuencia, Occurrence, Task } from "@/lib/types";
 
-type Filtro = "todas" | "mias" | "otro" | "rotan" | "mascotas";
+type Filtro = "todas" | "mias" | "otro" | "juntos" | "rotan" | "mascotas";
 
 const GRUPOS: { f: Frecuencia; titulo: string }[] = [
   { f: "diaria", titulo: "Diarias" },
@@ -56,6 +56,8 @@ export default function TareasPage() {
           return t.modo === "fija" && t.responsable_fijo === me?.id;
         case "otro":
           return t.modo === "fija" && !!other && t.responsable_fijo === other.id;
+        case "juntos":
+          return t.modo === "juntos";
         case "rotan":
           return t.modo === "rota";
         case "mascotas":
@@ -94,6 +96,7 @@ export default function TareasPage() {
           { value: "todas", label: "Todas" },
           { value: "mias", label: "Mías" },
           { value: "otro", label: other ? `De ${other.nombre}` : "Del otro" },
+          { value: "juntos", label: JUNTOS },
           { value: "rotan", label: "Rotan" },
           { value: "mascotas", label: "Mascotas" },
         ]}
@@ -121,6 +124,7 @@ export default function TareasPage() {
                   const resp = memberById(t.responsable_fijo);
                   const pet = pets.find((p) => p.id === t.pet_id);
                   const pr = t.tipo === "tarea" ? proxima(t.id) : undefined;
+                  const prMed = t.tipo === "medicamento" ? proxima(t.id) : undefined;
                   const quien = pr ? memberById(pr.responsable_id) : memberById(t.responsable_fijo);
                   return (
                     <li key={t.id} className="flex items-center border-b-2 border-rosa-claro last:border-b-0">
@@ -141,15 +145,22 @@ export default function TareasPage() {
                             {detalle(t) || (t.frecuencia === "diaria" ? "Todos los días" : "")}
                           </p>
                         </div>
-                        {t.modo === "juntos" && !pr ? <Avatar juntos size={28} /> : null}
+                        {!pr &&
+                          (t.modo === "rota" ? (
+                            prMed && (
+                              <Avatar member={memberById(prMed.responsable_id)} juntos={!prMed.responsable_id} size={28} />
+                            )
+                          ) : (
+                            <Avatar member={resp} juntos={t.modo === "juntos"} size={28} />
+                          ))}
                       </button>
-                      {t.tipo === "tarea" && t.modo !== "juntos" && pr && (
+                      {pr && (
                         <button
                           className="mr-3 shrink-0 rounded-full"
                           aria-label={`Cambiar quién hace ${t.titulo}`}
                           onClick={() => (setErrorTurno(null), setTurnoDe(t))}
                         >
-                          <Avatar member={quien} juntos={!quien} size={30} />
+                          <Avatar member={quien} juntos={!quien} size={28} />
                         </button>
                       )}
                     </li>
@@ -182,11 +193,10 @@ export default function TareasPage() {
               <Avatar member={m} size={26} /> {m.nombre}
             </button>
           ))}
-          {turnoDe?.modo !== "rota" && (
-            <button className="btn btn-secondary justify-start" onClick={() => cambiarTurno(null)}>
-              <Avatar juntos size={26} /> Los dos
-            </button>
-          )}
+          <button className="btn btn-secondary justify-start" onClick={() => cambiarTurno(null)}>
+            <Avatar juntos size={26} /> {JUNTOS}
+            {turnoDe?.modo === "rota" && <span className="text-xs font-normal opacity-80">· solo esta vez</span>}
+          </button>
         </div>
         <ErrorText>{errorTurno}</ErrorText>
       </Sheet>

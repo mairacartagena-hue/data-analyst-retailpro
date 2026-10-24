@@ -8,7 +8,7 @@ Rama de producción: `main`
 
 **Hecho**
 - Base de datos: tablas, reglas de acceso (RLS), funciones, Realtime y dos trabajos programados (pg_cron): el diario (00:05) y el de notificaciones (cada 5 minutos, incluido el resumen de las 21:00).
-- Migraciones `0001` a `0018` aplicadas. La `0011` ya quitó la tabla de documentos de mascotas.
+- Migraciones `0001` a `0019` aplicadas. La `0011` ya quitó la tabla de documentos de mascotas.
 - Esquema viejo `old_demo` eliminado.
 - Bucket `mascotas-docs` eliminado.
 - Edge Function `send-push` publicada, con sus secretos VAPID y `PUSH_CRON_SECRET`.
@@ -34,7 +34,7 @@ Rama de producción: `main`
 | Hoy: marcar tareas y quién las hizo | OK |
 | Tareas: crear, filtros, mascotas, cambiar responsable | OK |
 | Tareas y medicamentos recién creados aparecen sin refrescar | OK |
-| Compras: "Va:" con persona, "Los dos" y tarea con la fecha | OK |
+| Compras: "Va:" con persona, "Juntos" y tarea con la fecha | OK |
 | Compras: duración y paso a Despensa | OK |
 | Compras: comida natural (lista Mascotas) con mascota | Por validar |
 | Semana: filtro por persona y sugerencias de mover | OK |
@@ -58,10 +58,12 @@ Rama de producción: `main`
 | Salir del hogar y volver a entrar | OK |
 | Unirse a un hogar con el código o el link | Pendiente |
 | Lentitud al cambiar de hoja | Mejorada: la primera vez tarda, luego va bien |
+| "Juntos" igual en todas las hojas (dos iniciales; filtro en Tareas; conteo en el balance) | OK (local) |
+| Mascotas: fecha de nacimiento exacta o aproximada y edad | OK (local) |
 
 ## Piezas del sistema
 
-- **Migraciones** (`supabase/migrations/`): `0001` a `0018`, en orden. Las `0001` a `0007` están juntas en `supabase/sql_por_partes/` para pegarlas en el SQL Editor.
+- **Migraciones** (`supabase/migrations/`): `0001` a `0019`, en orden. Las `0001` a `0007` están juntas en `supabase/sql_por_partes/` para pegarlas en el SQL Editor.
 - **Datos de ejemplo:** `supabase/seed_sin_comentarios.sql`. Cambia el correo en la línea 3 antes de correrlo. Borra el hogar de esas dos cuentas.
 - **Edge Function:** `supabase/functions/send-push/`. La llama pg_cron cada 5 minutos con el header `x-cron-secret`.
 - **Claves VAPID:** no están en el repositorio. Están en el archivo `claves_vapid.txt` que se envió en el chat. Si se pierden, hay que generar otras, actualizarlas en Supabase y en Vercel, y las notificaciones activadas dejan de funcionar hasta reactivarlas en la app.

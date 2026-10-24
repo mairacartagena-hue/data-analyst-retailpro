@@ -101,3 +101,47 @@ export const DIAS_NOMBRE = ["lunes", "martes", "miércoles", "jueves", "viernes"
 export function capitalize(s: string) {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
+
+/** Años y meses cumplidos entre dos fechas 'YYYY-MM-DD' */
+export function ageParts(nacimiento: string, hoy = todayStr()): { anios: number; meses: number; dias: number } {
+  const [y1, m1, d1] = nacimiento.split("-").map(Number);
+  const [y2, m2, d2] = hoy.split("-").map(Number);
+  let meses = (y2 - y1) * 12 + (m2 - m1);
+  if (d2 < d1) meses -= 1;
+  meses = Math.max(0, meses);
+  return { anios: Math.floor(meses / 12), meses: meses % 12, dias: Math.max(0, diffDays(hoy, nacimiento)) };
+}
+
+/** "2 años y 3 meses", "5 meses", "3 semanas". Con aproximada = true antepone "Unos". */
+export function formatAge(nacimiento: string, aproximada = false, hoy = todayStr()): string {
+  const { anios, meses, dias } = ageParts(nacimiento, hoy);
+  const plural = (n: number, uno: string, varios: string) => `${n} ${n === 1 ? uno : varios}`;
+  let texto: string;
+  if (anios === 0 && meses === 0) {
+    const semanas = Math.floor(dias / 7);
+    texto = semanas >= 1 ? plural(semanas, "semana", "semanas") : plural(dias, "día", "días");
+  } else if (anios === 0) texto = plural(meses, "mes", "meses");
+  else if (meses === 0) texto = plural(anios, "año", "años");
+  else texto = `${plural(anios, "año", "años")} y ${plural(meses, "mes", "meses")}`;
+  return aproximada ? `Unos ${texto}` : texto;
+}
+
+/** Fecha estimada de nacimiento a partir de una edad aproximada */
+export function birthFromAge(anios: number, meses: number, hoy = todayStr()): string {
+  const [y, m, d] = hoy.split("-").map(Number);
+  const total = y * 12 + (m - 1) - (anios * 12 + meses);
+  const yy = Math.floor(total / 12);
+  const mm = (total % 12) + 1;
+  const dd = Math.min(d, new Date(Date.UTC(yy, mm, 0)).getUTCDate());
+  return `${yy}-${String(mm).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
+}
+
+/** "14 de marzo de 2023" */
+export function formatDateLong(s: string): string {
+  return new Intl.DateTimeFormat("es-CO", { timeZone: "UTC", day: "numeric", month: "long", year: "numeric" }).format(toDate(s));
+}
+
+/** "marzo de 2023" */
+export function monthYear(s: string): string {
+  return new Intl.DateTimeFormat("es-CO", { timeZone: "UTC", month: "long", year: "numeric" }).format(toDate(s));
+}

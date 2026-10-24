@@ -3,14 +3,14 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ArrowLeft, Cat, Dog, Pencil, Plus, Repeat, Syringe, Stethoscope } from "lucide-react";
+import { ArrowLeft, Cake, Cat, Dog, Pencil, Plus, Repeat, Syringe, Stethoscope } from "lucide-react";
 import { useHousehold } from "@/components/HouseholdProvider";
 import { OccurrenceRow, sortOccurrences } from "@/components/OccurrenceRow";
 import { MedSheet } from "@/components/MedSheet";
 import { PetEventSheet, PetSheet } from "@/components/RecordarSheets";
 import { Avatar, Empty } from "@/components/ui";
 import { Loading } from "@/components/Loading";
-import { dayNum, formatHora, formatShort, monthShort, todayStr } from "@/lib/dates";
+import { dayNum, formatAge, formatDateLong, formatHora, formatShort, monthShort, monthYear, todayStr } from "@/lib/dates";
 import { medProgress, nextPetEventDate } from "@/lib/logic";
 import type { PetEvent, Task } from "@/lib/types";
 
@@ -61,7 +61,18 @@ export default function MascotaPage() {
         </span>
         <div>
           <h1 className="titulo text-[44px]">{pet.nombre}</h1>
-          <p className="text-sm text-sec">{pet.especie === "gato" ? "Gato" : "Perro"}</p>
+          <p className="text-sm text-sec">
+            {pet.especie === "gato" ? "Gato" : "Perro"}
+            {pet.fecha_nacimiento && ` · ${formatAge(pet.fecha_nacimiento, pet.fecha_nacimiento_aproximada)}`}
+          </p>
+          {pet.fecha_nacimiento && (
+            <p className="flex items-center gap-1.5 text-xs text-sec">
+              <Cake size={13} />
+              {pet.fecha_nacimiento_aproximada
+                ? `Nació aprox. en ${monthYear(pet.fecha_nacimiento)}`
+                : `Nació el ${formatDateLong(pet.fecha_nacimiento)}`}
+            </p>
+          )}
         </div>
       </header>
 
@@ -98,9 +109,16 @@ export default function MascotaPage() {
                     {t.fecha_fin ? `hasta el ${formatShort(t.fecha_fin)}` : "uso continuo"}
                   </p>
                 </div>
-                <button aria-label={`Editar ${t.titulo}`} className="rounded-[10px] border-2 border-vino p-1.5" onClick={() => setMed(t)}>
-                  <Pencil size={14} />
-                </button>
+                <div className="flex items-start gap-2">
+                  {!(t.modo === "rota" && !deHoy[0]) && (
+                    <Avatar
+                      member={t.modo === "fija" ? memberById(t.responsable_fijo) : t.modo === "rota" ? memberById(deHoy[0]?.responsable_id) : null}
+                      juntos={t.modo === "juntos" || (t.modo === "rota" && !!deHoy[0] && !deHoy[0].responsable_id)} size={28} />
+                  )}
+                  <button aria-label={`Editar ${t.titulo}`} className="rounded-[10px] border-2 border-vino p-1.5" onClick={() => setMed(t)}>
+                    <Pencil size={14} />
+                  </button>
+                </div>
               </div>
 
               <p className="mt-3 text-[15px] font-semibold">
