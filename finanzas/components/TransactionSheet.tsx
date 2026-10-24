@@ -201,10 +201,11 @@ export function TransactionSheet({
     setScopeTouched(true);
   }
 
+  // La categoría no decide quién asume el pago (la usan los dos): solo una categoría personal
+  // queda a cargo de su dueño. El responsable de un presupuesto se propone al pagar desde ese presupuesto.
   function pickCategory(c: Category) {
     setCategoryId(c.id);
-    const resp = categoryResponsible(c, me, partner);
-    setResponsibleId(resp ?? payerId);
+    if (c.responsibility === "PRIVATE" && c.owner_user_id) setResponsibleId(c.owner_user_id);
     // Una categoría personal solo cabe en un movimiento personal; si no, se sugiere el ámbito de la categoría
     if (c.responsibility === "PRIVATE") setScope("PERSONAL");
     else if (!scopeTouched && !partnerEdit) setScope(suggestedScope(c));
@@ -476,7 +477,7 @@ export function TransactionSheet({
               </Field>
 
               {partner && (
-                <Field label="¿A quién le corresponde?" hint="Quién asume económicamente el gasto; no tiene que ser quien pagó.">
+                <Field label="¿A quién le corresponde?" hint={preset?.categoryId && !editing ? "Propuesto por el presupuesto de la categoría; puedes cambiarlo. No tiene que ser quien pagó." : "Quién asume económicamente el gasto; no tiene que ser quien pagó."}>
                   <ChipGroup value={responsibleId} onChange={setResponsibleId}
                     options={memberOptions.filter((o) => selectedCategory?.responsibility !== "PRIVATE" || o.value === selectedCategory.owner_user_id)} />
                 </Field>

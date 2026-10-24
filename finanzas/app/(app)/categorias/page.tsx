@@ -51,12 +51,13 @@ export default function CategoriasPage() {
     return m;
   }, [categories, budgets, currentStart]);
 
-  function whoLabel(c: Category): string {
+  /** Quién asume el presupuesto de la categoría (solo si tiene límite). */
+  function budgetOwner(c: Category): string | null {
     switch (c.responsibility) {
-      case "MEMBER_A_100": return `100 % ${memberA?.display_name ?? "A"}`;
-      case "MEMBER_B_100": return `100 % ${memberB?.display_name ?? "B"}`;
-      case "FIXED_AMOUNTS": return "Compartida";
-      default: return "Personal";
+      case "MEMBER_A_100": return `a cargo de ${memberA?.display_name ?? "A"}`;
+      case "MEMBER_B_100": return `a cargo de ${memberB?.display_name ?? "B"}`;
+      case "FIXED_AMOUNTS": return "montos fijos";
+      default: return null;
     }
   }
 
@@ -74,7 +75,7 @@ export default function CategoriasPage() {
     setSeeding(false);
     if (error) return setSeedMsg(errMsg(error));
     const n = Number(data ?? 0);
-    setSeedMsg(n === 0 ? "Ya tenías todas las categorías sugeridas." : `Se agregaron ${n} categorías. Revisa quién asume cada una (ej. la hipoteca 100 % de una persona).`);
+    setSeedMsg(n === 0 ? "Ya tenías todas las categorías sugeridas." : `Se agregaron ${n} categorías. Quién asume cada pago se define en Presupuesto (ej. la hipoteca 100 % de una persona).`);
     void reload();
   }
 
@@ -94,8 +95,8 @@ export default function CategoriasPage() {
     const amount = budgetOf.get(c.id);
     const n = uses.get(c.id) ?? 0;
     const detail = [
-      c.kind === "INCOME" ? "Ingreso" : whoLabel(c),
-      c.kind !== "INCOME" && amount != null ? `${formatCop(amount)} por periodo` : null,
+      c.kind === "INCOME" ? "Ingreso" : c.responsibility === "PRIVATE" ? "Personal" : "Del hogar",
+      c.kind !== "INCOME" && amount != null ? [`límite ${formatCop(amount)}`, budgetOwner(c)].filter(Boolean).join(", ") : null,
       `${n} movimiento${n === 1 ? "" : "s"}`,
     ].filter(Boolean).join(" · ");
     return (
@@ -138,7 +139,7 @@ export default function CategoriasPage() {
       </div>
       <p className="px-1 text-sm text-muted">
         Son las mismas de <Link href="/presupuestos" className="font-semibold text-olive underline">Presupuesto</Link> y
-        las que eliges al registrar un pago. Toca una para cambiar nombre, ícono, quién la asume o el monto.
+        las que eliges al registrar un pago. Las usan los dos. Toca una para cambiar nombre, ícono o su categoría principal; el límite y quién lo asume se definen en Presupuesto.
       </p>
 
       <div className="mt-3 space-y-1.5 rounded-2xl bg-surface-2 p-3">
