@@ -23,6 +23,7 @@ export function AccountSheet({ open, onOpenChange, account }: { open: boolean; o
   const [kind, setKind] = useState<AccountKind>("DEPOSIT");
   const [institution, setInstitution] = useState("");
   const [last4, setLast4] = useState("");
+  const [aliases, setAliases] = useState("");
   const [visibility, setVisibility] = useState<Visibility>("PRIVATE");
   const [reveal, setReveal] = useState(false);
   const [opening, setOpening] = useState("");
@@ -39,6 +40,7 @@ export function AccountSheet({ open, onOpenChange, account }: { open: boolean; o
     setKind(account?.kind ?? "DEPOSIT");
     setInstitution(account?.institution ?? "");
     setLast4(account?.last4 ?? "");
+    setAliases((account?.alias_last4 ?? []).join(", "));
     setVisibility(account?.visibility ?? "PRIVATE");
     setReveal(account?.reveal_in_shared ?? false);
     const ob = account?.opening_balance ?? 0;
@@ -54,6 +56,8 @@ export function AccountSheet({ open, onOpenChange, account }: { open: boolean; o
     setError(null);
     if (!name.trim()) return setError("Ponle un nombre.");
     if (last4 && !/^\d{4}$/.test(last4)) return setError("Los últimos 4 dígitos deben ser 4 números.");
+    const aliasList = [...new Set(aliases.split(/[\s,;]+/).filter(Boolean))];
+    if (aliasList.some((a) => !/^\d{4}$/.test(a))) return setError("Cada número adicional debe tener 4 dígitos, separados por comas.");
     const day = (v: string) => (v ? Math.min(31, Math.max(1, Number(v))) : null);
     const base = parseCop(opening) ?? 0;
     const row = {
@@ -61,6 +65,7 @@ export function AccountSheet({ open, onOpenChange, account }: { open: boolean; o
       kind,
       institution: institution.trim() || null,
       last4: last4 || null,
+      alias_last4: aliasList.filter((a) => a !== last4),
       visibility,
       reveal_in_shared: visibility === "PRIVATE" ? reveal : false,
       // En tarjetas el saldo inicial es la deuda actual (se guarda negativa)
@@ -113,6 +118,10 @@ export function AccountSheet({ open, onOpenChange, account }: { open: boolean; o
             <Input id="last4" value={last4} onChange={(e) => setLast4(e.target.value.replace(/\D/g, "").slice(0, 4))} inputMode="numeric" placeholder="1234" />
           </Field>
         </div>
+        <Field label="Otros números de esta cuenta (opcional)" htmlFor="aliases"
+          hint="Últimos 4 dígitos de otras tarjetas o productos que llegan en los avisos de esta cuenta, separados por comas. Ej.: la tarjeta débito de tu cuenta de ahorros.">
+          <Input id="aliases" value={aliases} onChange={(e) => setAliases(e.target.value.replace(/[^\d,\s]/g, ""))} inputMode="numeric" placeholder="7473, 1234" />
+        </Field>
         <Field label={isCard ? "Deuda actual de la tarjeta" : "Saldo actual"} hint={account ? "Es el saldo con el que empezó la cuenta en la app; los movimientos se suman aparte." : "El saldo de hoy. Desde aquí la app suma y resta los movimientos."}>
           <AmountInput value={opening} onChange={setOpening} />
         </Field>
