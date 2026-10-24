@@ -54,7 +54,7 @@ export async function construirRespaldo(d: DatosHogar): Promise<Blob> {
       t.titulo,
       t.frecuencia,
       t.frecuencia === "semanal" ? t.dias_semana.map((n) => DIAS[n]).filter(Boolean).join(";") : "",
-      t.modo === "rota" ? "Rotar" : t.modo === "juntos" ? "Los dos" : nombrePersona(t.responsable_fijo),
+      t.modo === "rota" ? "Rotar" : t.modo === "juntos" ? "Juntos" : nombrePersona(t.responsable_fijo),
       t.hora_recordatorio ? t.hora_recordatorio.slice(0, 5) : "",
       fechaCsv(t.fecha_inicio),
       si(t.activa),
@@ -93,14 +93,14 @@ export async function construirRespaldo(d: DatosHogar): Promise<Blob> {
   for (const p of d.pets) {
     mascotas.push([p.nombre, p.especie, "", "", "", "", "", "", ""]);
     for (const e of d.petEvents.filter((ev) => ev.pet_id === p.id)) {
-      mascotas.push([p.nombre, p.especie, e.titulo, e.tipo, fechaCsv(e.fecha), e.repeticion, String(e.aviso_previo_dias), nombrePersona(e.responsable_id), e.nota ?? ""]);
+      mascotas.push([p.nombre, p.especie, e.titulo, e.tipo, fechaCsv(e.fecha), e.repeticion, String(e.aviso_previo_dias), e.responsable_id ? nombrePersona(e.responsable_id) : "Juntos", e.nota ?? ""]);
     }
   }
 
   // Recordatorios
   const recordatorios = d.reminders.map((r) => {
     const { fecha, hora } = fechaHoraBogota(r.fecha_hora);
-    const para = r.responsables.length === 0 ? "Los dos" : nombrePersona(r.responsables[0]);
+    const para = r.responsables.length === 0 ? "Juntos" : nombrePersona(r.responsables[0]);
     return [r.titulo, fecha, hora, para, r.repeticion, String(r.aviso_previo_dias), r.nota ?? ""];
   });
 

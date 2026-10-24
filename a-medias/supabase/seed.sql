@@ -46,8 +46,8 @@ begin
     (v_drogueria, v_hh, 'Droguería',    v_m1, null),
     (v_casa,      v_hh, 'Para la casa', null, null);
 
-  insert into public.pets (id, household_id, nombre, especie)
-  values (v_michi, v_hh, 'Michi', 'gato');
+  insert into public.pets (id, household_id, nombre, especie, fecha_nacimiento)
+  values (v_michi, v_hh, 'Michi', 'gato', date '2023-03-14');
 
   -- Tareas (al insertarlas, el trigger genera las próximas 4 semanas)
   insert into public.tasks

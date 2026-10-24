@@ -13,7 +13,7 @@ const EJEMPLOS = [
   ["Lavar los platos de la noche", "diaria", "", "Rotar", "21:00", "25/10/2026"],
   ["Sacar la basura y reciclaje", "semanal", "lun;jue", "Rotar", "20:00", "26/10/2026"],
   ["Limpiar el bano a fondo", "semanal", "sab", "Ari", "", "31/10/2026"],
-  ["Pagar administracion", "mensual", "", "Los dos", "09:00", "05/11/2026"],
+  ["Pagar administracion", "mensual", "", "Juntos", "09:00", "05/11/2026"],
 ];
 const FRECUENCIAS: Frecuencia[] = ["diaria", "semanal", "quincenal", "mensual"];
 const DIAS: Record<string, number> = { lun: 1, mar: 2, mie: 3, jue: 4, vie: 5, sab: 6, dom: 7 };
@@ -96,11 +96,11 @@ export function ImportarTareas({ open, onClose }: { open: boolean; onClose: () =
 
       const responsableTexto = col(fila, "responsable");
       const r = normalizar(responsableTexto);
-      if (!r) return malas.push({ numero, motivo: "falta el responsable (Rotar, Los dos o un nombre)" });
+      if (!r) return malas.push({ numero, motivo: "falta el responsable (Rotar, Juntos o un nombre)" });
       let modo: Task["modo"];
       let responsable: string | null = null;
       if (r === "rotar") modo = "rota";
-      else if (r === "los dos") modo = "juntos";
+      else if (r === "juntos" || r === "los dos") modo = "juntos";
       else {
         const persona = members.find((m) => normalizar(m.nombre) === r);
         if (!persona) return malas.push({ numero, motivo: `la persona "${responsableTexto}" no existe en el hogar` });

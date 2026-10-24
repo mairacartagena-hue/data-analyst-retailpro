@@ -106,6 +106,11 @@ interface Ctx extends HouseholdData {
 
 const HouseholdContext = createContext<Ctx | null>(null);
 
+/** Igual que useHousehold, pero devuelve null fuera del proveedor */
+export function useHouseholdOptional() {
+  return useContext(HouseholdContext);
+}
+
 export function useHousehold() {
   const ctx = useContext(HouseholdContext);
   if (!ctx) throw new Error("useHousehold fuera de HouseholdProvider");

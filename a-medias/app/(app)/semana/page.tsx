@@ -4,7 +4,7 @@ import { useState } from "react";
 import { ChevronLeft, ChevronRight, Lightbulb } from "lucide-react";
 import { useHousehold } from "@/components/HouseholdProvider";
 import { sortOccurrences } from "@/components/OccurrenceRow";
-import { ErrorText, PageHeader, Pills, errMsg, personColors } from "@/components/ui";
+import { Avatar, ErrorText, JUNTOS, PageHeader, Pills, errMsg, personColors } from "@/components/ui";
 import { Loading } from "@/components/Loading";
 import { getSupabase } from "@/lib/supabase/client";
 import { addDays, dayNum, formatHora, formatShort, mondayOf, monthShort, todayStr, weekDays, weekdayName, weekdayShort } from "@/lib/dates";
@@ -124,15 +124,13 @@ export default function SemanaPage() {
                     return (
                       <span
                         key={o.id}
-                        className={`inline-flex max-w-full items-center rounded-full border-2 border-vino px-2.5 py-1 text-[12px] font-medium ${
-                          m ? personColors(m) : "bg-crema text-vino"
+                        className={`inline-flex max-w-full items-center gap-1.5 rounded-full border-2 border-vino py-1 text-[12px] font-medium ${
+                          m ? `px-2.5 ${personColors(m)}` : "bg-rosa-claro pl-1 pr-2.5 text-vino"
                         } ${o.completada ? "line-through opacity-60" : ""} ${o.omitida ? "opacity-40" : ""}`}
-                        title={m ? m.nombre : "Juntos"}
+                        title={m ? m.nombre : JUNTOS}
                       >
-                        <span className="truncate">
-                          {!m && <span className="font-bold">Juntos · </span>}
-                          {texto}
-                        </span>
+                        {!m && <Avatar juntos size={18} />}
+                        <span className="truncate">{texto}</span>
                       </span>
                     );
                   })}
@@ -150,7 +148,7 @@ export default function SemanaPage() {
           </span>
         ))}
         <span className="flex items-center gap-1.5">
-          <span className="h-4 w-4 rounded-full border-2 border-vino bg-crema" /> Juntos
+          <Avatar juntos size={16} /> {JUNTOS}
         </span>
       </div>
     </>

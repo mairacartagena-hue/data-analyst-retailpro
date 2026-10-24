@@ -7,7 +7,7 @@ import { DIAS_CORTOS, DIAS_NOMBRE, formatShort, horaInput, isoDow, todayStr } fr
 import { previewTurns } from "@/lib/logic";
 import type { Frecuencia, Modo, Task } from "@/lib/types";
 import { useHousehold } from "./HouseholdProvider";
-import { Avatar, ErrorText, Pills, Sheet, Switch, errMsg } from "./ui";
+import { Avatar, ErrorText, JUNTOS, Pills, Sheet, Switch, errMsg, quienOptions } from "./ui";
 
 const FRECUENCIAS: { value: Frecuencia; label: string }[] = [
   { value: "diaria", label: "Diaria" },
@@ -114,11 +114,7 @@ export function TaskSheet({ open, onClose, task }: { open: boolean; onClose: () 
     onClose();
   }
 
-  const opcionesQuien = [
-    ...members.map((m) => ({ value: m.id, label: m.nombre })),
-    ...(members.length > 1 ? [{ value: "rota", label: "Rotar" }] : []),
-    { value: "juntos", label: "Juntos" },
-  ];
+  const opcionesQuien = quienOptions(members, { rotar: true });
 
   return (
     <Sheet open={open} onClose={onClose} title={editando ? "Editar tarea" : "Nueva tarea"}>
@@ -215,7 +211,7 @@ export function TaskSheet({ open, onClose, task }: { open: boolean; onClose: () 
                   <li key={v.fecha} className="flex items-center justify-between text-sm">
                     <span className="inline-block first-letter:uppercase">{formatShort(v.fecha)}</span>
                     <span className="flex items-center gap-2">
-                      {m ? m.nombre : "Juntos"} <Avatar member={m} juntos={!m} size={22} />
+                      {m ? m.nombre : JUNTOS} <Avatar member={m} juntos={!m} size={22} />
                     </span>
                   </li>
                 );

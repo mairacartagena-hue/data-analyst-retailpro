@@ -9,7 +9,7 @@ import { NoteSheet, PetSheet, ReminderSheet } from "@/components/RecordarSheets"
 import { Avatar, Empty, PageHeader } from "@/components/ui";
 import { ImportarRecordar } from "@/components/ImportarRecordar";
 import { Loading } from "@/components/Loading";
-import { dayNum, diffDays, formatHora, monthShort, nowTimeStr, splitTimestamp, todayStr, weekdayName } from "@/lib/dates";
+import { dayNum, diffDays, formatAge, formatHora, monthShort, nowTimeStr, splitTimestamp, todayStr, weekdayName } from "@/lib/dates";
 import { nextPetEventDate, nextReminderDate } from "@/lib/logic";
 import type { Note, Reminder } from "@/lib/types";
 
@@ -103,13 +103,20 @@ export default function RecordarPage() {
                   <p className="titulo text-[52px]">{dayNum(destacado.fecha)}</p>
                   <p className="text-xs font-semibold uppercase">{monthShort(destacado.fecha)}</p>
                 </div>
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <p className="text-[19px] font-semibold leading-tight">{destacado.titulo}</p>
                   <p className="mt-1 text-sm text-rosa-claro">
                     {destacado.hora ? formatHora(destacado.hora) : "Todo el día"}
                     {destacado.detalle && ` · ${destacado.detalle}`}
                   </p>
                 </div>
+                <span className="rounded-full bg-crema p-0.5">
+                  {destacado.responsables.length === 1 ? (
+                    <Avatar member={memberById(destacado.responsables[0])} size={30} />
+                  ) : (
+                    <Avatar juntos size={30} />
+                  )}
+                </span>
               </div>
             </button>
           ) : (
@@ -165,7 +172,14 @@ export default function RecordarPage() {
                       <span className="flex h-11 w-11 items-center justify-center rounded-full border-2 border-vino bg-rosa-claro">
                         <Icon size={22} />
                       </span>
-                      <span className="min-w-0 flex-1 truncate text-[15px] font-semibold">{p.nombre}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[15px] font-semibold">{p.nombre}</span>
+                        {p.fecha_nacimiento && (
+                          <span className="block truncate text-xs text-sec">
+                            {formatAge(p.fecha_nacimiento, p.fecha_nacimiento_aproximada)}
+                          </span>
+                        )}
+                      </span>
                       <ChevronRight size={18} />
                     </Link>
                   </li>

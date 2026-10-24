@@ -6,7 +6,7 @@ import { getSupabase } from "@/lib/supabase/client";
 import { addDays, formatShort, horaInput, todayStr } from "@/lib/dates";
 import type { Task } from "@/lib/types";
 import { useHousehold } from "./HouseholdProvider";
-import { ErrorText, Pills, Sheet, errMsg } from "./ui";
+import { ErrorText, Pills, Sheet, errMsg, quienOptions } from "./ui";
 
 const HORAS_POR_DEFECTO: Record<number, string[]> = {
   1: ["08:00"],
@@ -251,11 +251,7 @@ export function MedSheet({
         <div>
           <span className="label">¿Quién se la da?</span>
           <Pills
-            options={[
-              ...members.map((m) => ({ value: m.id, label: m.nombre })),
-              ...(members.length > 1 ? [{ value: "rota", label: "Rotar" }] : []),
-              { value: "juntos", label: "Juntos" },
-            ]}
+            options={quienOptions(members, { rotar: true })}
             value={quien}
             onChange={setQuien}
           />

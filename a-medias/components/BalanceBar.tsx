@@ -1,18 +1,23 @@
 "use client";
 
+import { addDays, mondayOf, todayStr } from "@/lib/dates";
 import { weekBalance } from "@/lib/logic";
 import { useHousehold } from "./HouseholdProvider";
+import { Avatar, JUNTOS } from "./ui";
 
 export function BalanceBar() {
   const { occurrences, members } = useHousehold();
   const counts = weekBalance(occurrences, members);
   const total = members.reduce((s, m) => s + (counts[m.id] ?? 0), 0);
+  const lunes = mondayOf(todayStr());
+  const domingo = addDays(lunes, 6);
+  const juntos = occurrences.filter((o) => !o.responsable_id && !o.omitida && o.fecha >= lunes && o.fecha <= domingo).length;
 
   return (
     <section className="card">
       <div className="flex items-baseline justify-between">
         <h2 className="titulo text-[20px]">Balance de la semana</h2>
-        <span className="text-xs text-sec">Juntos no cuenta</span>
+
       </div>
       <p className="mt-2 text-[17px] font-semibold">
         {members.map((m, i) => (
@@ -39,6 +44,11 @@ export function BalanceBar() {
           })
         )}
       </div>
+      {juntos > 0 && (
+        <p className="mt-2 flex items-center gap-2 text-xs text-sec">
+          <Avatar juntos size={18} /> {JUNTOS} · {juntos} (no cuentan en el balance)
+        </p>
+      )}
       {members.length < 2 && <p className="mt-2 text-xs text-sec">Invita a tu pareja desde Ajustes para repartir las tareas.</p>}
     </section>
   );

@@ -45,7 +45,7 @@ export function ImportarRecordar({ open, onClose }: { open: boolean; onClose: ()
   function plantilla(c: Clase) {
     const ejemplos: Record<Clase, string[][]> = {
       recordatorios: [
-        ["Pagar administracion y arriendo", "05/11/2026", "09:00", "Los dos", "mensual", "2", "Transferir antes del corte"],
+        ["Pagar administracion y arriendo", "05/11/2026", "09:00", "Juntos", "mensual", "2", "Transferir antes del corte"],
         ["Revision gas natural", "15/12/2026", "10:00", m1, "anual", "7", "Llamar a agendar"],
       ],
       mascotas: [
@@ -88,7 +88,7 @@ export function ImportarRecordar({ open, onClose }: { open: boolean; onClose: ()
     const eventoOps: EvOp[] = [];
     const otrasOps: OtraOp[] = [];
     const personaId = (txt: string): string | null | undefined => {
-      if (!txt) return null;
+      if (!txt || ["juntos", "los dos"].includes(normalizar(txt))) return null;
       const p = members.find((m) => normalizar(m.nombre) === normalizar(txt));
       return p ? p.id : undefined;
     };
@@ -174,7 +174,7 @@ export function ImportarRecordar({ open, onClose }: { open: boolean; onClose: ()
       const paraTxt = col(fila, "para");
       const paraN = normalizar(paraTxt);
       let responsables: string[] = [];
-      if (paraN && paraN !== "los dos") {
+      if (paraN && paraN !== "los dos" && paraN !== "juntos") {
         const id = personaId(paraTxt);
         if (!id) return fallo(`la persona "${paraTxt}" no existe en el hogar`);
         responsables = [id];
