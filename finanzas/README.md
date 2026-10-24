@@ -21,8 +21,8 @@ PWA privada de finanzas personales y en pareja (Android y escritorio). Todo en p
 - [ ] Configurar MacroDroid (SMS y notificaciones) en cada celular; por ahora solo llegan correos.
 - [ ] Conseguir ejemplos reales de Nequi, Banco de Bogotá y Google Wallet.
 - [ ] Crear el resto de categorías y las categorías de ingresos.
-- [ ] Activar en Supabase → Authentication → **Leaked password protection** (no se puede desde SQL).
-- [ ] Confirmar en Vercel: Root Directory = `finanzas` y `GEMINI_API_KEY` configurada.
+- [x] ~~Leaked password protection~~: solo existe en planes de pago de Supabase; no aplica (se usa el plan gratuito).
+- [x] Vercel confirmado: Root Directory = `finanzas` y `GEMINI_API_KEY` configurada.
 
 ## Fase 1 — Núcleo financiero
 
