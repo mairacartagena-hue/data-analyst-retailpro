@@ -12,6 +12,7 @@ import { ErrorText, Field, Input, Select } from "@/components/ui/input";
 import { ChipGroup, Segmented } from "@/components/ui/segmented";
 import { SwitchRow } from "@/components/ui/switch";
 import { AmountInput } from "@/components/AmountInput";
+import { CategorySheet } from "@/components/CategorySheet";
 import { MemberBadge } from "@/components/MemberBadge";
 import { formatCop, parseCop } from "@/lib/finance/money";
 import { periodFor, todayBogota } from "@/lib/finance/periods";
@@ -43,10 +44,14 @@ function newKey() {
   return Math.random().toString(36).slice(2);
 }
 
-/** Valores iniciales para registrar el pago de una categoría desde su barra. */
+/** Valores iniciales: pago de una categoría desde su barra, o un aviso no reconocido de Captura automática. */
 export interface TxPreset {
-  categoryId: string;
-  amount: number;
+  categoryId?: string;
+  amount?: number;
+  description?: string;
+  date?: string;
+  /** Aviso de ingest_logs que se marca como registrado al guardar. */
+  logId?: string;
 }
 
 export function TransactionSheet({
@@ -57,7 +62,10 @@ export function TransactionSheet({
   const { me, partner, accounts, categories, labels, supabase, reload } = state;
 
   const myAccounts = accounts.filter((a) => a.owner_user_id === me.user_id && !a.archived);
-  const usable = categories.filter((c) => !c.archived);
+  const usable = categories.filter((c) => !c.archived && c.kind !== "INCOME");
+  const incomeCategories = categories.filter(
+    (c) => !c.archived && c.kind === "INCOME" && (c.responsibility !== "PRIVATE" || c.owner_user_id === me.user_id),
+  );
 
   const readOnly = !!editing && (editing.created_by !== me.user_id || editing.kind === "SETTLEMENT");
   const isPendingReview = editing?.status === "PENDING_REVIEW";
@@ -73,6 +81,8 @@ export function TransactionSheet({
   const [splitMode, setSplitMode] = useState(false);
   const [splits, setSplits] = useState<SplitRow[]>([]);
   const [isShared, setIsShared] = useState(false);
+  const [incomeCategoryId, setIncomeCategoryId] = useState("");
+  const [newCategory, setNewCategory] = useState<"EXPENSE" | "INCOME" | null>(null);
   const [fixedPrompt, setFixedPrompt] = useState<FixedPrompt | null>(null);
   const [remember, setRemember] = useState(true);
   const [autoApply, setAutoApply] = useState(false);
@@ -93,6 +103,7 @@ export function TransactionSheet({
       setAccountId(editing.account_id ?? "");
       setToAccountId(editing.to_account_id ?? "");
       setIsShared(editing.is_shared);
+      setIncomeCategoryId(editing.income_category_id ?? "");
       const sp = editing.splits;
       if (sp.length > 1) {
         setSplitMode(true);
@@ -116,11 +127,11 @@ export function TransactionSheet({
     }
     let last = "";
     try { last = localStorage.getItem(LAST_ACCOUNT_KEY) ?? ""; } catch {}
-    const presetCategory = preset ? usable.find((c) => c.id === preset.categoryId) ?? null : null;
+    const presetCategory = preset?.categoryId ? usable.find((c) => c.id === preset.categoryId) ?? null : null;
     setKind("EXPENSE");
-    setAmount(preset && preset.amount > 0 ? String(preset.amount) : "");
-    setDescription(presetCategory ? presetCategory.name : "");
-    setDate(todayBogota());
+    setAmount(preset?.amount && preset.amount > 0 ? String(preset.amount) : "");
+    setDescription(preset?.description ?? (presetCategory ? presetCategory.name : ""));
+    setDate(preset?.date ?? todayBogota());
     setAccountId(myAccounts.some((a) => a.id === last) ? last : (myAccounts[0]?.id ?? ""));
     setToAccountId("");
     setCategoryId(presetCategory?.id ?? "");
@@ -128,6 +139,7 @@ export function TransactionSheet({
     setSplitMode(false);
     setSplits([]);
     setIsShared(false);
+    setIncomeCategoryId("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, editing, preset]);
 
@@ -221,7 +233,7 @@ export function TransactionSheet({
     }
 
     setBusy(true);
-    const { error } = await supabase.rpc("save_transaction", {
+    const { data: savedId, error } = await supabase.rpc("save_transaction", {
       p: {
         id: editing?.id ?? null,
         kind,
@@ -231,6 +243,7 @@ export function TransactionSheet({
         account_id: accountId || null,
         to_account_id: kind === "TRANSFER" ? toAccountId : null,
         is_shared: kind === "INCOME" ? isShared : false,
+        income_category_id: kind === "INCOME" ? incomeCategoryId || null : null,
         splits: payloadSplits.map((s) => ({
           amount: s.amount,
           category_id: s.categoryId,
@@ -241,6 +254,9 @@ export function TransactionSheet({
     });
     if (!error && isPendingReview && kind === "EXPENSE" && !splitMode && remember && (editing?.merchant_norm || (editing?.splits.length ?? 0) > 0)) {
       await supabase.rpc("remember_merchant", { p_transaction_id: editing!.id, p_auto_apply: autoApply });
+    }
+    if (!error && preset?.logId && savedId) {
+      await supabase.from("ingest_logs").update({ result: "ACCEPTED", reason: "Registrado a mano", transaction_id: savedId }).eq("id", preset.logId);
     }
     setBusy(false);
     if (error) return setError(errMsg(error));
@@ -267,7 +283,7 @@ export function TransactionSheet({
   const crossing = kind === "EXPENSE" && !splitMode && responsibleId !== me.user_id;
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} title={isPendingReview ? "Revisar movimiento" : editing ? "Editar movimiento" : preset ? "Registrar pago" : "Registrar"}>
+    <Sheet open={open} onOpenChange={onOpenChange} title={isPendingReview ? "Revisar movimiento" : editing ? "Editar movimiento" : preset?.categoryId ? "Registrar pago" : "Registrar"}>
       {myAccounts.length === 0 ? (
         <div className="space-y-3 py-6 text-center">
           <p className="text-[15px]">Primero agrega una cuenta (ahorros, Nequi, efectivo o tarjeta) en la pestaña Cuentas.</p>
@@ -329,6 +345,23 @@ export function TransactionSheet({
             </Field>
           )}
 
+          {kind === "INCOME" && (
+            <Field label="Categoría del ingreso (opcional)">
+              <div className="flex flex-wrap gap-2">
+                {incomeCategories.map((c) => (
+                  <button key={c.id} type="button" onClick={() => setIncomeCategoryId(c.id === incomeCategoryId ? "" : c.id)} aria-pressed={c.id === incomeCategoryId}
+                    className={`flex items-center gap-1.5 rounded-full border px-3 py-2 text-sm ${c.id === incomeCategoryId ? "border-olive bg-olive-soft font-semibold" : "border-border bg-surface text-muted"}`}>
+                    <span>{c.icon || "•"}</span>{c.name}
+                  </button>
+                ))}
+                <button type="button" onClick={() => setNewCategory("INCOME")}
+                  className="flex items-center gap-1 rounded-full border border-dashed border-olive px-3 py-2 text-sm font-medium text-olive">
+                  <Plus size={15} /> Nueva
+                </button>
+              </div>
+            </Field>
+          )}
+
           {kind === "INCOME" && partner && (
             <SwitchRow label={`Compartir con ${partnerName}`} hint="Si lo compartes, lo ve y cuenta en el flujo del hogar."
               checked={isShared} onCheckedChange={setIsShared} />
@@ -337,18 +370,18 @@ export function TransactionSheet({
           {kind === "EXPENSE" && !splitMode && (
             <>
               <Field label="Categoría">
-                {usable.length === 0 ? (
-                  <p className="text-sm text-muted">Aún no hay categorías. Créalas en Presupuestos.</p>
-                ) : (
-                  <div className="flex flex-wrap gap-2">
-                    {usable.map((c) => (
-                      <button key={c.id} type="button" onClick={() => pickCategory(c)} aria-pressed={c.id === categoryId}
-                        className={`flex items-center gap-1.5 rounded-full border px-3 py-2 text-sm ${c.id === categoryId ? "border-olive bg-olive-soft font-semibold" : "border-border bg-surface text-muted"}`}>
-                        <span>{c.icon || "•"}</span>{c.name}
-                      </button>
-                    ))}
-                  </div>
-                )}
+                <div className="flex flex-wrap gap-2">
+                  {usable.map((c) => (
+                    <button key={c.id} type="button" onClick={() => pickCategory(c)} aria-pressed={c.id === categoryId}
+                      className={`flex items-center gap-1.5 rounded-full border px-3 py-2 text-sm ${c.id === categoryId ? "border-olive bg-olive-soft font-semibold" : "border-border bg-surface text-muted"}`}>
+                      <span>{c.icon || "•"}</span>{c.name}
+                    </button>
+                  ))}
+                  <button type="button" onClick={() => setNewCategory("EXPENSE")}
+                    className="flex items-center gap-1 rounded-full border border-dashed border-olive px-3 py-2 text-sm font-medium text-olive">
+                    <Plus size={15} /> Nueva
+                  </button>
+                </div>
               </Field>
 
               {partner && (
@@ -450,6 +483,16 @@ export function TransactionSheet({
           </div>
         </div>
       )}
+      <CategorySheet open={newCategory !== null} onOpenChange={(v) => !v && setNewCategory(null)} category={null}
+        kind={newCategory ?? "EXPENSE"}
+        onSaved={(id) => {
+          if (newCategory === "INCOME") setIncomeCategoryId(id);
+          else {
+            setCategoryId(id);
+            setResponsibleId(me.user_id);
+          }
+          setNewCategory(null);
+        }} />
     </Sheet>
   );
 }

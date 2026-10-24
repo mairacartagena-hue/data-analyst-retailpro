@@ -4,6 +4,7 @@
 // Los formatos de cada banco se escriben a partir de ejemplos reales (no se inventan).
 
 import type { BankParser, ParsedEvent, RawEvent } from "./types";
+import { isKnownSubscription, SUBSCRIPTION_TAG } from "@/lib/finance/subscriptions";
 import { bancolombiaParser } from "./parsers/bancolombia";
 import { bbvaParser } from "./parsers/bbva";
 import { cajaSocialParser } from "./parsers/cajaSocial";
@@ -24,10 +25,12 @@ export interface ParseOutcome {
 /** Completa lo que el parser no llenó: comercio limpio, normalizado, entidad e identificadores. */
 export function finishParsed(ev: RawEvent, parsed: ParsedEvent): ParsedEvent {
   const merchant = cleanMerchant(parsed.merchant ?? null);
+  const merchantNorm = parsed.merchantNorm ?? normalizeMerchant(merchant);
   return {
     ...parsed,
     merchant,
-    merchantNorm: parsed.merchantNorm ?? normalizeMerchant(merchant),
+    merchantNorm,
+    tags: [...(parsed.tags ?? []), ...(parsed.kind === "PURCHASE" && isKnownSubscription(merchantNorm) ? [SUBSCRIPTION_TAG] : [])],
     institution: parsed.institution ?? guessInstitution(ev),
     // Si el parser (o Gemini) no trajo la fecha, se busca en el texto; si no aparece, se usa la hora de llegada
     occurredAt: parsed.occurredAt ?? findDate(eventText(ev).replace(/\s+/g, " ")),

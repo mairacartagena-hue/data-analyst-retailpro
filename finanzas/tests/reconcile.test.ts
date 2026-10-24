@@ -19,20 +19,23 @@ describe("cierre del mes", () => {
     expect(shiftMonth("2026-01", -1)).toBe("2025-12");
   });
 
-  it("los movimientos anteriores al saldo inicial no lo vuelven a restar", () => {
+  it("cuenta creada a mitad de mes: el cierre incluye todo el mes y cuadra con el saldo de hoy", () => {
     const txs = [
-      tx({ amount: 838_058, occurred_on: "2026-10-23", occurred_at: "2026-10-23T15:51:02Z", source: "GMAIL" }), // antes de crear la cuenta
+      tx({ kind: "INCOME", amount: 6_044_772, occurred_on: "2026-10-23", occurred_at: "2026-10-23T15:07:00Z", source: "GMAIL" }), // antes de crear la cuenta
+      tx({ amount: 838_058, occurred_on: "2026-10-23", occurred_at: "2026-10-23T15:51:02Z", source: "GMAIL" }), // antes
       tx({ amount: 200_000, occurred_on: "2026-10-24" }), // manual, después
       tx({ kind: "INCOME", amount: 100_000, occurred_on: "2026-10-25", occurred_at: "2026-10-25T18:00:00Z" }),
       tx({ kind: "TRANSFER", amount: 50_000, account_id: "nequi", to_account_id: "bc", occurred_on: "2026-10-26" }),
       tx({ amount: 999, occurred_on: "2026-11-02" }), // otro mes
     ];
     const st = accountStatement(acc, txs, monthRange("2026-10"));
-    expect(st.opening).toBe(2_365_000);
-    expect(st.inflow).toBe(150_000);
-    expect(st.outflow).toBe(200_000);
-    expect(st.closing).toBe(2_315_000);
-    expect(st.items).toHaveLength(3);
+    // Al 1 de octubre: 2.365.000 − 6.044.772 (entró antes del saldo) + 838.058 (salió antes del saldo)
+    expect(st.opening).toBe(2_365_000 - 6_044_772 + 838_058);
+    expect(st.inflow).toBe(6_044_772 + 150_000);
+    expect(st.outflow).toBe(838_058 + 200_000);
+    // El cierre coincide con el saldo de la app: saldo inicial + lo posterior a crear la cuenta
+    expect(st.closing).toBe(2_365_000 - 200_000 + 100_000 + 50_000);
+    expect(st.items).toHaveLength(5);
   });
 
   it("el saldo inicial del mes siguiente arrastra lo del mes anterior", () => {

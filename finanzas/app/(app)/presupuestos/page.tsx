@@ -36,8 +36,10 @@ export default function PresupuestosPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const active = categories.filter((c) => !c.archived);
+  const active = categories.filter((c) => !c.archived && c.kind !== "INCOME");
   const archived = categories.filter((c) => c.archived);
+  const incomeCats = categories.filter((c) => !c.archived && c.kind === "INCOME");
+  const [newKind, setNewKind] = useState<"EXPENSE" | "INCOME">("EXPENSE");
   const groups: { title: string; items: Category[] }[] = [
     { title: "Obligaciones del hogar", items: active.filter((c) => c.is_household_obligation) },
     { title: "Compartidas y del hogar", items: active.filter((c) => !c.is_household_obligation && c.responsibility !== "PRIVATE") },
@@ -59,7 +61,8 @@ export default function PresupuestosPage() {
     return { member: m!, available, spent };
   });
 
-  function edit(c: Category | null) {
+  function edit(c: Category | null, kind: "EXPENSE" | "INCOME" = "EXPENSE") {
+    setNewKind(kind);
     setEditing(c);
     setOpen(true);
   }
@@ -116,6 +119,22 @@ export default function PresupuestosPage() {
           </section>
         ))}
 
+        <div className="mt-6 flex items-center justify-between">
+          <SectionTitle className="m-0">Categorías de ingresos</SectionTitle>
+          <Button size="sm" variant="ghost" onClick={() => edit(null, "INCOME")}><Plus size={16} /> Nueva</Button>
+        </div>
+        {incomeCats.length === 0 ? (
+          <p className="px-1 text-sm text-muted">Salario, ventas, reembolsos… Son personales y no tienen presupuesto.</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {incomeCats.map((c) => (
+              <button key={c.id} onClick={() => edit(c, "INCOME")} className="flex items-center gap-1.5 rounded-full border border-border bg-surface px-3 py-2 text-sm">
+                <span>{c.icon || "•"}</span>{c.name}
+              </button>
+            ))}
+          </div>
+        )}
+
         {archived.length > 0 && (
           <div className="mt-6">
             <button className="px-1 text-sm text-muted underline" onClick={() => setShowArchived(!showArchived)}>
@@ -134,7 +153,7 @@ export default function PresupuestosPage() {
         )}
       </SwipePeriods>
 
-      <CategorySheet open={open} onOpenChange={setOpen} category={editing} />
+      <CategorySheet open={open} onOpenChange={setOpen} category={editing} kind={newKind} />
     </main>
   );
 }

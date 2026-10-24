@@ -1,9 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import type { Channel, RawEvent } from "@/lib/ingest/types";
-import { eventText } from "@/lib/ingest/normalize";
-import { finishParsed, parseWithRules } from "@/lib/ingest/registry";
-import { extractWithGemini } from "@/lib/ingest/gemini";
+import { interpret, toDbEvent } from "@/lib/ingest/pipeline";
 
 // Webhook único de ingesta: MacroDroid (notificaciones y SMS) y Google Apps Script (Gmail).
 // Autenticación: "Authorization: Bearer <token de la persona>". La identidad la resuelve
@@ -63,52 +61,11 @@ export async function POST(req: NextRequest) {
   const ev = body ? toEvent(body) : null;
   if (!ev) return NextResponse.json({ ok: false, error: "Faltan channel o text" }, { status: 400 });
 
-  let { parsed, parser } = parseWithRules(ev);
-  let reason: string | undefined;
-
-  if (!parsed) {
-    try {
-      const g = await extractWithGemini(ev);
-      if (g) {
-        parsed = g.kind === "IGNORE" ? g : finishParsed(ev, g);
-        parser = "gemini";
-      } else {
-        reason = "Ni las reglas ni Gemini reconocieron el formato";
-      }
-    } catch (e) {
-      reason = `Gemini no respondió: ${(e as Error).message}`;
-    }
-  }
-
+  const it = await interpret(ev);
   const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
-
-  const { data, error } = await sb.rpc("ingest_event", {
-    p_token: token,
-    p_event: {
-      channel: ev.channel,
-      source: ev.source,
-      external_id: ev.externalId ?? null,
-      raw_text: eventText(ev),
-      received_at: ev.receivedAt,
-      parser,
-      reason,
-      parsed: parsed
-        ? {
-            kind: parsed.kind,
-            amount: parsed.amount ?? null,
-            merchant: parsed.merchant ?? null,
-            merchant_norm: parsed.merchantNorm ?? null,
-            last4: parsed.last4 ?? null,
-            institution: parsed.institution ?? null,
-            occurred_at: parsed.occurredAt ?? null,
-            identifiers: parsed.identifiers ?? [],
-            ignore_reason: parsed.ignoreReason ?? null,
-          }
-        : null,
-    },
-  });
+  const { data, error } = await sb.rpc("ingest_event", { p_token: token, p_event: toDbEvent(ev, it) });
 
   if (error) {
     const unauthorized = /token no válido/i.test(error.message);

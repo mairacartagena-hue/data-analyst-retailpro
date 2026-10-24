@@ -19,9 +19,19 @@ import { cn, errMsg } from "@/lib/utils";
 
 const SUGGESTED_ICONS = ["🏠", "💡", "🛒", "🐾", "📺", "🍽️", "🚗", "💊", "🎓", "🎁", "✈️", "👕", "💳", "🧾"];
 
+const INCOME_ICONS = ["💼", "💰", "🏦", "🧾", "🎁", "🏠", "📈", "🛍️", "🔁"];
+
 export function CategorySheet({
-  open, onOpenChange, category,
-}: { open: boolean; onOpenChange: (v: boolean) => void; category: Category | null }) {
+  open, onOpenChange, category, kind = "EXPENSE", onSaved,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  category: Category | null;
+  /** Tipo de la categoría nueva (al editar se usa el de la categoría). */
+  kind?: "EXPENSE" | "INCOME";
+  /** Se llama con el id guardado (ej. para elegirla en el formulario de un movimiento). */
+  onSaved?: (id: string) => void;
+}) {
   const state = useFinance();
   const { me, partner, settings, budgets, supabase, reload } = state;
   const memberA = memberBySlot(me, partner, "A");
@@ -69,7 +79,8 @@ export function CategorySheet({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, category]);
 
-  const isPrivate = resp === "PRIVATE";
+  const isIncome = (category?.kind ?? kind) === "INCOME";
+  const isPrivate = resp === "PRIVATE" || isIncome;
   // Igual que can_see_budget() en la base de datos: si no puedo ver el presupuesto, no lo edito.
   const canSeeBudget =
     !category ||
@@ -90,16 +101,17 @@ export function CategorySheet({
     setError(null);
     if (!name.trim()) return setError("Ponle un nombre.");
     setBusy(true);
-    const { error } = await supabase.rpc("save_category", {
+    const { data: savedId, error } = await supabase.rpc("save_category", {
       p: {
         id: category?.id ?? null,
+        kind: isIncome ? "INCOME" : "EXPENSE",
         name,
         icon,
-        responsibility: resp,
+        responsibility: isIncome ? "PRIVATE" : resp,
         is_household_obligation: !isPrivate && obligation,
         is_shared_progress: !isPrivate && shared,
         rollover_enabled: rollover,
-        budget: canSeeBudget
+        budget: canSeeBudget && !isIncome
           ? {
               valid_from: currentStart,
               amount: resp === "FIXED_AMOUNTS" ? fixedTotal : (parseCop(amount) ?? 0),
@@ -112,6 +124,7 @@ export function CategorySheet({
     setBusy(false);
     if (error) return setError(errMsg(error));
     onOpenChange(false);
+    if (savedId) onSaved?.(savedId as string);
     void reload();
   }
 
@@ -126,22 +139,27 @@ export function CategorySheet({
   }
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} title={category ? "Editar categoría" : "Nueva categoría"}>
+    <Sheet open={open} onOpenChange={onOpenChange} title={category ? "Editar categoría" : isIncome ? "Nueva categoría de ingreso" : "Nueva categoría"}>
       <div className="space-y-4 pb-2">
         <div className="grid grid-cols-[72px_1fr] gap-3">
           <Field label="Ícono" htmlFor="icon">
             <Input id="icon" value={icon} onChange={(e) => setIcon(e.target.value)} maxLength={4} className="text-center text-xl" placeholder="🛒" />
           </Field>
           <Field label="Nombre" htmlFor="cat-name">
-            <Input id="cat-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={50} placeholder="Mercado, arriendo, salidas…" />
+            <Input id="cat-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={50} placeholder={isIncome ? "Salario, ventas, reembolsos…" : "Mercado, arriendo, salidas…"} />
           </Field>
         </div>
         <div className="no-scrollbar -mt-1 flex gap-1.5 overflow-x-auto">
-          {SUGGESTED_ICONS.map((i) => (
+          {(isIncome ? INCOME_ICONS : SUGGESTED_ICONS).map((i) => (
             <button key={i} type="button" onClick={() => setIcon(i)} className="rounded-xl bg-surface-2 px-2 py-1 text-lg">{i}</button>
           ))}
         </div>
 
+        {isIncome ? (
+          <p className="rounded-2xl bg-surface-2 px-3 py-2 text-sm text-muted">
+            Las categorías de ingresos son personales y no tienen presupuesto: sirven para saber de dónde viene tu plata.
+          </p>
+        ) : (<>
         {!canSeeBudget && (
           <p className="rounded-2xl bg-surface-2 px-3 py-2 text-sm text-muted">
             El progreso de esta categoría es privado de tu pareja. Puedes cambiarle el nombre o el ícono.
@@ -184,6 +202,8 @@ export function CategorySheet({
         )}
         {canSeeBudget && <SwitchRow label="Pasar el saldo al siguiente periodo" hint="Rollover: el sobrante suma y el sobregiro resta en el siguiente periodo."
           checked={rollover} onCheckedChange={setRollover} />}
+
+        </>)}
 
         <ErrorText>{error}</ErrorText>
         <div className="flex gap-3">

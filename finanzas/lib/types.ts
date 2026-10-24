@@ -94,6 +94,8 @@ export interface Category {
   rollover_enabled: boolean;
   archived: boolean;
   created_at: string;
+  /** EXPENSE: categoría de presupuesto · INCOME: de dónde viene un ingreso. */
+  kind?: "EXPENSE" | "INCOME";
 }
 
 export interface CategoryBudgetRow {
@@ -139,6 +141,7 @@ export interface Transaction {
   suggested_category_id?: string | null;
   suggested_responsible_user_id?: string | null;
   suggested_to_account_id?: string | null;
+  income_category_id?: string | null;
   splits: Split[];
 }
 
