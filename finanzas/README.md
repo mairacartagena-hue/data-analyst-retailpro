@@ -4,7 +4,27 @@ PWA privada de finanzas personales y en pareja (Android y escritorio). Todo en p
 
 **Stack:** Next.js 16 (App Router) + TypeScript 5.9 + Tailwind 4 + componentes estilo shadcn/ui (Radix) + Motion · Supabase (Postgres, Auth, RLS, Realtime) · Vercel Hobby. Todo gratuito.
 
-## Estado: Fase 1 — Núcleo financiero
+## Estado (24 de octubre de 2026)
+
+| Parte | Estado |
+|---|---|
+| Fase 1 — Núcleo financiero | Hecha |
+| Fase 2 — Ingesta automática | Hecha; llegan correos de Bancolombia por Gmail |
+| Cierre del mes, Informes, pestañas Inicio · Movimientos · + · Presupuesto · Informes · Más | Hecho |
+| Fase 3 — Voz, OCR, Telegram, offline con cola | Pendiente |
+| Fase 4 — Metas de ahorro, recurrentes, Web Push, búsqueda, IA, créditos | Pendiente |
+
+**Pendiente por probar o configurar:**
+- [ ] Que la pareja se una al hogar y probar el cruce, la liquidación, Realtime en dos celulares y la privacidad (pasos 1, 5 y 6 de “Cómo probar la Fase 1”).
+- [ ] Revisar la cola “Por revisar” y los avisos no reconocidos (Ajustes → Captura automática → Reintentar).
+- [ ] Hacer el primer Cierre del mes.
+- [ ] Configurar MacroDroid (SMS y notificaciones) en cada celular; por ahora solo llegan correos.
+- [ ] Conseguir ejemplos reales de Nequi, Banco de Bogotá y Google Wallet.
+- [ ] Crear el resto de categorías y las categorías de ingresos.
+- [ ] Activar en Supabase → Authentication → **Leaked password protection** (no se puede desde SQL).
+- [ ] Confirmar en Vercel: Root Directory = `finanzas` y `GEMINI_API_KEY` configurada.
+
+## Fase 1 — Núcleo financiero
 
 | Incluido | Dónde |
 |---|---|
@@ -77,6 +97,14 @@ Pestañas: **Inicio · Movimientos · + · Presupuesto · Informes · Más**. �
 - **Informes:** gastos por categoría, por persona (hogar/personal) y tendencia de 6 meses, con vista de tabla y descarga CSV para Excel (separador “;”).
 - **Categorías de ingresos** (`categories.kind = INCOME`): personales y sin presupuesto; se crean desde el formulario con “+ Nueva”.
 
+## Seguridad
+
+- RLS en todas las tablas; las funciones `SECURITY DEFINER` tienen `search_path` fijo y validan `auth.uid()`.
+- Sin sesión solo se puede llamar a `ingest_event()`, a propósito: el webhook la usa con la clave pública y la función valida el token personal.
+- `ingest_find_duplicate()` es interna (nadie la llama desde la API).
+- Desde la migración 0016, las funciones nuevas no quedan abiertas sin sesión por defecto: cada migración debe dar `grant execute … to authenticated` (o `anon`, si de verdad hace falta).
+- Al pegar migraciones por partes en el SQL Editor, revisar después **Advisors → Security** en Supabase: los `revoke`/`grant` de 0009, 0014a y 0015 no habían quedado aplicados (los corrige 0016).
+
 ## Decisiones de la Fase 1
 
 1. **Tarjeta de crédito:** la compra consume el presupuesto al comprar; pagar la tarjeta es una transferencia y no vuelve a consumir presupuesto.
@@ -92,7 +120,7 @@ Pestañas: **Inicio · Movimientos · + · Presupuesto · Informes · Más**. �
 ## Configuración
 
 ### 1. Base de datos (Supabase, proyecto `finanzas-pareja`)
-Las migraciones están en `supabase/migrations/` (0001 → 0015). Para aplicarlas a mano, pega cada archivo completo en **SQL Editor → Run**, en orden. Se pueden correr más de una vez.
+Las migraciones están en `supabase/migrations/` (0001 → 0016). Para aplicarlas a mano, pega cada archivo completo en **SQL Editor → Run**, en orden. Se pueden correr más de una vez.
 
 ### 2. Autenticación
 En Supabase → **Authentication → URL Configuration**:
