@@ -26,12 +26,14 @@ export interface BudgetCategory {
   budgets: BudgetVersion[];
 }
 
-/** Ejecutado agregado: lo que devuelve category_daily_spending(). */
+/** Ejecutado agregado por categoría, responsable y día (un reembolso resta). */
 export interface SpendingRow {
   categoryId: string;
   responsibleUserId: string;
   occurredOn: string;
   total: number;
+  /** Ámbito del movimiento: las barras compartidas solo suman lo del hogar. */
+  scope?: "HOUSEHOLD" | "PERSONAL";
 }
 
 export interface AllocationStatus {

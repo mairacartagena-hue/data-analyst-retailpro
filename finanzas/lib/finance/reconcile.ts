@@ -4,6 +4,7 @@
 
 import type { Account, Transaction } from "@/lib/types";
 import { addDays } from "./periods";
+import { accountSign } from "./spaces";
 
 export type GmfMode = "TAXED" | "EXEMPT_350" | "LOW_AMOUNT_65";
 
@@ -36,7 +37,7 @@ export function effectiveAt(t: Pick<Transaction, "occurred_at" | "occurred_on">)
 /** Efecto de un movimiento sobre el saldo de una cuenta (+ entra, − sale, 0 no la toca). */
 export function effectOn(accountId: string, t: Transaction): number {
   let e = 0;
-  if (t.account_id === accountId) e += t.kind === "INCOME" ? t.amount : -t.amount;
+  if (t.account_id === accountId) e += accountSign(t) * t.amount;
   if (t.to_account_id === accountId) e += t.amount;
   return e;
 }

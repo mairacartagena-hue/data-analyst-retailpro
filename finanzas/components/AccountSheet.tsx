@@ -154,14 +154,15 @@ export function AccountSheet({ open, onOpenChange, account }: { open: boolean; o
             <Field label="Día de pago" htmlFor="dd"><Input id="dd" inputMode="numeric" value={dueDay} onChange={(e) => setDueDay(e.target.value.replace(/\D/g, "").slice(0, 2))} /></Field>
           </div>
         )}
-        <Field label={`¿Qué puede ver ${partner?.display_name ?? "tu pareja"}?`}>
+        <Field label={`¿Qué puede ver ${partner?.display_name ?? "tu pareja"}?`}
+          hint="La cuenta sigue siendo tuya. Tus movimientos personales nunca se muestran; los del hogar sí, sin importar con qué cuenta los pagues.">
           <Select value={visibility} onChange={(e) => setVisibility(e.target.value as Visibility)}>
             {VISIBILITIES.map((v) => <option key={v} value={v}>{VISIBILITY_LABEL[v]}</option>)}
           </Select>
         </Field>
         {visibility === "PRIVATE" && (
           <SwitchRow label="Mostrar el nombre en gastos compartidos"
-            hint="Cuando pagues algo de una categoría compartida con esta cuenta, tu pareja verá su nombre en vez de “Cuenta privada”. El saldo sigue oculto."
+            hint="Cuando pagues algo del hogar con esta cuenta, tu pareja verá su nombre en vez de “Cuenta privada”. El saldo sigue oculto."
             checked={reveal} onCheckedChange={setReveal} />
         )}
         <ErrorText>{error}</ErrorText>

@@ -26,6 +26,7 @@ const KIND_LABEL: Record<LedgerRow["kind"], string> = {
   LOAN: "Préstamo",
   ERRAND: "Encargo",
   SETTLEMENT: "Liquidación",
+  REFUND: "Reembolso de su parte",
 };
 
 export function CruceView() {

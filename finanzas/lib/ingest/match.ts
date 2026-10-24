@@ -24,13 +24,18 @@ function dayDiff(a: string, b: string): number {
   return Math.abs(Date.parse(`${a}T00:00:00Z`) - Date.parse(`${b}T00:00:00Z`)) / 86_400_000;
 }
 
+/** Un aviso de compra puede ser un pago de deuda registrado a mano; un ingreso, un reembolso. */
+function sameDirection(manual: Transaction["kind"], pending: Transaction["kind"]): boolean {
+  return manual === pending || (pending === "EXPENSE" && manual === "DEBT_PAYMENT") || (pending === "INCOME" && manual === "REFUND");
+}
+
 /** Movimiento manual (±3 días, mismo tipo y pagador) que parece ser el mismo pago, o null. */
 export function findManualTwin(pending: Transaction, all: Transaction[], categories: Category[]): Transaction | null {
   const target = words(pending.merchant_norm ?? pending.merchant ?? pending.description);
   let best: Transaction | null = null;
   let bestScore = Infinity;
   for (const t of all) {
-    if (t.id === pending.id || t.source !== "MANUAL" || t.kind !== pending.kind) continue;
+    if (t.id === pending.id || t.source !== "MANUAL" || !sameDirection(t.kind, pending.kind)) continue;
     if (t.payer_user_id !== pending.payer_user_id || t.status !== "CONFIRMED") continue;
     if (t.splits.length > 1 || dayDiff(t.occurred_on, pending.occurred_on) > 3) continue;
     if (pending.account_id && t.account_id && pending.account_id !== t.account_id) continue;

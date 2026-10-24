@@ -11,7 +11,9 @@ export function categoryLabel(categories: Category[], id: string | null): { name
   if (!id) return { name: "Sin categoría", icon: "·" };
   const c = categories.find((x) => x.id === id);
   if (!c) return { name: "Privado", icon: "🔒" };
-  return { name: c.name, icon: c.icon || "•" };
+  // Una subcategoría sin ícono usa el de su categoría principal
+  const parentIcon = !c.icon && c.parent_id ? categories.find((x) => x.id === c.parent_id)?.icon : null;
+  return { name: c.name, icon: c.icon || parentIcon || "•" };
 }
 
 /** Responsable único de la categoría según su tipo, o null si es de montos fijos. */

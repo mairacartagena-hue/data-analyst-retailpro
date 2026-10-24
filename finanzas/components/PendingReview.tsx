@@ -15,6 +15,7 @@ import { accountLabel, categoryLabel, categoryResponsible } from "@/lib/finance/
 import { findManualTwin } from "@/lib/ingest/match";
 import { fold } from "@/lib/ingest/normalize";
 import { SUBSCRIPTION_TAG } from "@/lib/finance/subscriptions";
+import { suggestedScope } from "@/lib/finance/spaces";
 import { formatDay, periodFor, todayBogota } from "@/lib/finance/periods";
 import { errMsg } from "@/lib/utils";
 
@@ -55,6 +56,7 @@ function PendingCard({ tx }: { tx: Transaction }) {
     ?? (suggested ? categoryResponsible(suggested, me, partner) : null)
     ?? me.user_id;
   const who = memberById(suggestedResp);
+  const scope = suggestedScope(suggested);
   const canConfirm = tx.kind === "EXPENSE" && !!suggested && !!tx.account_id && tx.movement_type !== "CARD_PAYMENT";
   const name = tx.merchant || tx.description || "comercio sin nombre";
   const twin = findManualTwin(tx, transactions, categories);
@@ -107,6 +109,8 @@ function PendingCard({ tx }: { tx: Transaction }) {
         merchant: tx.merchant,
         account_id: tx.account_id,
         tags: tx.tags,
+        scope: categoryOverride ? "PERSONAL" : scope,
+        creates_debt: true,
         splits: [{ amount: tx.amount, category_id: categoryId, responsible_user_id: categoryOverride ? me.user_id : suggestedResp }],
       },
     });
@@ -147,7 +151,7 @@ function PendingCard({ tx }: { tx: Transaction }) {
         <p className="flex items-start gap-1.5 rounded-xl bg-olive-soft px-3 py-2 text-sm">
           <Sparkles size={15} className="mt-0.5 shrink-0 text-olive" />
           <span>
-            ¿Asignar a <strong>{categoryLabel(categories, suggested.id).icon} {suggested.name}</strong> (100 % {who?.user_id === me.user_id ? "tú" : who?.display_name})?
+            ¿Asignar a <strong>{categoryLabel(categories, suggested.id).icon} {suggested.name}</strong> (100 % {who?.user_id === me.user_id ? "tú" : who?.display_name} · {scope === "HOUSEHOLD" ? "hogar" : "personal"})?
           </span>
         </p>
       )}

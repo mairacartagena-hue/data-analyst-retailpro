@@ -29,7 +29,7 @@ const NAV: { href: string; label: string; icon: typeof Home; also?: string[] }[]
   { href: "/movimientos", label: "Movimientos", icon: List },
   { href: "/presupuestos", label: "Presupuesto", icon: PieChart },
   { href: "/informes", label: "Informes", icon: BarChart3 },
-  { href: "/mas", label: "Más", icon: Menu, also: ["/cuentas", "/cierre", "/captura", "/ajustes", "/cruce"] },
+  { href: "/mas", label: "Más", icon: Menu, also: ["/cuentas", "/cierre", "/captura", "/ajustes", "/cruce", "/categorias", "/metas", "/etiquetas"] },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {

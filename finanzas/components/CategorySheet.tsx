@@ -7,7 +7,7 @@ import type { Category } from "@/lib/types";
 import type { Responsibility } from "@/lib/finance/budget";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import { ErrorText, Field, Input } from "@/components/ui/input";
+import { ErrorText, Field, Input, Select } from "@/components/ui/input";
 import { SwitchRow } from "@/components/ui/switch";
 import { AmountInput } from "@/components/AmountInput";
 import { budgetVersionAt } from "@/lib/finance/budget";
@@ -22,8 +22,10 @@ const SUGGESTED_ICONS = ["🏠", "💡", "🛒", "🐾", "📺", "🍽️", "�
 const INCOME_ICONS = ["💼", "💰", "🏦", "🧾", "🎁", "🏠", "📈", "🛍️", "🔁"];
 
 export function CategorySheet({
-  open, onOpenChange, category, kind = "EXPENSE", onSaved,
+  open, onOpenChange, category, kind = "EXPENSE", onSaved, parentId = null,
 }: {
+  /** Categoría principal sugerida para una nueva (crear una subcategoría). */
+  parentId?: string | null;
   open: boolean;
   onOpenChange: (v: boolean) => void;
   category: Category | null;
@@ -33,7 +35,7 @@ export function CategorySheet({
   onSaved?: (id: string) => void;
 }) {
   const state = useFinance();
-  const { me, partner, settings, budgets, supabase, reload } = state;
+  const { me, partner, settings, budgets, supabase, reload, categories } = state;
   const memberA = memberBySlot(me, partner, "A");
   const memberB = memberBySlot(me, partner, "B");
   const currentStart = periodFor(settings, todayBogota()).start;
@@ -47,6 +49,7 @@ export function CategorySheet({
   const [obligation, setObligation] = useState(false);
   const [shared, setShared] = useState(false);
   const [rollover, setRollover] = useState(false);
+  const [parent, setParent] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -65,7 +68,9 @@ export function CategorySheet({
       setObligation(category.is_household_obligation);
       setShared(category.is_shared_progress);
       setRollover(category.rollover_enabled);
+      setParent(category.parent_id ?? "");
     } else {
+      setParent(parentId ?? "");
       setName("");
       setIcon("");
       setResp(me.slot === "A" ? "MEMBER_A_100" : "MEMBER_B_100");
@@ -80,6 +85,11 @@ export function CategorySheet({
   }, [open, category]);
 
   const isIncome = (category?.kind ?? kind) === "INCOME";
+  const hasChildren = !!category && categories.some((c) => c.parent_id === category.id);
+  // Principales posibles: del mismo tipo, sin principal propia y distintas de esta
+  const parentOptions = categories.filter((c) => !c.archived && !c.parent_id && c.id !== category?.id
+    && (c.kind ?? "EXPENSE") === (isIncome ? "INCOME" : "EXPENSE"));
+  const parentCat = categories.find((c) => c.id === parent) ?? null;
   const isPrivate = resp === "PRIVATE" || isIncome;
   // Igual que can_see_budget() en la base de datos: si no puedo ver el presupuesto, no lo edito.
   const canSeeBudget =
@@ -94,7 +104,7 @@ export function CategorySheet({
     { value: "MEMBER_A_100", title: `100 % ${memberA?.display_name ?? "miembro A"}`, hint: "Asume toda la partida" },
     { value: "MEMBER_B_100", title: `100 % ${memberB?.display_name ?? "miembro B (aún no se une)"}`, hint: "Asume toda la partida" },
     { value: "FIXED_AMOUNTS", title: "Compartida con montos fijos", hint: "Cada uno aporta un monto en pesos" },
-    { value: "PRIVATE", title: "Personal (privada)", hint: "Solo tú la ves; no entra al hogar" },
+    { value: "PRIVATE", title: "Personal (privada)", hint: "Solo tú la ves; se usa en tus movimientos personales" },
   ];
 
   async function save() {
@@ -105,6 +115,7 @@ export function CategorySheet({
       p: {
         id: category?.id ?? null,
         kind: isIncome ? "INCOME" : "EXPENSE",
+        parent_id: parent || null,
         name,
         icon,
         responsibility: isIncome ? "PRIVATE" : resp,
@@ -155,6 +166,21 @@ export function CategorySheet({
           ))}
         </div>
 
+        {hasChildren ? (
+          <p className="text-xs text-muted">Es una categoría principal: sus subcategorías suman en su presupuesto.</p>
+        ) : (
+          <Field label="Dentro de" hint="Elige una categoría principal para que esta sea una subcategoría (ej. Vivienda › Crédito hipotecario).">
+            <Select value={parent} onChange={(e) => {
+              setParent(e.target.value);
+              const p = categories.find((c) => c.id === e.target.value);
+              if (p?.responsibility === "PRIVATE") setResp("PRIVATE");
+            }} aria-label="Categoría principal">
+              <option value="">Ninguna (es una categoría principal)</option>
+              {parentOptions.map((c) => <option key={c.id} value={c.id}>{c.icon ? `${c.icon} ` : ""}{c.name}</option>)}
+            </Select>
+          </Field>
+        )}
+
         {isIncome ? (
           <p className="rounded-2xl bg-surface-2 px-3 py-2 text-sm text-muted">
             Las categorías de ingresos son personales y no tienen presupuesto: sirven para saber de dónde viene tu plata.
@@ -166,11 +192,11 @@ export function CategorySheet({
           </p>
         )}
 
-        {canSeeBudget && <Field label="¿Quién la asume?">
+        {canSeeBudget && <Field label="¿Quién la asume?" hint="Es lo que se propone al registrar; en cada movimiento puedes asignarlo a otra persona.">
           <div className="grid gap-2">
             {options.map((o) => (
               <button key={o.value} type="button" onClick={() => setResp(o.value)} aria-pressed={resp === o.value}
-                disabled={o.value === "MEMBER_B_100" && !memberB && resp !== "MEMBER_B_100"}
+                disabled={(o.value === "MEMBER_B_100" && !memberB && resp !== "MEMBER_B_100") || (parentCat?.responsibility === "PRIVATE" && o.value !== "PRIVATE")}
                 className={cn("rounded-2xl border px-4 py-2.5 text-left disabled:opacity-50", resp === o.value ? "border-olive bg-olive-soft" : "border-border bg-surface")}>
                 <span className="block font-medium">{o.title}</span>
                 <span className="block text-xs text-muted">{o.hint}</span>

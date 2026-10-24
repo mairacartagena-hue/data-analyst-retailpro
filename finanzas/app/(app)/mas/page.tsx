@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ChevronRight, ClipboardCheck, Settings, Shapes, Wallet, Zap } from "lucide-react";
+import { ChevronRight, ClipboardCheck, PiggyBank, Settings, Shapes, Wallet, Zap } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { crossNet } from "@/lib/finance/derive";
 import { formatCop } from "@/lib/finance/money";
@@ -22,6 +22,7 @@ export default function MasPage() {
       href: "/cuentas", icon: Wallet, title: "Cuentas y cruce",
       hint: partner ? (net === 0 ? "A paz y salvo con tu pareja" : net < 0 ? `Le debes ${formatCop(-net)}` : `Te debe ${formatCop(net)}`) : "Tus cuentas, tarjetas y patrimonio",
     },
+    { href: "/metas", icon: PiggyBank, title: "Metas de ahorro", hint: state.goals.filter((g) => g.status === "ACTIVE").length > 0 ? `${state.goals.filter((g) => g.status === "ACTIVE").length} activas` : "Fondo de emergencia, viajes, cuota inicial…" },
     { href: "/categorias", icon: Shapes, title: "Categorías", hint: `${state.categories.filter((c) => !c.archived).length} activas · se usan en Presupuesto y en los pagos` },
     { href: "/cierre", icon: ClipboardCheck, title: "Cierre del mes", hint: toClose > 0 && inCloseWindow(todayBogota()) ? `${toClose} cuenta${toClose === 1 ? "" : "s"} por conciliar` : "Concilia tus cuentas con el banco", alert: toClose > 0 && inCloseWindow(todayBogota()) },
     { href: "/captura", icon: Zap, title: "Captura automática", hint: "Notificaciones, SMS y correos bancarios" },

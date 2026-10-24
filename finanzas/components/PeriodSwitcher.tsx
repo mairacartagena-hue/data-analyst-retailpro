@@ -76,7 +76,7 @@ function CalendarSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (v
   const byDay = useMemo(() => {
     const map = new Map<string, number>();
     for (const t of transactions) {
-      if (t.kind !== "EXPENSE" || !t.occurred_on.startsWith(month)) continue;
+      if ((t.kind !== "EXPENSE" && t.kind !== "DEBT_PAYMENT") || !t.occurred_on.startsWith(month)) continue;
       map.set(t.occurred_on, (map.get(t.occurred_on) ?? 0) + t.amount);
     }
     return map;

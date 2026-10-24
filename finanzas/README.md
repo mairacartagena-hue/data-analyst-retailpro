@@ -12,7 +12,8 @@ PWA privada de finanzas personales y en pareja (Android y escritorio). Todo en p
 | Fase 2 — Ingesta automática | Hecha; llegan correos de Bancolombia por Gmail |
 | Cierre del mes, Informes, pestañas Inicio · Movimientos · + · Presupuesto · Informes · Más | Hecho |
 | Fase 3 — Voz, OCR, Telegram, offline con cola | Pendiente |
-| Fase 4 — Metas de ahorro, recurrentes, Web Push, búsqueda, IA, créditos | Pendiente |
+| Organización hogar / personal, subcategorías, pago de deuda / reembolso / ajuste, presupuestos con nombre, vencimientos y metas de ahorro (migraciones 0017 y 0018) | Hecho; **aplicar 0017 y 0018 antes de publicar** |
+| Fase 4 — Créditos con saldo (capital e intereses), Web Push, IA | Pendiente |
 
 **Pendiente por probar o configurar:**
 - [ ] Que la pareja se una al hogar y probar el cruce, la liquidación, Realtime en dos celulares y la privacidad (pasos 1, 5 y 6 de “Cómo probar la Fase 1”).
@@ -41,7 +42,7 @@ PWA privada de finanzas personales y en pareja (Android y escritorio). Todo en p
 | Dashboard con vistas Mis finanzas / Hogar / Vista global | `app/(app)/page.tsx` |
 | RLS en todas las tablas, Realtime en ambos celulares, PWA instalable, modo claro/oscuro | `supabase/migrations` |
 
-Pendiente para fases siguientes: voz/OCR/Telegram/offline con cola (Fase 3), metas de ahorro, recurrentes, Web Push, búsqueda avanzada, IA y CSV (Fase 4). Mientras no existan metas de ahorro, “Ahorros programados pendientes” vale 0 en el Saldo Seguro.
+Pendiente para fases siguientes: voz/OCR/Telegram/offline con cola (Fase 3), Web Push, IA y créditos con saldo (Fase 4). Las metas de ahorro y los compromisos ya existen (0017 y 0018).
 
 **Créditos (decidido para la Fase 4):** por ahora se registran como pasivo manual en Cuentas → “Otros activos y pasivos” (tipo Crédito o Hipoteca) y la cuota como gasto en una categoría. En la Fase 4 serán un tipo de cuenta propio:
 - Datos del crédito: saldo de capital, tasa de interés (efectiva anual, en pesos; UVR queda fuera por ahora), plazo, día de pago, seguros y otros costos.
@@ -87,6 +88,24 @@ Ajustes → **Cierre del mes** (`app/(app)/cierre`), con recordatorio en el inic
 - **¿Qué hace falta?:** obligaciones del hogar sin pagar, movimientos por revisar, avisos no reconocidos y cuentas sin conciliar.
 - Cada cuenta guarda la **fecha de su saldo inicial** (`opening_at`): lo que ocurrió antes ya estaba incluido en ese saldo y no se vuelve a restar.
 
+## Hogar y personal (migraciones 0017 y 0018)
+
+Cada movimiento tiene campos independientes: **tipo**, **ámbito** (hogar o personal), **categoría/subcategoría**, **responsable** de cada parte, **quién pagó** y **cuenta**.
+
+- **Ámbito** (`transactions.scope`): la pareja ve un movimiento si es del hogar o si participa en él (pagó, lo registró o tiene una parte a su cargo). Ya no lo deciden la categoría ni la visibilidad de la cuenta. Una cuenta personal puede pagar gastos del hogar y sigue siendo de su dueño (si es privada, la pareja ve “Cuenta privada”).
+- Al elegir una categoría se **sugiere** el ámbito (hogar si la categoría tiene progreso compartido o montos fijos); la persona lo cambia. Una categoría personal solo se usa en movimientos personales. Lo que llega por captura automática queda **personal** hasta revisarlo; “Aplicar siempre” recuerda el ámbito elegido.
+- **Tipos**: gasto, ingreso, transferencia propia, liquidación, **pago de deuda** (cuenta en el presupuesto de su categoría), **reembolso** (resta del gasto de su categoría, no es ingreso) y **ajuste** (corrige el saldo; no es ingreso ni gasto). Transferencias, liquidaciones y ajustes no cuentan en gastos ni ingresos.
+- **Deuda opcional**: si la parte de un movimiento le corresponde a quien no pagó, la app pregunta si se anota en el cruce (`creates_debt`). Un gasto del hogar 100 % de una persona no genera deuda.
+- **Ajustes de la pareja**: un movimiento del hogar ya confirmado lo pueden ajustar los dos; quien pagó y su cuenta no cambian (`updated_by` guarda quién ajustó). Solo quien lo registró lo borra. Lo personal solo lo edita su dueño.
+- **Subcategorías** (`categories.parent_id`, un nivel): la barra de una principal suma sus subcategorías. Más → Categorías → “Agregar las que falten” carga la estructura sugerida sin duplicar nombres.
+- **Barras por categoría**: las compartidas (progreso compartido o montos fijos) solo suman movimientos del hogar, así cuadran en los dos celulares y lo personal no se filtra. Lo ejecutado se calcula con los movimientos que cada quien puede ver.
+- **Presupuestos con nombre** (`budget_plans`): del hogar o personales; categorías incluidas (con límite propio opcional), cada periodo o un rango de fechas, alerta (%) y estado (activo, en pausa, cerrado). Gastado = gastos y pagos de deuda menos reembolsos; Comprometido = vencimientos sin pagar; Disponible = límite − gastado; Proyección = gastado + comprometido + ritmo del gasto variable. Cada parte cuenta una sola vez.
+- **Próximos vencimientos** (`scheduled_payments`, en Presupuesto y en el Inicio): pagos previstos (una vez o cada mes) y fechas de pago de tarjetas con deuda. “Pagar” registra el pago enlazado al vencimiento, que deja de contar como comprometido.
+- **Metas de ahorro** (Más → Metas): del hogar o personales, con aportes y retiros. El aporte previsto por periodo se aparta del Saldo Seguro de quien creó la meta mientras falte.
+- **Informes**: Hogar / Personal / Todo, también para el CSV (columna “Ámbito”).
+
+Las pruebas de `tests/db` corren las migraciones reales en una base de datos en memoria (PGlite) y verifican los criterios de aceptación (privacidad, deuda, transferencias, captura automática, datos existentes).
+
 ## Organización de la app
 
 Pestañas: **Inicio · Movimientos · + · Presupuesto · Informes · Más**. “Más” agrupa Cuentas y cruce, Categorías, Cierre del mes, Captura automática y Ajustes.
@@ -94,7 +113,7 @@ Pestañas: **Inicio · Movimientos · + · Presupuesto · Informes · Más**. �
 - **Categorías** (Más → Categorías): un solo lugar para crear, editar y archivar las categorías de gastos e ingresos. Son las mismas que aparecen en Presupuesto y al registrar un pago; cada una muestra quién la asume, su monto del periodo y cuántos movimientos la usan.
 
 - **Presupuesto:** al tocar una barra se ven los pagos que la forman y cómo llegó cada uno (correo, SMS, notificación o a mano).
-- **Movimientos:** filtros por categoría y cuenta (también por enlace: `?categoria=`, `?cuenta=`).
+- **Movimientos:** filtros por categoría (incluye subcategorías), espacio, tipo, cuenta, quién pagó y responsable (también por enlace: `?categoria=`, `?cuenta=`).
 - **Sin etiquetas visibles:** la app trabaja solo con categorías. Por dentro se conservan marcas técnicas (ej. `#gmf` para no sumar dos veces el 4x1000 y `#suscripcion` para reconocer cobros de suscripción); los cobros de suscripción sugieren la categoría “Suscripciones” en “Por revisar”.
 - **Informes:** gastos por categoría, por persona (hogar/personal) y tendencia de 6 meses, con vista de tabla y descarga CSV para Excel (separador “;”).
 - **Categorías de ingresos** (`categories.kind = INCOME`): personales y sin presupuesto; se crean desde el formulario con “+ Nueva”.
@@ -116,13 +135,13 @@ Pestañas: **Inicio · Movimientos · + · Presupuesto · Informes · Más**. �
 5. **Rollover:** opcional por categoría; pasan sobrantes y sobregiros.
 6. **Moneda:** solo pesos colombianos.
 7. **Patrimonio:** cuentas y tarjetas + activos y pasivos manuales.
-8. **Privacidad cuando chocan dos reglas:** un gasto en una categoría `PRIVATE` no se muestra aunque salga de una cuenta `PUBLIC` (la privacidad gana). Las barras compartidas sí suman todos los montos de su categoría para que cuadren en los dos celulares.
-9. **Quién registra:** cada movimiento lo registra quien pagó, y solo esa persona lo edita o borra. La liquidación la registra quien paga.
+8. **Privacidad (desde 0017):** la decide el ámbito del movimiento, no la categoría ni la cuenta. Las barras compartidas suman solo movimientos del hogar.
+9. **Quién registra:** cada movimiento lo registra quien pagó. Los del hogar los puede ajustar la pareja; solo quien lo registró lo borra. La liquidación la registra quien paga.
 
 ## Configuración
 
 ### 1. Base de datos (Supabase, proyecto `finanzas-pareja`)
-Las migraciones están en `supabase/migrations/` (0001 → 0016). Para aplicarlas a mano, pega cada archivo completo en **SQL Editor → Run**, en orden. Se pueden correr más de una vez.
+Las migraciones están en `supabase/migrations/` (0001 → 0018). Para aplicarlas a mano, pega cada archivo completo en **SQL Editor → Run**, en orden. Se pueden correr más de una vez.
 
 ### 2. Autenticación
 En Supabase → **Authentication → URL Configuration**:

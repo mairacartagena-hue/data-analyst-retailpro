@@ -14,6 +14,7 @@ import { PendingReview } from "@/components/PendingReview";
 import { BudgetDetailSheet } from "@/components/BudgetDetailSheet";
 import type { Category } from "@/lib/types";
 import { CloseReminder } from "@/components/CloseReminder";
+import { UpcomingList, useUpcoming } from "@/components/Upcoming";
 import { Card, SectionTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
@@ -49,6 +50,9 @@ export default function HomePage() {
   const cats = categoriesForScope(state, scope);
   const obligations = cats.filter((c) => c.is_household_obligation);
   const others = cats.filter((c) => !c.is_household_obligation);
+  const upcoming = useUpcoming(period);
+  const pendingDues = upcoming.occurrences.filter((o) => !o.paid && (scope !== "household" || o.payment.scope === "HOUSEHOLD"));
+  const cardDues = scope === "household" ? [] : upcoming.cards;
 
   return (
     <main className="px-4 pt-[calc(12px+env(safe-area-inset-top))]">
@@ -100,6 +104,16 @@ export default function HomePage() {
           </Card>
         )}
 
+        {pendingDues.length + cardDues.length > 0 && (
+          <>
+            <div className="mt-5 flex items-center justify-between">
+              <SectionTitle className="m-0">Próximos vencimientos</SectionTitle>
+              <Link href="/presupuestos" className="text-sm font-semibold text-olive">Ver todos</Link>
+            </div>
+            <UpcomingList occurrences={pendingDues} cards={cardDues} today={upcoming.today} limit={3} />
+          </>
+        )}
+
         {cats.length === 0 ? (
           <Card className="mt-6 space-y-3 text-center">
             <p className="text-[15px]">Aún no hay presupuestos en esta vista.</p>
@@ -142,7 +156,7 @@ export default function HomePage() {
           </Card>
         </div>
         {scope !== "me" && (
-          <p className="mt-2 px-1 text-xs text-muted">Incluye solo lo que cada uno decidió compartir.</p>
+          <p className="mt-2 px-1 text-xs text-muted">{scope === "household" ? "Solo movimientos del hogar, pague quien pague." : "Incluye lo del hogar y lo tuyo."} Las transferencias no cuentan.</p>
         )}
 
         <Button variant="outline" className="mt-6 w-full" onClick={() => openTransaction(null)}>Registrar un movimiento</Button>

@@ -11,7 +11,7 @@ export interface SplitDraft {
   origin?: SplitOrigin;
 }
 
-export type LedgerKind = "CROSS_PAYMENT" | "SPLIT" | "FIXED_EXCESS" | "LOAN" | "ERRAND" | "SETTLEMENT";
+export type LedgerKind = "CROSS_PAYMENT" | "SPLIT" | "FIXED_EXCESS" | "LOAN" | "ERRAND" | "SETTLEMENT" | "REFUND";
 
 export interface LedgerEntry {
   creditorUserId: string; // a quien le deben
