@@ -207,18 +207,8 @@ function AccountClose({ account, month }: { account: Account; month: string }) {
             <AmountInput value={bank} onChange={setBank} />
           </Field>
 
-          {diff !== null && (
-            <p className={cn("rounded-xl px-3 py-2 text-sm", diff === 0 ? "bg-olive-soft" : "bg-warning-soft")}>
-              {diff === 0
-                ? "Cuadra exacto."
-                : diff < 0
-                  ? `Faltan ${formatCop(-diff)} por registrar (salió más plata de lo que tiene la app).`
-                  : `Sobran ${formatCop(diff)}: entró plata que no está en la app.`}
-            </p>
-          )}
-
           <div className="space-y-2">
-            <p className="flex items-center gap-1.5 text-sm font-medium text-muted"><Receipt size={15} /> Gastos bancarios del mes</p>
+            <p className="flex items-center gap-1.5 text-sm font-medium text-muted"><Receipt size={15} /> 1 · Registra los gastos bancarios del mes</p>
             <div className="flex flex-wrap gap-2">
               {FEES.filter((f) => !(isCard && f.key === "gmf")).map((f) => (
                 <button key={f.key} onClick={() => setFee(f.key)}
@@ -227,13 +217,30 @@ function AccountClose({ account, month }: { account: Account; month: string }) {
                 </button>
               ))}
             </div>
-            {diff !== null && diff !== 0 && (
-              <Button variant="outline" size="sm" className="w-full" onClick={() => setFee("unknown")}>
-                Registrar {formatCop(Math.abs(diff))} como “No identificado”
-              </Button>
-            )}
-            <button className="text-xs text-olive underline" onClick={() => openTransaction(null)}>Registrar otro movimiento</button>
+            <p className="text-xs text-muted">Van a tu categoría “Gastos bancarios”. Cada uno que registres se descuenta de la diferencia.</p>
+            <button className="text-xs text-olive underline" onClick={() => openTransaction(null)}>Registrar otro movimiento que falte</button>
           </div>
+
+          {diff !== null && (
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-muted">2 · Diferencia sin identificar</p>
+              <p className={cn("rounded-xl px-3 py-2 text-sm", diff === 0 ? "bg-olive-soft" : "bg-warning-soft")}>
+                {diff === 0
+                  ? "Cuadra exacto: no hay diferencia sin identificar."
+                  : diff < 0
+                    ? `${formatCop(-diff)} salieron de la cuenta y no están en la app.`
+                    : `${formatCop(diff)} entraron a la cuenta y no están en la app.`}
+              </p>
+              {diff < 0 && gmf > 0 && (
+                <p className="text-xs text-warning">Parte de esta diferencia podría ser el 4x1000 (≈ {formatCop(gmf)}). Regístralo arriba primero.</p>
+              )}
+              {diff !== 0 && (
+                <Button variant="outline" size="sm" className="w-full" onClick={() => setFee("unknown")}>
+                  Registrar {formatCop(Math.abs(diff))} como “No identificado”
+                </Button>
+              )}
+            </div>
+          )}
 
           <ErrorText>{error}</ErrorText>
           <Button className="w-full" onClick={markReconciled} disabled={busy || bankValue === null}>

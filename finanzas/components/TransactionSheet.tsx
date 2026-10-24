@@ -43,10 +43,14 @@ function newKey() {
   return Math.random().toString(36).slice(2);
 }
 
-/** Valores iniciales para registrar el pago de una categoría desde su barra. */
+/** Valores iniciales: pago de una categoría desde su barra, o un aviso no reconocido de Captura automática. */
 export interface TxPreset {
-  categoryId: string;
-  amount: number;
+  categoryId?: string;
+  amount?: number;
+  description?: string;
+  date?: string;
+  /** Aviso de ingest_logs que se marca como registrado al guardar. */
+  logId?: string;
 }
 
 export function TransactionSheet({
@@ -116,11 +120,11 @@ export function TransactionSheet({
     }
     let last = "";
     try { last = localStorage.getItem(LAST_ACCOUNT_KEY) ?? ""; } catch {}
-    const presetCategory = preset ? usable.find((c) => c.id === preset.categoryId) ?? null : null;
+    const presetCategory = preset?.categoryId ? usable.find((c) => c.id === preset.categoryId) ?? null : null;
     setKind("EXPENSE");
-    setAmount(preset && preset.amount > 0 ? String(preset.amount) : "");
-    setDescription(presetCategory ? presetCategory.name : "");
-    setDate(todayBogota());
+    setAmount(preset?.amount && preset.amount > 0 ? String(preset.amount) : "");
+    setDescription(preset?.description ?? (presetCategory ? presetCategory.name : ""));
+    setDate(preset?.date ?? todayBogota());
     setAccountId(myAccounts.some((a) => a.id === last) ? last : (myAccounts[0]?.id ?? ""));
     setToAccountId("");
     setCategoryId(presetCategory?.id ?? "");
@@ -221,7 +225,7 @@ export function TransactionSheet({
     }
 
     setBusy(true);
-    const { error } = await supabase.rpc("save_transaction", {
+    const { data: savedId, error } = await supabase.rpc("save_transaction", {
       p: {
         id: editing?.id ?? null,
         kind,
@@ -241,6 +245,9 @@ export function TransactionSheet({
     });
     if (!error && isPendingReview && kind === "EXPENSE" && !splitMode && remember && (editing?.merchant_norm || (editing?.splits.length ?? 0) > 0)) {
       await supabase.rpc("remember_merchant", { p_transaction_id: editing!.id, p_auto_apply: autoApply });
+    }
+    if (!error && preset?.logId && savedId) {
+      await supabase.from("ingest_logs").update({ result: "ACCEPTED", reason: "Registrado a mano", transaction_id: savedId }).eq("id", preset.logId);
     }
     setBusy(false);
     if (error) return setError(errMsg(error));
@@ -267,7 +274,7 @@ export function TransactionSheet({
   const crossing = kind === "EXPENSE" && !splitMode && responsibleId !== me.user_id;
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} title={isPendingReview ? "Revisar movimiento" : editing ? "Editar movimiento" : preset ? "Registrar pago" : "Registrar"}>
+    <Sheet open={open} onOpenChange={onOpenChange} title={isPendingReview ? "Revisar movimiento" : editing ? "Editar movimiento" : preset?.categoryId ? "Registrar pago" : "Registrar"}>
       {myAccounts.length === 0 ? (
         <div className="space-y-3 py-6 text-center">
           <p className="text-[15px]">Primero agrega una cuenta (ahorros, Nequi, efectivo o tarjeta) en la pestaña Cuentas.</p>

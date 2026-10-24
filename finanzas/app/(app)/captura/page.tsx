@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Check, ChevronDown, Copy, KeyRound, Mail, MessageSquareText, Smartphone, Trash2 } from "lucide-react";
+import { ArrowLeft, Check, ChevronDown, Copy, KeyRound, Mail, MessageSquareText, Plus, RefreshCw, Smartphone, Trash2 } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { useShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ import type { IngestLog, MerchantMemory } from "@/lib/types";
 import { CHANNEL_LABEL } from "@/lib/types";
 import { categoryLabel } from "@/lib/finance/labels";
 import { appsScript, notificationBody, smsBody } from "@/lib/ingest/templates";
+import { findAmount } from "@/lib/ingest/normalize";
 import { cn, errMsg } from "@/lib/utils";
 
 const RESULT_LABEL: Record<IngestLog["result"], { text: string; className: string }> = {
@@ -50,7 +51,6 @@ function Step({ n, children }: { n: number; children: React.ReactNode }) {
 
 export default function CapturaPage() {
   const { supabase, me, categories, memberById } = useFinance();
-  const { openTransaction } = useShell();
   const [origin, setOrigin] = useState("");
   const [token, setToken] = useState<{ token_hint: string; created_at: string; last_used_at: string | null } | null>(null);
   const [newToken, setNewToken] = useState<string | null>(null);
@@ -184,7 +184,7 @@ export default function CapturaPage() {
         <p className="px-1 text-sm text-muted">Aún no ha llegado nada. Cuando conectes MacroDroid o Gmail verás aquí cada aviso y qué se hizo con él.</p>
       ) : (
         <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface">
-          {logs.map((l) => <LogRow key={l.id} log={l} onManual={() => openTransaction(null)} />)}
+          {logs.map((l) => <LogRow key={l.id} log={l} onChanged={load} />)}
         </div>
       )}
 
@@ -216,9 +216,46 @@ export default function CapturaPage() {
   );
 }
 
-function LogRow({ log, onManual }: { log: IngestLog; onManual: () => void }) {
-  const [show, setShow] = useState(false);
+function LogRow({ log, onChanged }: { log: IngestLog; onChanged: () => void }) {
+  const { openPayment } = useShell();
+  const { reload } = useFinance();
+  const [show, setShow] = useState(log.result === "UNRECOGNIZED" || log.result === "ERROR");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
   const r = RESULT_LABEL[log.result];
+  const failed = log.result === "UNRECOGNIZED" || log.result === "ERROR" || log.result === "DISCARDED";
+
+  async function retry() {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const res = await fetch("/api/ingest/retry", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ log_id: log.id }) });
+      const data = (await res.json()) as { ok: boolean; error?: string; result?: string; reason?: string | null };
+      if (!data.ok) setMsg(data.error ?? "No se pudo reintentar");
+      else if (data.result === "ACCEPTED") setMsg("Listo: quedó en Por revisar.");
+      else if (data.result === "MERGED") setMsg("Ya estaba registrado; se unió con ese movimiento.");
+      else if (data.result === "IGNORED") setMsg("No es un movimiento; se ignoró.");
+      else setMsg(data.reason ?? "Sigue sin reconocerse. Regístralo a mano.");
+      onChanged();
+      void reload();
+    } catch {
+      setMsg("Sin conexión. Intenta de nuevo.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function manual() {
+    const text = (log.raw_text ?? "").replace(/\s+/g, " ");
+    const day = new Date(Date.parse(log.received_at) - 5 * 3_600_000).toISOString().slice(0, 10);
+    openPayment({
+      amount: findAmount(text) ?? undefined,
+      description: text.replace(/^.*?(?:bancolombia|nequi|bbva)\s*:\s*/i, "").slice(0, 60),
+      date: day,
+      logId: log.id,
+    });
+  }
+
   return (
     <div className="px-3.5 py-3">
       <button className="flex w-full items-center gap-3 text-left" onClick={() => setShow(!show)}>
@@ -230,9 +267,15 @@ function LogRow({ log, onManual }: { log: IngestLog; onManual: () => void }) {
         <div className="mt-2 space-y-2 text-sm">
           <p className="text-muted">{CHANNEL_LABEL[log.channel] ?? log.channel}{log.parser ? ` · leído con ${log.parser === "gemini" ? "Gemini" : log.parser}` : ""}{log.reason ? ` · ${log.reason}` : ""}</p>
           {log.raw_text ? <Code>{log.raw_text}</Code> : <p className="text-xs text-muted">Texto original ya borrado.</p>}
-          {(log.result === "UNRECOGNIZED" || log.result === "ERROR") && (
-            <Button size="sm" variant="outline" onClick={onManual}>Registrar a mano</Button>
+          {failed && (
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" className="flex-1" onClick={retry} disabled={busy || !log.raw_text}>
+                <RefreshCw size={15} className={busy ? "animate-spin" : ""} /> Reintentar
+              </Button>
+              <Button size="sm" className="flex-1" onClick={manual}><Plus size={15} /> Registrar</Button>
+            </div>
           )}
+          {msg && <p className="text-xs">{msg}</p>}
         </div>
       )}
     </div>
