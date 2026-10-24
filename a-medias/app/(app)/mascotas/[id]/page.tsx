@@ -8,7 +8,7 @@ import { useHousehold } from "@/components/HouseholdProvider";
 import { OccurrenceRow, sortOccurrences } from "@/components/OccurrenceRow";
 import { MedSheet } from "@/components/MedSheet";
 import { PetEventSheet, PetSheet } from "@/components/RecordarSheets";
-import { Avatar, Empty } from "@/components/ui";
+import { Avatar, Empty, SectionHeader } from "@/components/ui";
 import { Loading } from "@/components/Loading";
 import { dayNum, formatAge, formatDateLong, formatHora, formatShort, monthShort, monthYear, todayStr } from "@/lib/dates";
 import { medProgress, nextPetEventDate } from "@/lib/logic";
@@ -77,12 +77,14 @@ export default function MascotaPage() {
       </header>
 
       {/* Medicamentos */}
-      <div className="flex items-baseline justify-between">
-        <h2 className="seccion">Medicamentos</h2>
-        <button className="btn btn-primary btn-sm" onClick={() => setMed("nuevo")}>
-          <Plus size={14} /> Medicamento
-        </button>
-      </div>
+      <SectionHeader
+        title="Medicamentos"
+        action={
+          <button className="btn btn-secondary btn-sm" onClick={() => setMed("nuevo")}>
+            <Plus size={14} /> Medicamento
+          </button>
+        }
+      />
 
       {activos.length === 0 && <Empty>Sin tratamientos activos.</Empty>}
 
@@ -163,7 +165,7 @@ export default function MascotaPage() {
 
       {terminados.length > 0 && (
         <>
-          <h3 className="mb-2 mt-5 text-sm font-semibold uppercase tracking-wide text-sec">Historial</h3>
+          <SectionHeader title="Historial" small />
           <ul className="card p-0!">
             {terminados.map((t) => {
               const p = medProgress(t, occurrences, hoy);
@@ -188,7 +190,7 @@ export default function MascotaPage() {
 
       {otrasTareas.length > 0 && (
         <>
-          <h3 className="mb-2 mt-5 text-sm font-semibold uppercase tracking-wide text-sec">Otras tareas de {pet.nombre}</h3>
+          <SectionHeader title={`Otras tareas de ${pet.nombre}`} small />
           <ul className="card p-0!">
             {otrasTareas.map((t) => (
               <li key={t.id} className="border-b-2 border-rosa-claro px-4 py-3 text-[15px] font-medium last:border-b-0">
@@ -200,12 +202,14 @@ export default function MascotaPage() {
       )}
 
       {/* Vacunas y controles */}
-      <div className="flex items-baseline justify-between">
-        <h2 className="seccion">Vacunas y controles</h2>
-        <button className="btn btn-secondary btn-sm" onClick={() => setEvento("nuevo")}>
-          <Plus size={14} /> Agregar
-        </button>
-      </div>
+      <SectionHeader
+        title="Vacunas y controles"
+        action={
+          <button className="btn btn-secondary btn-sm" onClick={() => setEvento("nuevo")}>
+            <Plus size={14} /> Agregar
+          </button>
+        }
+      />
       {eventos.length === 0 ? (
         <Empty>Registra vacunas y controles para que les llegue el aviso.</Empty>
       ) : (

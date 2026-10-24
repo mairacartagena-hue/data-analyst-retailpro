@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { Check, X } from "lucide-react";
+import { Check, Plus, X } from "lucide-react";
 import type { Member } from "@/lib/types";
 import { useHouseholdOptional } from "./HouseholdProvider";
 
@@ -28,6 +28,29 @@ export function quienOptions(members: Member[], { rotar = false }: { rotar?: boo
     ...(rotar && members.length > 1 ? [{ value: "rota", label: "Rotar" }] : []),
     { value: "juntos", label: JUNTOS },
   ];
+}
+
+/** Título de sección con una acción opcional a la derecha (mismo formato en todas las hojas) */
+export function SectionHeader({ title, action, small = false }: { title: React.ReactNode; action?: React.ReactNode; small?: boolean }) {
+  return (
+    <div className="mb-2.5 mt-6 flex min-h-9 items-center justify-between gap-3">
+      <h2 className={`titulo min-w-0 ${small ? "text-[17px]" : "text-[20px]"}`}>{title}</h2>
+      {action && <div className="flex shrink-0 items-center gap-2">{action}</div>}
+    </div>
+  );
+}
+
+/** Botón flotante "+" (mismo lugar y tamaño en todas las hojas) */
+export function Fab({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      aria-label={label}
+      className="fixed bottom-[calc(env(safe-area-inset-bottom)+92px)] right-[max(16px,calc(50%-208px))] z-30 flex h-16 w-16 items-center justify-center rounded-full border-[3px] border-vino bg-accion text-crema"
+    >
+      <Plus size={30} strokeWidth={2.5} />
+    </button>
+  );
 }
 
 export function personColors(m?: Pick<Member, "color"> | null) {

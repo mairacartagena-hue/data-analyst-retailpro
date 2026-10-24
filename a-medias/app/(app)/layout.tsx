@@ -10,7 +10,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <HouseholdProvider householdId={member.household_id} memberId={member.id}>
-      <main className="mx-auto min-h-dvh max-w-md px-4 pb-[calc(env(safe-area-inset-bottom)+110px)]">{children}</main>
+      <main className="mx-auto min-h-dvh max-w-md px-4 pb-[calc(env(safe-area-inset-bottom)+180px)]">{children}</main>
       <BottomNav />
     </HouseholdProvider>
   );

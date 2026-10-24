@@ -1,12 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { Bell, PawPrint, Plus } from "lucide-react";
+import { Bell, PawPrint } from "lucide-react";
 import { useHousehold } from "@/components/HouseholdProvider";
 import { TaskSheet } from "@/components/TaskSheet";
 import { MedSheet } from "@/components/MedSheet";
 import { ImportarTareas } from "@/components/ImportarTareas";
-import { Avatar, Empty, ErrorText, JUNTOS, PageHeader, Pills, Sheet, errMsg } from "@/components/ui";
+import { Avatar, Empty, ErrorText, Fab, JUNTOS, PageHeader, Pills, SectionHeader, Sheet, errMsg } from "@/components/ui";
 import { Loading } from "@/components/Loading";
 import { getSupabase } from "@/lib/supabase/client";
 import { DIAS_CORTOS, formatHora, todayStr } from "@/lib/dates";
@@ -118,7 +118,7 @@ export default function TareasPage() {
           if (!lista.length) return null;
           return (
             <section key={f}>
-              <h2 className="seccion">{titulo}</h2>
+              <SectionHeader title={titulo} />
               <ul className="card space-y-0 p-0!">
                 {lista.map((t) => {
                   const resp = memberById(t.responsable_fijo);
@@ -172,13 +172,7 @@ export default function TareasPage() {
         })
       )}
 
-      <button
-        onClick={() => setAbierta(true)}
-        aria-label="Nueva tarea"
-        className="fixed bottom-[calc(env(safe-area-inset-bottom)+92px)] right-[max(16px,calc(50%-208px))] z-30 flex h-16 w-16 items-center justify-center rounded-full border-[3px] border-vino bg-accion text-crema"
-      >
-        <Plus size={30} strokeWidth={2.5} />
-      </button>
+      <Fab label="Nueva tarea" onClick={() => setAbierta(true)} />
 
       <ImportarTareas open={importar} onClose={() => setImportar(false)} />
       <TaskSheet open={abierta || !!editar} task={editar} onClose={() => (setAbierta(false), setEditar(null))} />

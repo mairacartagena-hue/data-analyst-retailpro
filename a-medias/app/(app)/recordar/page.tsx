@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Cat, ChevronRight, Dog, PawPrint, Plus, Repeat, StickyNote } from "lucide-react";
 import { useHousehold } from "@/components/HouseholdProvider";
 import { NoteSheet, PetSheet, ReminderSheet } from "@/components/RecordarSheets";
-import { Avatar, Empty, PageHeader } from "@/components/ui";
+import { Avatar, Empty, Fab, PageHeader, SectionHeader } from "@/components/ui";
 import { ImportarRecordar } from "@/components/ImportarRecordar";
 import { Loading } from "@/components/Loading";
 import { dayNum, diffDays, formatAge, formatHora, monthShort, nowTimeStr, splitTimestamp, todayStr, weekdayName } from "@/lib/dates";
@@ -154,12 +154,14 @@ export default function RecordarPage() {
             </ul>
           )}
 
-          <div className="flex items-center justify-between">
-            <h2 className="seccion">Mascotas</h2>
-            <button className="btn btn-secondary btn-sm" onClick={() => setPetAbierta(true)}>
-              <Plus size={14} /> Mascota
-            </button>
-          </div>
+          <SectionHeader
+            title="Mascotas"
+            action={
+              <button className="btn btn-secondary btn-sm" onClick={() => setPetAbierta(true)}>
+                <Plus size={14} /> Mascota
+              </button>
+            }
+          />
           {pets.length === 0 ? (
             <Empty>Agrega a tu gato o perro para llevar sus medicamentos, vacunas y controles.</Empty>
           ) : (
@@ -188,12 +190,14 @@ export default function RecordarPage() {
             </ul>
           )}
 
-          <div className="flex items-center justify-between">
-            <h2 className="seccion">Notas de la casa</h2>
-            <button className="btn btn-secondary btn-sm" onClick={() => setNota("nueva")}>
-              <Plus size={14} /> Nota
-            </button>
-          </div>
+          <SectionHeader
+            title="Notas de la casa"
+            action={
+              <button className="btn btn-secondary btn-sm" onClick={() => setNota("nueva")}>
+                <Plus size={14} /> Nota
+              </button>
+            }
+          />
           {notes.length === 0 ? (
             <Empty>Guarda aquí la clave del wifi, medidas, teléfonos útiles...</Empty>
           ) : (
@@ -222,13 +226,7 @@ export default function RecordarPage() {
       />
       <PetSheet open={petAbierta} onClose={() => setPetAbierta(false)} onCreated={(id) => router.push(`/mascotas/${id}`)} />
       <NoteSheet open={!!nota} note={nota === "nueva" ? null : nota} onClose={() => setNota(null)} />
-      <button
-        onClick={() => setReminderAbierto("nuevo")}
-        aria-label="Nuevo recordatorio"
-        className="fixed bottom-[calc(env(safe-area-inset-bottom)+92px)] right-[max(16px,calc(50%-208px))] z-30 flex h-16 w-16 items-center justify-center rounded-full border-[3px] border-vino bg-accion text-crema"
-      >
-        <Plus size={30} strokeWidth={2.5} />
-      </button>
+      <Fab label="Nuevo recordatorio" onClick={() => setReminderAbierto("nuevo")} />
     </>
   );
 }
