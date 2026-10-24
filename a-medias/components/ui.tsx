@@ -30,17 +30,6 @@ export function quienOptions(members: Member[], { rotar = false }: { rotar?: boo
   ];
 }
 
-/** Avatar con el nombre debajo (o "Juntos" con las dos iniciales) */
-export function QuienBadge({ member, juntos = false, caption, size = 28 }: { member?: Member | null; juntos?: boolean; caption?: string; size?: number }) {
-  const esJuntos = juntos || !member;
-  return (
-    <span className="flex shrink-0 flex-col items-end gap-0.5">
-      <Avatar member={member} juntos={esJuntos} size={size} />
-      <span className="text-[10px] font-semibold text-sec">{caption ?? (esJuntos ? JUNTOS : member!.nombre)}</span>
-    </span>
-  );
-}
-
 export function personColors(m?: Pick<Member, "color"> | null) {
   if (!m) return "bg-rosa-claro text-vino";
   return m.color === "rosa" ? "bg-rosa text-vino" : "bg-vino text-crema";

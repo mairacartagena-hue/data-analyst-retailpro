@@ -6,7 +6,7 @@ import { useHousehold } from "@/components/HouseholdProvider";
 import { TaskSheet } from "@/components/TaskSheet";
 import { MedSheet } from "@/components/MedSheet";
 import { ImportarTareas } from "@/components/ImportarTareas";
-import { Avatar, Empty, ErrorText, JUNTOS, PageHeader, Pills, QuienBadge, Sheet, errMsg } from "@/components/ui";
+import { Avatar, Empty, ErrorText, JUNTOS, PageHeader, Pills, Sheet, errMsg } from "@/components/ui";
 import { Loading } from "@/components/Loading";
 import { getSupabase } from "@/lib/supabase/client";
 import { DIAS_CORTOS, formatHora, todayStr } from "@/lib/dates";
@@ -148,23 +148,19 @@ export default function TareasPage() {
                         {!pr &&
                           (t.modo === "rota" ? (
                             prMed && (
-                              <QuienBadge
-                                member={memberById(prMed.responsable_id)}
-                                juntos={!prMed.responsable_id}
-                                caption={prMed.responsable_id ? "Le toca" : undefined}
-                              />
+                              <Avatar member={memberById(prMed.responsable_id)} juntos={!prMed.responsable_id} size={28} />
                             )
                           ) : (
-                            <QuienBadge member={resp} juntos={t.modo === "juntos"} />
+                            <Avatar member={resp} juntos={t.modo === "juntos"} size={28} />
                           ))}
                       </button>
                       {pr && (
                         <button
-                          className="mr-3 shrink-0 rounded-[10px]"
+                          className="mr-3 shrink-0 rounded-full"
                           aria-label={`Cambiar quién hace ${t.titulo}`}
                           onClick={() => (setErrorTurno(null), setTurnoDe(t))}
                         >
-                          <QuienBadge member={quien} juntos={!quien} caption={t.modo === "rota" && quien ? "Le toca" : undefined} />
+                          <Avatar member={quien} juntos={!quien} size={28} />
                         </button>
                       )}
                     </li>

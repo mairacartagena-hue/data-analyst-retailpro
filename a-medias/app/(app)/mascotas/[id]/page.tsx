@@ -8,7 +8,7 @@ import { useHousehold } from "@/components/HouseholdProvider";
 import { OccurrenceRow, sortOccurrences } from "@/components/OccurrenceRow";
 import { MedSheet } from "@/components/MedSheet";
 import { PetEventSheet, PetSheet } from "@/components/RecordarSheets";
-import { Avatar, Empty, QuienBadge } from "@/components/ui";
+import { Avatar, Empty } from "@/components/ui";
 import { Loading } from "@/components/Loading";
 import { dayNum, formatAge, formatDateLong, formatHora, formatShort, monthShort, monthYear, todayStr } from "@/lib/dates";
 import { medProgress, nextPetEventDate } from "@/lib/logic";
@@ -111,11 +111,9 @@ export default function MascotaPage() {
                 </div>
                 <div className="flex items-start gap-2">
                   {!(t.modo === "rota" && !deHoy[0]) && (
-                    <QuienBadge
+                    <Avatar
                       member={t.modo === "fija" ? memberById(t.responsable_fijo) : t.modo === "rota" ? memberById(deHoy[0]?.responsable_id) : null}
-                      juntos={t.modo === "juntos" || (t.modo === "rota" && !!deHoy[0] && !deHoy[0].responsable_id)}
-                      caption={t.modo === "rota" ? "Hoy" : undefined}
-                    />
+                      juntos={t.modo === "juntos" || (t.modo === "rota" && !!deHoy[0] && !deHoy[0].responsable_id)} size={28} />
                   )}
                   <button aria-label={`Editar ${t.titulo}`} className="rounded-[10px] border-2 border-vino p-1.5" onClick={() => setMed(t)}>
                     <Pencil size={14} />
