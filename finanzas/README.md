@@ -56,6 +56,17 @@ GEMINI_API_KEY=...          # Google AI Studio, gratis
 GEMINI_MODEL=...            # opcional; por defecto gemini-flash-lite-latest
 ```
 
+## Cierre del mes (conciliación)
+
+Ajustes → **Cierre del mes** (`app/(app)/cierre`), con recordatorio en el inicio los últimos 3 días del mes y los primeros 5 del siguiente.
+
+- Por cada cuenta propia: saldo inicial, entradas, salidas y saldo según la app; se escribe el saldo del banco (o la deuda del extracto en tarjetas) y se ve la diferencia. Se guarda el historial en `account_reconciliations` (solo su dueño).
+- Gastos bancarios en un toque: 4x1000, cuota de manejo, intereses, comisión y seguro → categoría personal “Gastos bancarios”.
+- Diferencia sin explicar → gasto en la categoría “No identificado” (o ingreso no identificado si sobra plata).
+- **4x1000 estimado:** 0,4 % de las salidas por encima del tope exento: cuenta exenta 350 UVT/mes, depósito de bajo monto 65 UVT/mes (Concepto DIAN 362 de 2024). UVT 2026 = $52.374 (Resolución DIAN 000238 de 2025), editable en Ajustes → Periodos.
+- **¿Qué hace falta?:** obligaciones del hogar sin pagar, movimientos por revisar, avisos no reconocidos y cuentas sin conciliar.
+- Cada cuenta guarda la **fecha de su saldo inicial** (`opening_at`): lo que ocurrió antes ya estaba incluido en ese saldo y no se vuelve a restar.
+
 ## Decisiones de la Fase 1
 
 1. **Tarjeta de crédito:** la compra consume el presupuesto al comprar; pagar la tarjeta es una transferencia y no vuelve a consumir presupuesto.
@@ -71,7 +82,7 @@ GEMINI_MODEL=...            # opcional; por defecto gemini-flash-lite-latest
 ## Configuración
 
 ### 1. Base de datos (Supabase, proyecto `finanzas-pareja`)
-Las migraciones están en `supabase/migrations/` (0001 → 0007). Para aplicarlas a mano, pega cada archivo completo en **SQL Editor → Run**, en orden. Se pueden correr más de una vez.
+Las migraciones están en `supabase/migrations/` (0001 → 0012). Para aplicarlas a mano, pega cada archivo completo en **SQL Editor → Run**, en orden. Se pueden correr más de una vez.
 
 ### 2. Autenticación
 En Supabase → **Authentication → URL Configuration**:
