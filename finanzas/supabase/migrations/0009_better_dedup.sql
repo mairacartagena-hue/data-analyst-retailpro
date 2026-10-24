@@ -1,0 +1,275 @@
+-- 0009 · Mejor deduplicación:
+--  · comercios compatibles si comparten una palabra clave (ej. "davivienda"), no solo por parecido de texto
+--  · un aviso automático se fusiona con lo que la persona registró a mano el mismo día (±1 día)
+-- La búsqueda quedó en funciones aparte para poder ajustarla sin reemplazar ingest_event.
+
+create or replace function public.ingest_merchant_compatible(a text, b text)
+returns boolean
+language sql immutable set search_path = public, extensions
+as $$
+  select a is null or b is null
+      or similarity(a, b) >= 0.3
+      or a like '%' || b || '%' or b like '%' || a || '%'
+      or exists (
+        select 1 from unnest(string_to_array(a, ' ')) w
+         where length(w) >= 4
+           and w not in ('banco', 'pago', 'pagos', 'cuenta', 'credito', 'creditos', 'colombia', 'zona', 'transferencia',
+                         'compra', 'servicio', 'tarjeta', 'bancolombia', 'cartera', 'boton')
+           and w = any (string_to_array(b, ' '))
+      )
+$$;
+
+create or replace function public.ingest_find_duplicate(
+  p_hh uuid, p_uid uuid, p_amount bigint, p_outflow boolean, p_at timestamptz, p_norm text, p_account uuid
+)
+returns uuid
+language sql stable security definer set search_path = public, extensions
+as $$
+  select t.id
+    from transactions t
+   where t.household_id = p_hh
+     and t.payer_user_id = p_uid
+     and t.amount = p_amount
+     and (case when p_outflow then t.kind in ('EXPENSE', 'TRANSFER', 'SETTLEMENT') else t.kind = 'INCOME' end)
+     and (t.account_id is null or p_account is null or t.account_id = p_account)
+     and ingest_merchant_compatible(coalesce(t.merchant_norm, nullif(lower(trim(t.description)), '')), p_norm)
+     and (
+       (t.occurred_at is not null and abs(extract(epoch from (t.occurred_at - p_at))) <= 300)
+       or (t.occurred_at is null and t.source = 'MANUAL'
+           and abs(t.occurred_on - (p_at at time zone 'America/Bogota')::date) <= 1)
+       or (t.occurred_at is null and t.source <> 'MANUAL' and abs(extract(epoch from (t.created_at - p_at))) <= 300)
+     )
+   order by (t.occurred_at is null), abs(extract(epoch from (coalesce(t.occurred_at, t.created_at) - p_at)))
+   limit 1
+$$;
+
+revoke all on function public.ingest_find_duplicate(uuid, uuid, bigint, boolean, timestamptz, text, uuid) from public, anon, authenticated;
+
+create or replace function public.ingest_event(p_token text, p_event jsonb)
+returns jsonb
+language plpgsql security definer set search_path = public, extensions
+as $$
+declare
+  v_tok ingest_tokens;
+  v_uid uuid;
+  v_hh uuid;
+  v_parsed jsonb := p_event->'parsed';
+  v_kind text := upper(coalesce(p_event->'parsed'->>'kind', ''));
+  v_amount bigint;
+  v_merchant text := nullif(trim(coalesce(p_event->'parsed'->>'merchant', '')), '');
+  v_norm text := nullif(lower(trim(coalesce(p_event->'parsed'->>'merchant_norm', ''))), '');
+  v_last4 text := nullif(p_event->'parsed'->>'last4', '');
+  v_inst text := nullif(trim(coalesce(p_event->'parsed'->>'institution', '')), '');
+  v_at timestamptz;
+  v_ext text := nullif(p_event->>'external_id', '');
+  v_idents jsonb := coalesce(p_event->'parsed'->'identifiers', '[]'::jsonb);
+  v_outflow boolean;
+  v_account uuid;
+  v_account_kind text;
+  v_cash uuid;
+  v_existing transactions;
+  v_mem merchant_memory;
+  v_cat categories;
+  v_tx uuid;
+  v_txkind text;
+  v_to uuid;
+  v_status text := 'PENDING_REVIEW';
+  v_tags text[] := '{}';
+  v_split_cat uuid;
+  v_split_resp uuid;
+  v_split_id uuid;
+  v_n int;
+begin
+  if p_token is null or length(p_token) < 20 then raise exception 'Token no válido'; end if;
+  select * into v_tok from ingest_tokens where token_hash = encode(digest(p_token, 'sha256'), 'hex');
+  if not found then raise exception 'Token no válido'; end if;
+  v_uid := v_tok.user_id;
+  v_hh := v_tok.household_id;
+  update ingest_tokens set last_used_at = now() where id = v_tok.id;
+
+  -- El texto crudo se guarda máximo 30 días
+  update ingest_logs set raw_text = null
+   where user_id = v_uid and raw_text is not null and received_at < now() - interval '30 days';
+
+  -- El mismo correo o notificación enviado dos veces
+  if v_ext is not null and exists (select 1 from ingest_logs where user_id = v_uid and external_id = v_ext) then
+    return jsonb_build_object('result', 'DUPLICATE');
+  end if;
+
+  if v_parsed is null or v_kind = '' then
+    perform _ingest_log(v_hh, v_uid, p_event, 'UNRECOGNIZED', coalesce(p_event->>'reason', 'No se reconoció el formato'), null);
+    return jsonb_build_object('result', 'UNRECOGNIZED');
+  end if;
+
+  if v_kind = 'IGNORE' then
+    perform _ingest_log(v_hh, v_uid, p_event, 'IGNORED', coalesce(v_parsed->>'ignore_reason', 'Mensaje sin movimiento'), null);
+    return jsonb_build_object('result', 'IGNORED');
+  end if;
+
+  if v_kind not in ('PURCHASE', 'TRANSFER_OUT', 'TRANSFER_IN', 'WITHDRAWAL', 'CARD_PAYMENT', 'INCOME') then
+    perform _ingest_log(v_hh, v_uid, p_event, 'ERROR', 'Tipo de movimiento desconocido: ' || v_kind, null);
+    return jsonb_build_object('result', 'ERROR');
+  end if;
+
+  v_amount := nullif(v_parsed->>'amount', '')::bigint;
+  if v_amount is null or v_amount <= 0 then
+    perform _ingest_log(v_hh, v_uid, p_event, 'DISCARDED', 'Sin monto', null);
+    return jsonb_build_object('result', 'DISCARDED');
+  end if;
+
+  v_at := coalesce(nullif(v_parsed->>'occurred_at', '')::timestamptz, nullif(p_event->>'received_at', '')::timestamptz, now());
+  v_outflow := v_kind in ('PURCHASE', 'TRANSFER_OUT', 'WITHDRAWAL', 'CARD_PAYMENT');
+
+  -- Cuenta o tarjeta: por últimos 4 dígitos; si no, por entidad cuando hay una sola cuenta de esa entidad
+  if v_last4 is not null then
+    select id, kind into v_account, v_account_kind from accounts
+     where owner_user_id = v_uid and household_id = v_hh and not archived
+       and (last4 = v_last4 or v_last4 = any (alias_last4))
+     order by (last4 = v_last4) desc, (kind = 'CREDIT_CARD') desc, created_at limit 1;
+  end if;
+  if v_account is null and v_inst is not null then
+    select count(*) into v_n from accounts
+     where owner_user_id = v_uid and household_id = v_hh and not archived
+       and (institution ilike v_inst or name ilike '%' || v_inst || '%');
+    if v_n = 1 then
+      select id, kind into v_account, v_account_kind from accounts
+       where owner_user_id = v_uid and household_id = v_hh and not archived
+         and (institution ilike v_inst or name ilike '%' || v_inst || '%');
+    end if;
+  end if;
+
+  -- Etiquetas automáticas
+  if v_inst is not null then
+    v_tags := v_tags || ('#' || lower(regexp_replace(v_inst, '[^[:alnum:]]+', '', 'g')));
+  end if;
+  if v_last4 is not null and (v_account_kind = 'CREDIT_CARD' or v_kind = 'CARD_PAYMENT') then
+    v_tags := v_tags || ('#tc_' || v_last4);
+  end if;
+
+  -- 1) Deduplicación: mismo usuario, monto exacto, ±5 minutos, comercio parecido y cuenta compatible
+  select t.* into v_existing from transactions t
+   where t.id = ingest_find_duplicate(v_hh, v_uid, v_amount, v_outflow, v_at, v_norm, v_account);
+
+  if found then
+    update transactions
+       set merchant = coalesce(merchant, v_merchant),
+           merchant_norm = coalesce(merchant_norm, v_norm),
+           description = coalesce(description, v_merchant),
+           account_id = coalesce(account_id, v_account),
+           card_last4 = coalesce(card_last4, v_last4),
+           occurred_at = coalesce(occurred_at, v_at),
+           tags = array(select distinct unnest(tags || v_tags)),
+           ingest_identifiers = ingest_identifiers || v_idents
+     where id = v_existing.id;
+    perform _ingest_log(v_hh, v_uid, p_event, 'MERGED', 'Ya estaba registrado; se completó con este aviso', v_existing.id);
+    return jsonb_build_object('result', 'MERGED', 'transaction_id', v_existing.id);
+  end if;
+
+  -- 2) Transferencia entre cuentas propias: unir la salida y la entrada en un solo movimiento
+  -- (una salida TRANSFER_OUT con una entrada TRANSFER_IN o INCOME, en cuentas distintas, ±10 minutos)
+  if v_account is not null and v_kind in ('TRANSFER_IN', 'TRANSFER_OUT', 'INCOME') then
+    select t.* into v_existing
+      from transactions t
+     where t.household_id = v_hh and t.payer_user_id = v_uid and t.amount = v_amount
+       and t.status = 'PENDING_REVIEW' and t.source <> 'MANUAL'
+       and t.account_id is not null and t.account_id <> v_account
+       and abs(extract(epoch from (coalesce(t.occurred_at, t.created_at) - v_at))) <= 600
+       and (case when v_outflow then t.kind = 'INCOME' and t.movement_type in ('TRANSFER_IN', 'INCOME')
+                 else t.kind = 'EXPENSE' and t.movement_type = 'TRANSFER_OUT' end)
+     order by abs(extract(epoch from (coalesce(t.occurred_at, t.created_at) - v_at)))
+     limit 1;
+    if found and (v_kind in ('TRANSFER_IN', 'TRANSFER_OUT') or v_existing.movement_type in ('TRANSFER_IN', 'TRANSFER_OUT')) then
+      delete from cross_ledger where transaction_id = v_existing.id;
+      delete from transaction_splits where transaction_id = v_existing.id;
+      update transactions
+         set kind = 'TRANSFER',
+             status = 'CONFIRMED',
+             movement_type = 'OWN_TRANSFER',
+             account_id = case when v_outflow then v_account else v_existing.account_id end,
+             to_account_id = case when v_outflow then v_existing.account_id else v_account end,
+             description = coalesce(description, 'Transferencia entre mis cuentas'),
+             tags = array(select distinct unnest(tags || v_tags))
+       where id = v_existing.id;
+      perform _ingest_log(v_hh, v_uid, p_event, 'MERGED', 'Transferencia entre cuentas propias', v_existing.id);
+      return jsonb_build_object('result', 'MERGED', 'transaction_id', v_existing.id);
+    end if;
+  end if;
+
+  -- 3) Movimiento nuevo
+  v_txkind := case when v_outflow then 'EXPENSE' else 'INCOME' end;
+
+  if v_kind = 'WITHDRAWAL' and v_account is not null then
+    select id into v_cash from accounts
+     where owner_user_id = v_uid and household_id = v_hh and not archived and kind = 'CASH'
+     order by created_at limit 1;
+    if v_cash is not null and v_cash <> v_account then
+      v_txkind := 'TRANSFER';
+      v_to := v_cash;
+      v_status := 'CONFIRMED';
+    end if;
+  end if;
+
+  -- Memoria de comercios: identificador más específico primero
+  if v_txkind = 'EXPENSE' then
+    select m.* into v_mem
+      from merchant_memory m
+     where m.user_id = v_uid
+       and ((m.identifier_type = 'MERCHANT' and v_norm is not null and m.identifier = v_norm)
+            or (m.identifier_type = 'KEYWORD' and lower(coalesce(p_event->>'raw_text', '')) like '%' || m.identifier || '%')
+            or exists (select 1 from jsonb_array_elements(v_idents) i
+                        where upper(i->>'type') = m.identifier_type and lower(i->>'value') = m.identifier))
+     order by (m.identifier_type in ('NIT', 'ACCOUNT', 'PHONE')) desc, m.hits desc
+     limit 1;
+
+    if found and m_valid_category(v_mem.category_id, v_hh, v_uid) then
+      update merchant_memory set hits = hits + 1, last_used_at = now() where id = v_mem.id;
+      if v_mem.tag is not null then v_tags := v_tags || v_mem.tag; end if;
+      if v_mem.auto_apply and v_account is not null then
+        v_split_cat := v_mem.category_id;
+        v_split_resp := coalesce(v_mem.responsible_user_id, v_uid);
+        v_status := 'CONFIRMED';
+      end if;
+    else
+      v_mem := null;
+    end if;
+  end if;
+
+  if v_txkind in ('EXPENSE', 'INCOME') and v_account is null then
+    v_status := 'PENDING_REVIEW';
+    v_split_cat := null;
+    v_split_resp := null;
+  end if;
+
+  insert into transactions (household_id, kind, status, occurred_on, occurred_at, amount, description, merchant, merchant_norm,
+                            account_id, to_account_id, payer_user_id, is_shared, source, dedup_hash, tags, created_by,
+                            movement_type, card_last4, ingest_identifiers,
+                            suggested_category_id, suggested_responsible_user_id, suggested_to_account_id)
+  values (v_hh, v_txkind, v_status, (v_at at time zone 'America/Bogota')::date, v_at, v_amount,
+          coalesce(v_merchant, case v_kind when 'WITHDRAWAL' then 'Retiro' when 'CARD_PAYMENT' then 'Pago de tarjeta' else null end),
+          v_merchant, v_norm, v_account, v_to, v_uid, false,
+          coalesce(nullif(p_event->>'channel', ''), 'INGEST'),
+          md5(v_uid::text || v_amount::text || to_char(v_at, 'YYYYMMDDHH24MI') || coalesce(v_norm, '')),
+          array(select distinct unnest(v_tags)), v_uid, v_kind, v_last4, v_idents,
+          v_mem.category_id, v_mem.responsible_user_id,
+          case when v_kind = 'CARD_PAYMENT' and v_account_kind = 'CREDIT_CARD' then v_account else null end)
+  returning id into v_tx;
+
+  if v_txkind = 'EXPENSE' then
+    insert into transaction_splits (transaction_id, household_id, amount, category_id, responsible_user_id)
+    values (v_tx, v_hh, v_amount, v_split_cat, coalesce(v_split_resp, v_uid))
+    returning id into v_split_id;
+    if coalesce(v_split_resp, v_uid) <> v_uid then
+      insert into cross_ledger (household_id, creditor_user_id, debtor_user_id, amount, kind,
+                                transaction_id, split_id, description, occurred_on, created_by)
+      values (v_hh, v_uid, v_split_resp, v_amount, 'CROSS_PAYMENT', v_tx, v_split_id,
+              v_merchant, (v_at at time zone 'America/Bogota')::date, v_uid);
+    end if;
+  end if;
+
+  perform _ingest_log(v_hh, v_uid, p_event, 'ACCEPTED',
+                      case when v_status = 'CONFIRMED' then 'Conciliado automáticamente' else 'En la cola de pendientes' end, v_tx);
+  return jsonb_build_object('result', 'ACCEPTED', 'transaction_id', v_tx, 'status', v_status);
+end;
+$$;
+
+grant execute on function public.ingest_event(text, jsonb) to anon, authenticated;

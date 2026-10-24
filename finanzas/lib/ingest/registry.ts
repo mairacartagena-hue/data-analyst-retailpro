@@ -7,7 +7,7 @@ import type { BankParser, ParsedEvent, RawEvent } from "./types";
 import { bancolombiaParser } from "./parsers/bancolombia";
 import { bbvaParser } from "./parsers/bbva";
 import { cajaSocialParser } from "./parsers/cajaSocial";
-import { cleanMerchant, detectIgnore, eventText, findIdentifiers, guessInstitution, normalizeMerchant } from "./normalize";
+import { cleanMerchant, detectIgnore, eventText, findDate, findIdentifiers, guessInstitution, normalizeMerchant } from "./normalize";
 
 export const PARSERS: BankParser[] = [
   bancolombiaParser,
@@ -29,6 +29,8 @@ export function finishParsed(ev: RawEvent, parsed: ParsedEvent): ParsedEvent {
     merchant,
     merchantNorm: parsed.merchantNorm ?? normalizeMerchant(merchant),
     institution: parsed.institution ?? guessInstitution(ev),
+    // Si el parser (o Gemini) no trajo la fecha, se busca en el texto; si no aparece, se usa la hora de llegada
+    occurredAt: parsed.occurredAt ?? findDate(eventText(ev).replace(/\s+/g, " ")),
     identifiers: parsed.identifiers ?? findIdentifiers(eventText(ev)),
   };
 }

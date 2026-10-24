@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Inbox, Sparkles } from "lucide-react";
+import { Inbox, Link2, Sparkles } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { useShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import { CHANNEL_LABEL } from "@/lib/types";
 import { formatCop } from "@/lib/finance/money";
 import { formatDay } from "@/lib/finance/periods";
 import { accountLabel, categoryLabel, categoryResponsible } from "@/lib/finance/labels";
+import { findManualTwin } from "@/lib/ingest/match";
 import { errMsg } from "@/lib/utils";
 
 /** Cola de pendientes del inicio: movimientos que llegaron solos y esperan revisión. */
@@ -35,7 +36,7 @@ export function PendingReview() {
 }
 
 function PendingCard({ tx }: { tx: Transaction }) {
-  const { me, partner, categories, labels, supabase, reload, memberById } = useFinance();
+  const { me, partner, categories, labels, supabase, reload, memberById, transactions } = useFinance();
   const { openTransaction } = useShell();
   const [always, setAlways] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -48,6 +49,17 @@ function PendingCard({ tx }: { tx: Transaction }) {
   const who = memberById(suggestedResp);
   const canConfirm = tx.kind === "EXPENSE" && !!suggested && !!tx.account_id && tx.movement_type !== "CARD_PAYMENT";
   const name = tx.merchant || tx.description || "comercio sin nombre";
+  const twin = findManualTwin(tx, transactions, categories);
+
+  async function mergeWithTwin() {
+    if (!twin) return;
+    setBusy(true);
+    setError(null);
+    const { error } = await supabase.rpc("merge_pending_into", { p_pending: tx.id, p_target: twin.id });
+    setBusy(false);
+    if (error) return setError(errMsg(error));
+    void reload();
+  }
 
   const verb =
     tx.kind === "INCOME" ? "Ingreso de" :
@@ -89,6 +101,21 @@ function PendingCard({ tx }: { tx: Transaction }) {
         </div>
         <span className="num shrink-0 font-semibold">{formatCop(tx.amount)}</span>
       </div>
+
+      {twin && (
+        <div className="space-y-2 rounded-xl bg-wood-soft px-3 py-2 text-sm">
+          <p className="flex items-start gap-1.5">
+            <Link2 size={15} className="mt-0.5 shrink-0 text-wood" />
+            <span>
+              ¿Es el mismo que registraste a mano? <strong>{twin.description || categoryLabel(categories, twin.splits[0]?.category_id ?? null).name}</strong>{" "}
+              · {formatCop(twin.amount)} · {formatDay(twin.occurred_on)}
+            </span>
+          </p>
+          <Button size="sm" variant="secondary" className="w-full" onClick={mergeWithTwin} disabled={busy}>
+            Sí, unir (queda {formatCop(tx.amount)}, el monto del banco)
+          </Button>
+        </div>
+      )}
 
       {suggested && (
         <p className="flex items-start gap-1.5 rounded-xl bg-olive-soft px-3 py-2 text-sm">
