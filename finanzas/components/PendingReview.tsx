@@ -11,7 +11,7 @@ import type { Transaction } from "@/lib/types";
 import { CHANNEL_LABEL } from "@/lib/types";
 import { formatCop } from "@/lib/finance/money";
 
-import { accountLabel, categoryLabel, categoryResponsible } from "@/lib/finance/labels";
+import { accountLabel, categoryLabel } from "@/lib/finance/labels";
 import { findManualTwin } from "@/lib/ingest/match";
 import { fold } from "@/lib/ingest/normalize";
 import { SUBSCRIPTION_TAG } from "@/lib/finance/subscriptions";
@@ -40,7 +40,7 @@ export function PendingReview() {
 }
 
 function PendingCard({ tx }: { tx: Transaction }) {
-  const { me, partner, categories, labels, supabase, reload, memberById, transactions, settings } = useFinance();
+  const { me, categories, labels, supabase, reload, memberById, transactions, settings } = useFinance();
   const { openTransaction } = useShell();
   const [always, setAlways] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -52,8 +52,9 @@ function PendingCard({ tx }: { tx: Transaction }) {
     && (c.responsibility !== "PRIVATE" || c.owner_user_id === me.user_id)) ?? null;
   const suggested = (tx.suggested_category_id ? categories.find((c) => c.id === tx.suggested_category_id) ?? null : null)
     ?? (isSubscription ? subsCategory : null);
+  // El responsable sale de lo que recordó el comercio, o es quien pagó (la categoría no lo decide)
   const suggestedResp = tx.suggested_responsible_user_id
-    ?? (suggested ? categoryResponsible(suggested, me, partner) : null)
+    ?? (suggested?.responsibility === "PRIVATE" ? suggested.owner_user_id : null)
     ?? me.user_id;
   const who = memberById(suggestedResp);
   const scope = suggestedScope(suggested);

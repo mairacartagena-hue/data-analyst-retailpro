@@ -13,6 +13,8 @@ import { PlanSheet } from "@/components/PlanSheet";
 import { CommitmentSheet } from "@/components/CommitmentSheet";
 import { UpcomingList, useUpcoming } from "@/components/Upcoming";
 import { MemberBadge } from "@/components/MemberBadge";
+import { CategoryOptions } from "@/components/CategoryPicker";
+import { Select } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, SectionTitle } from "@/components/ui/card";
 import type { BudgetPlan, Category, ScheduledPayment } from "@/lib/types";
@@ -47,6 +49,7 @@ export default function PresupuestosPage() {
     const c = id ? categories.find((x) => x.id === id) : null;
     if (c) {
       setEditing(c);
+      setSheetMode("budget");
       setOpen(true);
       window.history.replaceState(null, "", "/presupuestos");
     }
@@ -57,12 +60,16 @@ export default function PresupuestosPage() {
   const archived = categories.filter((c) => c.archived);
   const incomeCats = categories.filter((c) => !c.archived && c.kind === "INCOME");
   const [newKind, setNewKind] = useState<"EXPENSE" | "INCOME">("EXPENSE");
+  const [sheetMode, setSheetMode] = useState<"category" | "budget">("budget");
   // Barras en orden de árbol: cada principal seguida de sus subcategorías
   const hasBudget = (id: string | null | undefined) => !!id && budgets.some((b) => b.category_id === id);
   const ordered = categoryTree(active).flatMap((n) => [n.category, ...n.children]);
   // Solo las categorías con límite visible; las demás se ven en Más → Categorías
   const withLimit = ordered.filter((c) => hasBudget(c.id));
   const withoutLimit = ordered.length - withLimit.length;
+  // Igual que can_see_budget(): el presupuesto de 100 % de la pareja sin progreso compartido no se edita
+  const canEditBudget = (c: Category) => c.responsibility === "PRIVATE" || c.is_shared_progress || c.responsibility === "FIXED_AMOUNTS"
+    || (c.responsibility === "MEMBER_A_100" ? "A" : "B") === me.slot;
   const groups: { title: string; items: Category[] }[] = [
     { title: "Obligaciones del hogar", items: withLimit.filter((c) => c.is_household_obligation) },
     { title: "Del hogar", items: withLimit.filter((c) => !c.is_household_obligation && c.responsibility !== "PRIVATE") },
@@ -92,8 +99,10 @@ export default function PresupuestosPage() {
   const householdCommitted = committedTotal(occurrencesOfSpace(upcoming.occurrences, "HOUSEHOLD"));
   const myCommitted = committedTotal(occurrencesOfSpace(upcoming.occurrences, "PERSONAL", me.user_id));
 
-  function edit(c: Category | null, kind: "EXPENSE" | "INCOME" = "EXPENSE") {
+  /** Una categoría con presupuesto se edita en modo presupuesto; una nueva o de ingresos, como categoría. */
+  function edit(c: Category | null, kind: "EXPENSE" | "INCOME" = "EXPENSE", mode: "category" | "budget" = c && kind === "EXPENSE" ? "budget" : "category") {
     setNewKind(kind);
+    setSheetMode(mode);
     setEditing(c);
     setOpen(true);
   }
@@ -196,10 +205,19 @@ export default function PresupuestosPage() {
         ))}
 
         {withoutLimit > 0 && (
-          <p className="mt-3 px-1 text-sm text-muted">
-            {withoutLimit} categoría{withoutLimit === 1 ? "" : "s"} sin límite (o con progreso privado de tu pareja).{" "}
-            <Link href="/categorias" className="font-semibold text-olive underline">Ver categorías</Link> para ponerles un monto.
-          </p>
+          <div className="mt-3 space-y-1.5">
+            <Select value="" aria-label="Poner límite a una categoría" onChange={(e) => {
+              const c = categories.find((x) => x.id === e.target.value);
+              if (c) edit(c, "EXPENSE", "budget");
+            }}>
+              <option value="">+ Poner límite a una categoría… ({withoutLimit} sin límite)</option>
+              <CategoryOptions categories={ordered.filter((c) => !hasBudget(c.id) && canEditBudget(c))} />
+            </Select>
+            <p className="px-1 text-xs text-muted">
+              En el presupuesto de cada categoría se define quién lo asume. Las categorías en sí las usan los dos
+              (<Link href="/categorias" className="font-semibold text-olive underline">ver categorías</Link>).
+            </p>
+          </div>
         )}
 
         <div className="mt-6 flex items-center justify-between">
@@ -226,7 +244,7 @@ export default function PresupuestosPage() {
             {showArchived && (
               <div className="mt-2 space-y-2">
                 {archived.map((c) => (
-                  <button key={c.id} onClick={() => edit(c)} className="flex w-full items-center gap-2 rounded-2xl border border-dashed border-border p-3 text-left text-muted">
+                  <button key={c.id} onClick={() => edit(c, "EXPENSE", "category")} className="flex w-full items-center gap-2 rounded-2xl border border-dashed border-border p-3 text-left text-muted">
                     <span>{c.icon || "•"}</span>{c.name}
                   </button>
                 ))}
@@ -236,7 +254,7 @@ export default function PresupuestosPage() {
         )}
       </SwipePeriods>
 
-      <CategorySheet open={open} onOpenChange={setOpen} category={editing} kind={newKind} />
+      <CategorySheet open={open} onOpenChange={setOpen} category={editing} kind={newKind} mode={sheetMode} />
       <BudgetDetailSheet category={detail} status={detail ? statuses.get(detail.id) : undefined} onClose={() => setDetail(null)} onEdit={(c) => edit(c)} />
       <PlanSheet open={planOpen} onOpenChange={setPlanOpen} plan={plan} />
       <CommitmentSheet open={commitmentOpen} onOpenChange={setCommitmentOpen} payment={commitment} />

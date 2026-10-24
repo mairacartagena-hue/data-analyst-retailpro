@@ -21,9 +21,16 @@ const SUGGESTED_ICONS = ["🏠", "💡", "🛒", "🐾", "📺", "🍽️", "�
 
 const INCOME_ICONS = ["💼", "💰", "🏦", "🧾", "🎁", "🏠", "📈", "🛍️", "🔁"];
 
+/**
+ * Dos modos:
+ *  · "category": qué es la categoría (nombre, ícono, principal, del hogar o personal). Las usan los dos;
+ *    no define quién paga.
+ *  · "budget": el presupuesto de la categoría (límite, quién lo asume, obligación, progreso compartido, rollover).
+ */
 export function CategorySheet({
-  open, onOpenChange, category, kind = "EXPENSE", onSaved, parentId = null,
+  open, onOpenChange, category, kind = "EXPENSE", onSaved, parentId = null, mode = "category",
 }: {
+  mode?: "category" | "budget";
   /** Categoría principal sugerida para una nueva (crear una subcategoría). */
   parentId?: string | null;
   open: boolean;
@@ -73,12 +80,12 @@ export function CategorySheet({
       setParent(parentId ?? "");
       setName("");
       setIcon("");
-      setResp(me.slot === "A" ? "MEMBER_A_100" : "MEMBER_B_100");
+      setResp("FIXED_AMOUNTS");
       setAmount("");
       setFixedA("");
       setFixedB("");
       setObligation(false);
-      setShared(false);
+      setShared(true);
       setRollover(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -107,6 +114,18 @@ export function CategorySheet({
     { value: "PRIVATE", title: "Personal (privada)", hint: "Solo tú la ves; se usa en tus movimientos personales" },
   ];
 
+  const budgetMode = mode === "budget" && !!category && !isIncome;
+  const budgetOptions = options.filter((o) => o.value !== "PRIVATE");
+
+  /** Del hogar o personal (modo categoría). Al volverla del hogar queda compartida y sin dueño. */
+  function setPersonal(personal: boolean) {
+    if (personal) setResp("PRIVATE");
+    else if (resp === "PRIVATE") {
+      setResp("FIXED_AMOUNTS");
+      setShared(true);
+    }
+  }
+
   async function save() {
     setError(null);
     if (!name.trim()) return setError("Ponle un nombre.");
@@ -122,7 +141,8 @@ export function CategorySheet({
         is_household_obligation: !isPrivate && obligation,
         is_shared_progress: !isPrivate && shared,
         rollover_enabled: rollover,
-        budget: canSeeBudget && !isIncome
+        // El monto solo se guarda desde el presupuesto de la categoría
+        budget: budgetMode && canSeeBudget
           ? {
               valid_from: currentStart,
               amount: resp === "FIXED_AMOUNTS" ? fixedTotal : (parseCop(amount) ?? 0),
@@ -150,8 +170,11 @@ export function CategorySheet({
   }
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} title={category ? "Editar categoría" : isIncome ? "Nueva categoría de ingreso" : "Nueva categoría"}>
+    <Sheet open={open} onOpenChange={onOpenChange}
+      title={budgetMode ? `Presupuesto de ${category!.name}` : category ? "Editar categoría" : isIncome ? "Nueva categoría de ingreso" : "Nueva categoría"}
+      description={budgetMode ? "Aquí se define quién asume el pago y cuánto. La categoría la pueden usar los dos." : undefined}>
       <div className="space-y-4 pb-2">
+        {!budgetMode && (<>
         <div className="grid grid-cols-[72px_1fr] gap-3">
           <Field label="Ícono" htmlFor="icon">
             <Input id="icon" value={icon} onChange={(e) => setIcon(e.target.value)} maxLength={4} className="text-center text-xl" placeholder="🛒" />
@@ -185,18 +208,33 @@ export function CategorySheet({
           <p className="rounded-2xl bg-surface-2 px-3 py-2 text-sm text-muted">
             Las categorías de ingresos son personales y no tienen presupuesto: sirven para saber de dónde viene tu plata.
           </p>
-        ) : (<>
+        ) : (!category || category.responsibility === "PRIVATE" || canSeeBudget) && (
+          <Field label="¿Quién la puede usar?" hint="Las del hogar las usan los dos. Quién asume cada pago se define en el presupuesto o en cada movimiento.">
+            <div className="grid grid-cols-2 gap-2">
+              {[{ v: false, t: "Los dos (hogar)" }, { v: true, t: "Solo yo (personal)" }].map((o) => (
+                <button key={String(o.v)} type="button" onClick={() => setPersonal(o.v)} aria-pressed={(resp === "PRIVATE") === o.v}
+                  disabled={!o.v && parentCat?.responsibility === "PRIVATE"}
+                  className={cn("rounded-2xl border px-3 py-2.5 text-sm font-medium disabled:opacity-50", (resp === "PRIVATE") === o.v ? "border-olive bg-olive-soft" : "border-border bg-surface")}>
+                  {o.t}
+                </button>
+              ))}
+            </div>
+          </Field>
+        )}
+        </>)}
+
+        {budgetMode && (<>
         {!canSeeBudget && (
           <p className="rounded-2xl bg-surface-2 px-3 py-2 text-sm text-muted">
             El progreso de esta categoría es privado de tu pareja. Puedes cambiarle el nombre o el ícono.
           </p>
         )}
 
-        {canSeeBudget && <Field label="¿Quién la asume?" hint="Es lo que se propone al registrar; en cada movimiento puedes asignarlo a otra persona.">
+        {canSeeBudget && !isPrivate && <Field label="¿Quién asume este presupuesto?" hint="Al pagar desde este presupuesto se propone esta persona; en cada movimiento se puede cambiar.">
           <div className="grid gap-2">
-            {options.map((o) => (
+            {budgetOptions.map((o) => (
               <button key={o.value} type="button" onClick={() => setResp(o.value)} aria-pressed={resp === o.value}
-                disabled={(o.value === "MEMBER_B_100" && !memberB && resp !== "MEMBER_B_100") || (parentCat?.responsibility === "PRIVATE" && o.value !== "PRIVATE")}
+                disabled={o.value === "MEMBER_B_100" && !memberB && resp !== "MEMBER_B_100"}
                 className={cn("rounded-2xl border px-4 py-2.5 text-left disabled:opacity-50", resp === o.value ? "border-olive bg-olive-soft" : "border-border bg-surface")}>
                 <span className="block font-medium">{o.title}</span>
                 <span className="block text-xs text-muted">{o.hint}</span>
@@ -212,7 +250,7 @@ export function CategorySheet({
             <p className="col-span-2 -mt-1 text-sm text-muted">Presupuesto total: <span className="num font-semibold text-text">{formatCop(fixedTotal)}</span></p>
           </div>
         ) : (
-          <Field label="Presupuesto por periodo"><AmountInput value={amount} onChange={setAmount} /></Field>
+          <Field label="Límite por periodo"><AmountInput value={amount} onChange={setAmount} /></Field>
         ))}
         {canSeeBudget && category && (
           <p className="-mt-2 text-xs text-muted">Un cambio de monto aplica desde el periodo actual ({periodLabel(periodFor(settings, todayBogota()))}); los anteriores quedan igual.</p>
@@ -233,7 +271,7 @@ export function CategorySheet({
 
         <ErrorText>{error}</ErrorText>
         <div className="flex gap-3">
-          {category && (
+          {category && !budgetMode && (
             <Button variant="secondary" size="icon" onClick={toggleArchive} disabled={busy} aria-label={category.archived ? "Restaurar" : "Archivar"}>
               {category.archived ? <ArchiveRestore size={18} /> : <Archive size={18} />}
             </Button>
