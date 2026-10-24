@@ -89,7 +89,9 @@ Ajustes → **Cierre del mes** (`app/(app)/cierre`), con recordatorio en el inic
 
 ## Organización de la app
 
-Pestañas: **Inicio · Movimientos · + · Presupuesto · Informes · Más**. “Más” agrupa Cuentas y cruce, Cierre del mes, Captura automática y Ajustes.
+Pestañas: **Inicio · Movimientos · + · Presupuesto · Informes · Más**. “Más” agrupa Cuentas y cruce, Categorías, Cierre del mes, Captura automática y Ajustes.
+
+- **Categorías** (Más → Categorías): un solo lugar para crear, editar y archivar las categorías de gastos e ingresos. Son las mismas que aparecen en Presupuesto y al registrar un pago; cada una muestra quién la asume, su monto del periodo y cuántos movimientos la usan.
 
 - **Presupuesto:** al tocar una barra se ven los pagos que la forman y cómo llegó cada uno (correo, SMS, notificación o a mano).
 - **Movimientos:** filtros por categoría y cuenta (también por enlace: `?categoria=`, `?cuenta=`).
