@@ -20,7 +20,7 @@ PWA privada de finanzas personales y en pareja (Android y escritorio). Todo en p
 - [ ] Revisar la cola “Por revisar” y los avisos no reconocidos (Ajustes → Captura automática → Reintentar).
 - [ ] Hacer el primer Cierre del mes.
 - [ ] Configurar MacroDroid (SMS y notificaciones) en cada celular; por ahora solo llegan correos.
-- [ ] Conseguir ejemplos reales de Nequi, Banco de Bogotá y Google Wallet.
+- [ ] Conseguir ejemplos reales de Nequi y Banco de Bogotá (Google Wallet ya está).
 - [ ] Crear el resto de categorías y las categorías de ingresos.
 - [x] ~~Leaked password protection~~: solo existe en planes de pago de Supabase; no aplica (se usa el plan gratuito).
 - [x] Vercel confirmado: Root Directory = `finanzas` y `GEMINI_API_KEY` configurada.
@@ -69,7 +69,9 @@ Pendiente para fases siguientes: voz/OCR/Telegram/offline con cola (Fase 3), Web
 | Registro de eventos (`ingest_logs`), texto crudo borrado a los 30 días | Ajustes → Captura automática |
 | Guía MacroDroid (notificaciones y SMS) y Google Apps Script para Gmail | Ajustes → Captura automática |
 
-Pendiente de ejemplos reales: Nequi, Banco de Bogotá y Google Wallet (mientras tanto los lee Gemini).
+| Google Wallet (notificación de pago con el celular; la cuenta se reconoce por los 4 dígitos de la tarjeta) | `parsers/googleWallet.ts` |
+
+Pendiente de ejemplos reales: Nequi y Banco de Bogotá (mientras tanto los lee Gemini).
 
 Variables de entorno de la Fase 2 (solo servidor, en Vercel):
 ```

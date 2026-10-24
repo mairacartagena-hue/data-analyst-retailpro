@@ -93,3 +93,24 @@ describe("Bancolombia: formatos nuevos (correos reales)", () => {
     expect(r.parsed?.identifiers).toEqual([{ type: "PHONE", value: "3218164052" }]);
   });
 });
+
+describe("Google Wallet (notificación real)", () => {
+  const wallet = (title: string, text: string, source = "Billetera de Google"): RawEvent =>
+    ({ channel: "ANDROID_NOTIFICATION", source, title, text, receivedAt: "2026-10-24T17:19:00.000Z" });
+
+  it("pago con tarjeta débito", () => {
+    const r = parseWithRules(wallet("AGRO LA HACIENDA", "COP33,900.00 con Debito Mastercard ••7473"));
+    expect(r.parser).toBe("google-wallet");
+    expect(r.parsed).toMatchObject({ kind: "PURCHASE", amount: 33900, merchant: "Agro La Hacienda", last4: "7473", institution: "Google Wallet" });
+  });
+
+  it("también con el nombre en inglés de la app", () => {
+    const r = parseWithRules(wallet("TIENDA D1", "COP 6.490 con Visa •• 0602", "Google Wallet"));
+    expect(r.parsed).toMatchObject({ kind: "PURCHASE", amount: 6490, last4: "0602" });
+  });
+
+  it("otras notificaciones de la billetera se ignoran", () => {
+    const r = parseWithRules(wallet("Tarjeta lista", "Ya puedes pagar con tu tarjeta en tiendas"));
+    expect(r.parsed?.kind).toBe("IGNORE");
+  });
+});

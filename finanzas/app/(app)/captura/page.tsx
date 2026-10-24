@@ -147,7 +147,7 @@ export default function CapturaPage() {
         {section("android", <Smartphone size={18} />, "Notificaciones de Android (MacroDroid)", (
           <ol className="space-y-3">
             <Step n={1}>Instala <strong>MacroDroid</strong> desde Play Store (gratis, hasta 5 macros; usaremos 2).</Step>
-            <Step n={2}>Crea una macro → <strong>Disparador</strong>: Dispositivo/Aplicaciones → <strong>Notificación recibida</strong>. Elige las apps: Nequi, Bancolombia, Banco de Bogotá y Google Wallet. Concede el acceso a notificaciones cuando lo pida.</Step>
+            <Step n={2}>Crea una macro → <strong>Disparador</strong>: Dispositivo/Aplicaciones → <strong>Notificación recibida</strong>. Elige las apps: Nequi, Bancolombia, BBVA, Banco de Bogotá y Google Wallet (Billetera de Google). Concede el acceso a notificaciones cuando lo pida.</Step>
             <Step n={3}><strong>Acción</strong>: Conectividad → <strong>Solicitud HTTP</strong>. Método <strong>POST</strong>, URL la del paso 1.</Step>
             <Step n={4}>En <strong>Encabezados</strong> agrega <code>Authorization</code> con el valor <code>Bearer TU_TOKEN</code> (la palabra Bearer, un espacio y tu token).</Step>
             <Step n={5}>
