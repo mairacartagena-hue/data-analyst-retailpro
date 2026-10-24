@@ -12,14 +12,16 @@ import { BudgetBar } from "@/components/BudgetBar";
 import { MemberBadge } from "@/components/MemberBadge";
 import { PendingReview } from "@/components/PendingReview";
 import { BudgetDetailSheet } from "@/components/BudgetDetailSheet";
-import type { Category } from "@/lib/types";
+import type { CategoryLimit } from "@/lib/types";
 import { CloseReminder } from "@/components/CloseReminder";
 import { UpcomingList, useUpcoming } from "@/components/Upcoming";
 import { Card, SectionTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
-import { cashFlow, categoriesForScope, crossNet, netWorth, safeToSpendFor, statusesFor, type Scope } from "@/lib/finance/derive";
+import { cashFlow, crossNet, limitResponsible, limitsForScope, netWorth, safeToSpendFor, statusesFor, type Scope } from "@/lib/finance/derive";
 import { formatCop } from "@/lib/finance/money";
+import { categoryPath } from "@/lib/finance/spaces";
+import { categoryLabel } from "@/lib/finance/labels";
 import { cn } from "@/lib/utils";
 
 const SCOPE_KEY = "home-scope";
@@ -28,7 +30,7 @@ export default function HomePage() {
   const state = useFinance();
   const { me, partner, period, memberById } = state;
   const { openSettle, openTransaction, openPayment } = useShell();
-  const [detail, setDetail] = useState<Category | null>(null);
+  const [detail, setDetail] = useState<CategoryLimit | null>(null);
   const router = useRouter();
   const [scope, setScopeState] = useState<Scope>("me");
   useEffect(() => {
@@ -47,9 +49,19 @@ export default function HomePage() {
   const net = crossNet(state);
   const worth = netWorth(state, scope);
   const flow = cashFlow(state, period, scope);
-  const cats = categoriesForScope(state, scope);
-  const obligations = cats.filter((c) => c.is_household_obligation);
-  const others = cats.filter((c) => !c.is_household_obligation);
+  const cats = limitsForScope(state, scope);
+  const obligations = cats.filter((l) => l.is_household_obligation);
+  const others = cats.filter((l) => !l.is_household_obligation);
+  const bar = (l: CategoryLimit) => {
+    const category = state.categories.find((c) => c.id === l.category_id);
+    if (!category) return null;
+    return (
+      <BudgetBar key={l.id} category={category} limit={l} status={statuses.get(l.id)} memberById={memberById} meId={me.user_id}
+        label={categoryPath(state.categories, category.id)} icon={categoryLabel(state.categories, category.id).icon}
+        onPay={(amount) => openPayment({ categoryId: category.id, amount, scope: l.scope, responsibleId: limitResponsible(l, me, partner) ?? me.user_id })}
+        onClick={() => setDetail(l)} />
+    );
+  };
   const upcoming = useUpcoming(period);
   const pendingDues = upcoming.occurrences.filter((o) => !o.paid && (scope !== "household" || o.payment.scope === "HOUSEHOLD"));
   const cardDues = scope === "household" ? [] : upcoming.cards;
@@ -117,25 +129,17 @@ export default function HomePage() {
         {cats.length === 0 ? (
           <Card className="mt-6 space-y-3 text-center">
             <p className="text-[15px]">Aún no hay presupuestos en esta vista.</p>
-            <Link href="/presupuestos" className="inline-block font-semibold text-olive underline">Crear categorías</Link>
+            <Link href="/presupuestos" className="inline-block font-semibold text-olive underline">Crear un presupuesto</Link>
           </Card>
         ) : (
           <>
             {obligations.length > 0 && <SectionTitle>Obligaciones del hogar</SectionTitle>}
             <div className="space-y-2.5">
-              {obligations.map((c) => (
-                <BudgetBar key={c.id} category={c} status={statuses.get(c.id)} memberById={memberById} meId={me.user_id}
-                  onPay={(amount) => openPayment({ categoryId: c.id, amount })}
-                  onClick={() => setDetail(c)} />
-              ))}
+              {obligations.map(bar)}
             </div>
-            {others.length > 0 && <SectionTitle>{scope === "me" ? "Mis categorías" : "Otras categorías"}</SectionTitle>}
+            {others.length > 0 && <SectionTitle>{scope === "me" ? "Mis presupuestos" : "Otros presupuestos"}</SectionTitle>}
             <div className="space-y-2.5">
-              {others.map((c) => (
-                <BudgetBar key={c.id} category={c} status={statuses.get(c.id)} memberById={memberById} meId={me.user_id}
-                  onPay={(amount) => openPayment({ categoryId: c.id, amount })}
-                  onClick={() => setDetail(c)} />
-              ))}
+              {others.map(bar)}
             </div>
           </>
         )}
@@ -161,8 +165,8 @@ export default function HomePage() {
 
         <Button variant="outline" className="mt-6 w-full" onClick={() => openTransaction(null)}>Registrar un movimiento</Button>
       </SwipePeriods>
-      <BudgetDetailSheet category={detail} status={detail ? statuses.get(detail.id) : undefined} onClose={() => setDetail(null)}
-        onEdit={(c) => router.push(`/presupuestos?categoria=${c.id}`)} />
+      <BudgetDetailSheet limit={detail} status={detail ? statuses.get(detail.id) : undefined} onClose={() => setDetail(null)}
+        onEdit={(l) => router.push(`/presupuestos?limite=${l.id}`)} />
     </main>
   );
 }

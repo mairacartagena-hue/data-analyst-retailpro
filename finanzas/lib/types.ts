@@ -114,9 +114,24 @@ export interface Category {
   parent_id?: string | null;
 }
 
+/**
+ * Presupuesto de una categoría: del hogar (con responsable) o personal (de su dueño).
+ * La categoría en sí no decide quién paga ni si es del hogar o personal.
+ */
+export interface CategoryLimit {
+  id: string;
+  category_id: string;
+  scope: Space;
+  owner_user_id: string | null;
+  responsibility: Exclude<Responsibility, "PRIVATE"> | null;
+  is_household_obligation: boolean;
+  rollover_enabled: boolean;
+}
+
 export interface CategoryBudgetRow {
   id: string;
   category_id: string;
+  limit_id: string;
   valid_from: string;
   amount: number;
   fixed_amount_a: number | null;

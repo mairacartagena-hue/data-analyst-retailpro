@@ -7,33 +7,31 @@ import { useFinance } from "@/lib/data/FinanceProvider";
 import { PeriodSwitcher, SwipePeriods } from "@/components/PeriodSwitcher";
 import { BudgetBar } from "@/components/BudgetBar";
 import { useShell } from "@/components/AppShell";
-import { CategorySheet } from "@/components/CategorySheet";
+import { LimitSheet } from "@/components/LimitSheet";
 import { BudgetDetailSheet } from "@/components/BudgetDetailSheet";
 import { PlanSheet } from "@/components/PlanSheet";
 import { CommitmentSheet } from "@/components/CommitmentSheet";
 import { UpcomingList, useUpcoming } from "@/components/Upcoming";
 import { MemberBadge } from "@/components/MemberBadge";
-import { CategoryOptions } from "@/components/CategoryPicker";
-import { Select } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, SectionTitle } from "@/components/ui/card";
-import type { BudgetPlan, Category, ScheduledPayment } from "@/lib/types";
-import { statusesFor } from "@/lib/finance/derive";
+import type { BudgetPlan, CategoryLimit, ScheduledPayment } from "@/lib/types";
+import { limitResponsible, statusesFor } from "@/lib/finance/derive";
 import { formatCop, formatCopShort } from "@/lib/finance/money";
 import { committedTotal, occurrencesOfSpace } from "@/lib/finance/commitments";
 import { planAppliesTo, planMetrics, type PlanMetrics } from "@/lib/finance/plans";
 import { categoryPath, categoryTree } from "@/lib/finance/spaces";
 import { formatDay } from "@/lib/finance/periods";
 import { cn } from "@/lib/utils";
+import { categoryLabel } from "@/lib/finance/labels";
 
 export default function PresupuestosPage() {
   const state = useFinance();
-  const { categories, period, me, partner, memberById, budgets, plans, planCategories, transactions } = state;
+  const { categories, period, me, partner, memberById, limits, plans, planCategories, transactions } = state;
   const { openPayment } = useShell();
-  const [detail, setDetail] = useState<Category | null>(null);
-  const [editing, setEditing] = useState<Category | null>(null);
-  const [open, setOpen] = useState(false);
-  const [showArchived, setShowArchived] = useState(false);
+  const [detail, setDetail] = useState<CategoryLimit | null>(null);
+  const [limit, setLimit] = useState<CategoryLimit | null>(null);
+  const [limitOpen, setLimitOpen] = useState(false);
   const [plan, setPlan] = useState<BudgetPlan | null>(null);
   const [planOpen, setPlanOpen] = useState(false);
   const [commitment, setCommitment] = useState<ScheduledPayment | null>(null);
@@ -43,47 +41,40 @@ export default function PresupuestosPage() {
   const statuses = useMemo(() => statusesFor(state, period), [state, period]);
   const upcoming = useUpcoming(period);
 
-  // Abrir una categoría desde el inicio (?categoria=id)
+  // Abrir un presupuesto de categoría desde el inicio (?limite=id)
   useEffect(() => {
-    const id = new URLSearchParams(window.location.search).get("categoria");
-    const c = id ? categories.find((x) => x.id === id) : null;
-    if (c) {
-      setEditing(c);
-      setSheetMode("budget");
-      setOpen(true);
+    const id = new URLSearchParams(window.location.search).get("limite");
+    const l = id ? limits.find((x) => x.id === id) : null;
+    if (l) {
+      setLimit(l);
+      setLimitOpen(true);
       window.history.replaceState(null, "", "/presupuestos");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const active = categories.filter((c) => !c.archived && c.kind !== "INCOME");
-  const archived = categories.filter((c) => c.archived);
-  const incomeCats = categories.filter((c) => !c.archived && c.kind === "INCOME");
-  const [newKind, setNewKind] = useState<"EXPENSE" | "INCOME">("EXPENSE");
-  const [sheetMode, setSheetMode] = useState<"category" | "budget">("budget");
-  // Barras en orden de árbol: cada principal seguida de sus subcategorías
-  const hasBudget = (id: string | null | undefined) => !!id && budgets.some((b) => b.category_id === id);
-  const ordered = categoryTree(active).flatMap((n) => [n.category, ...n.children]);
-  // Solo las categorías con límite visible; las demás se ven en Más → Categorías
-  const withLimit = ordered.filter((c) => hasBudget(c.id));
-  const withoutLimit = ordered.length - withLimit.length;
-  // Igual que can_see_budget(): el presupuesto de 100 % de la pareja sin progreso compartido no se edita
-  const canEditBudget = (c: Category) => c.responsibility === "PRIVATE" || c.is_shared_progress || c.responsibility === "FIXED_AMOUNTS"
-    || (c.responsibility === "MEMBER_A_100" ? "A" : "B") === me.slot;
-  const groups: { title: string; items: Category[] }[] = [
-    { title: "Obligaciones del hogar", items: withLimit.filter((c) => c.is_household_obligation) },
-    { title: "Del hogar", items: withLimit.filter((c) => !c.is_household_obligation && c.responsibility !== "PRIVATE") },
-    { title: "Personales", items: withLimit.filter((c) => c.responsibility === "PRIVATE") },
+  // Presupuestos de categoría en orden de árbol de sus categorías
+  const order = new Map(categoryTree(categories.filter((c) => !c.archived)).flatMap((n) => [n.category, ...n.children]).map((c, i) => [c.id, i]));
+  const shown = limits
+    .filter((l) => order.has(l.category_id))
+    .sort((x, y) => (order.get(x.category_id)! - order.get(y.category_id)!));
+  const groups: { title: string; items: CategoryLimit[] }[] = [
+    { title: "Obligaciones del hogar", items: shown.filter((l) => l.is_household_obligation) },
+    { title: "Del hogar", items: shown.filter((l) => l.scope === "HOUSEHOLD" && !l.is_household_obligation) },
+    { title: "Personales", items: shown.filter((l) => l.scope === "PERSONAL") },
   ];
 
-  // Lo que cada uno tenía a su cargo en el periodo y cuánto ha ejecutado
-  // (una subcategoría con presupuesto no se suma otra vez si su principal ya tiene uno)
+  // Lo que cada uno tenía a su cargo en los presupuestos del hogar y cuánto ha ejecutado
+  // (el de una subcategoría no se suma otra vez si su principal ya tiene presupuesto del hogar)
+  const householdCats = new Set(shown.filter((l) => l.scope === "HOUSEHOLD").map((l) => l.category_id));
   const perMember = [me, partner].filter(Boolean).map((m) => {
     let available = 0;
     let spent = 0;
-    for (const c of active) {
-      if (c.responsibility === "PRIVATE" || hasBudget(c.parent_id)) continue;
-      const a = statuses.get(c.id)?.allocations.find((x) => x.userId === m!.user_id);
+    for (const l of shown) {
+      if (l.scope !== "HOUSEHOLD") continue;
+      const parent = categories.find((c) => c.id === l.category_id)?.parent_id;
+      if (parent && householdCats.has(parent)) continue;
+      const a = statuses.get(l.id)?.allocations.find((x) => x.userId === m!.user_id);
       if (a) {
         available += a.available;
         spent += a.spent;
@@ -99,13 +90,7 @@ export default function PresupuestosPage() {
   const householdCommitted = committedTotal(occurrencesOfSpace(upcoming.occurrences, "HOUSEHOLD"));
   const myCommitted = committedTotal(occurrencesOfSpace(upcoming.occurrences, "PERSONAL", me.user_id));
 
-  /** Una categoría con presupuesto se edita en modo presupuesto; una nueva o de ingresos, como categoría. */
-  function edit(c: Category | null, kind: "EXPENSE" | "INCOME" = "EXPENSE", mode: "category" | "budget" = c && kind === "EXPENSE" ? "budget" : "category") {
-    setNewKind(kind);
-    setSheetMode(mode);
-    setEditing(c);
-    setOpen(true);
-  }
+  const editLimit = (l: CategoryLimit | null) => { setLimit(l); setLimitOpen(true); };
   const editPlan = (p: BudgetPlan | null) => { setPlan(p); setPlanOpen(true); };
   const editCommitment = (p: ScheduledPayment | null) => { setCommitment(p); setCommitmentOpen(true); };
 
@@ -164,28 +149,36 @@ export default function PresupuestosPage() {
           <UpcomingList occurrences={upcoming.occurrences} cards={upcoming.cards} today={upcoming.today} onEdit={editCommitment} />
         )}
 
-        {/* Límites por categoría */}
-        <SectionTitle>Límites por categoría</SectionTitle>
-        <div className="grid grid-cols-2 gap-3">
-          {perMember.map(({ member, available, spent }) => (
-            <Card key={member.user_id} className="p-3.5">
-              <div className="flex items-center gap-2">
-                <MemberBadge member={member} size={24} />
-                <span className="truncate text-sm font-semibold">{member.user_id === me.user_id ? "Yo" : member.display_name}</span>
-              </div>
-              <div className="mt-2 h-2 overflow-hidden rounded-full bg-surface-2">
-                <div className="h-full rounded-full" style={{ width: `${Math.min(100, available ? (spent / available) * 100 : 0)}%`, background: member.color }} />
-              </div>
-              <p className="num mt-1.5 text-xs text-muted">{formatCop(spent)} de {formatCop(available)}</p>
-            </Card>
-          ))}
+        {/* Presupuestos por categoría */}
+        <div className="mt-6 flex items-center justify-between">
+          <SectionTitle className="m-0">Presupuestos por categoría</SectionTitle>
+          <Button size="sm" variant="ghost" onClick={() => editLimit(null)}><Plus size={16} /> Categoría</Button>
         </div>
-        <p className="mt-2 px-1 text-xs text-muted">Lo que cada uno tiene a su cargo en las categorías del hogar. Las barras compartidas solo suman movimientos del hogar.</p>
+        <p className="mb-2 px-1 text-xs text-muted">
+          Aquí se define si el presupuesto es del hogar o personal y quién lo asume. Las categorías las usan los dos
+          (<Link href="/categorias" className="font-semibold text-olive underline">ver categorías</Link>).
+        </p>
+        {shown.some((l) => l.scope === "HOUSEHOLD") && (
+          <div className="grid grid-cols-2 gap-3">
+            {perMember.map(({ member, available, spent }) => (
+              <Card key={member.user_id} className="p-3.5">
+                <div className="flex items-center gap-2">
+                  <MemberBadge member={member} size={24} />
+                  <span className="truncate text-sm font-semibold">{member.user_id === me.user_id ? "Yo" : member.display_name}</span>
+                </div>
+                <div className="mt-2 h-2 overflow-hidden rounded-full bg-surface-2">
+                  <div className="h-full rounded-full" style={{ width: `${Math.min(100, available ? (spent / available) * 100 : 0)}%`, background: member.color }} />
+                </div>
+                <p className="num mt-1.5 text-xs text-muted">{formatCop(spent)} de {formatCop(available)}</p>
+              </Card>
+            ))}
+          </div>
+        )}
 
-        {active.length === 0 && (
-          <Card className="mt-6 space-y-2 text-center">
-            <p className="text-[15px]">Crea las categorías del hogar: vivienda, servicios, mercado, mascotas, suscripciones, salidas…</p>
-            <Button onClick={() => edit(null)}><Plus size={16} /> Crear la primera</Button>
+        {shown.length === 0 && (
+          <Card className="space-y-2 text-sm">
+            <p>Ponle un límite a una categoría (ej. Mercado del hogar con montos fijos, o tu Ropa personal) y define quién lo asume.</p>
+            <Button size="sm" variant="secondary" onClick={() => editLimit(null)}><Plus size={15} /> Crear presupuesto de categoría</Button>
           </Card>
         )}
 
@@ -193,69 +186,24 @@ export default function PresupuestosPage() {
           <section key={g.title}>
             <SectionTitle>{g.title}</SectionTitle>
             <div className="space-y-2.5">
-              {g.items.map((c) => (
-                <div key={c.id} className={cn(c.parent_id && "ml-4")}>
-                  <BudgetBar category={c} status={statuses.get(c.id)} memberById={memberById} meId={me.user_id}
-                    label={c.parent_id ? categoryPath(categories, c.id) : undefined}
-                    onPay={(amount) => openPayment({ categoryId: c.id, amount })} onClick={() => setDetail(c)} />
-                </div>
-              ))}
+              {g.items.map((l) => {
+                const c = categories.find((x) => x.id === l.category_id)!;
+                return (
+                  <div key={l.id} className={cn(c.parent_id && "ml-4")}>
+                    <BudgetBar category={c} limit={l} status={statuses.get(l.id)} memberById={memberById} meId={me.user_id}
+                      label={categoryPath(categories, c.id)} icon={categoryLabel(categories, c.id).icon}
+                      onPay={(amount) => openPayment({ categoryId: c.id, amount, scope: l.scope, responsibleId: limitResponsible(l, me, partner) ?? me.user_id })}
+                      onClick={() => setDetail(l)} />
+                  </div>
+                );
+              })}
             </div>
           </section>
         ))}
-
-        {withoutLimit > 0 && (
-          <div className="mt-3 space-y-1.5">
-            <Select value="" aria-label="Poner límite a una categoría" onChange={(e) => {
-              const c = categories.find((x) => x.id === e.target.value);
-              if (c) edit(c, "EXPENSE", "budget");
-            }}>
-              <option value="">+ Poner límite a una categoría… ({withoutLimit} sin límite)</option>
-              <CategoryOptions categories={ordered.filter((c) => !hasBudget(c.id) && canEditBudget(c))} />
-            </Select>
-            <p className="px-1 text-xs text-muted">
-              En el presupuesto de cada categoría se define quién lo asume. Las categorías en sí las usan los dos
-              (<Link href="/categorias" className="font-semibold text-olive underline">ver categorías</Link>).
-            </p>
-          </div>
-        )}
-
-        <div className="mt-6 flex items-center justify-between">
-          <SectionTitle className="m-0">Categorías de ingresos</SectionTitle>
-          <Button size="sm" variant="ghost" onClick={() => edit(null, "INCOME")}><Plus size={16} /> Nueva</Button>
-        </div>
-        {incomeCats.length === 0 ? (
-          <p className="px-1 text-sm text-muted">Salario, honorarios, rendimientos… Son personales y no tienen presupuesto.</p>
-        ) : (
-          <div className="flex flex-wrap gap-2">
-            {incomeCats.map((c) => (
-              <button key={c.id} onClick={() => edit(c, "INCOME")} className="flex items-center gap-1.5 rounded-full border border-border bg-surface px-3 py-2 text-sm">
-                <span>{c.icon || "•"}</span>{c.name}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {archived.length > 0 && (
-          <div className="mt-6">
-            <button className="px-1 text-sm text-muted underline" onClick={() => setShowArchived(!showArchived)}>
-              {showArchived ? "Ocultar" : "Ver"} archivadas ({archived.length})
-            </button>
-            {showArchived && (
-              <div className="mt-2 space-y-2">
-                {archived.map((c) => (
-                  <button key={c.id} onClick={() => edit(c, "EXPENSE", "category")} className="flex w-full items-center gap-2 rounded-2xl border border-dashed border-border p-3 text-left text-muted">
-                    <span>{c.icon || "•"}</span>{c.name}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
       </SwipePeriods>
 
-      <CategorySheet open={open} onOpenChange={setOpen} category={editing} kind={newKind} mode={sheetMode} />
-      <BudgetDetailSheet category={detail} status={detail ? statuses.get(detail.id) : undefined} onClose={() => setDetail(null)} onEdit={(c) => edit(c)} />
+      <LimitSheet open={limitOpen} onOpenChange={setLimitOpen} limit={limit} />
+      <BudgetDetailSheet limit={detail} status={detail ? statuses.get(detail.id) : undefined} onClose={() => setDetail(null)} onEdit={(l) => editLimit(l)} />
       <PlanSheet open={planOpen} onOpenChange={setPlanOpen} plan={plan} />
       <CommitmentSheet open={commitmentOpen} onOpenChange={setCommitmentOpen} payment={commitment} />
     </main>

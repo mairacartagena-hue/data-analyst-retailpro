@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabase } from "@/lib/supabase/client";
 import type {
-  Account, AccountLabel, BudgetPlan, BudgetPlanCategory, Category, CategoryBudgetRow, CustomPeriodRow, Household, LedgerRow,
+  Account, AccountLabel, BudgetPlan, CategoryLimit, BudgetPlanCategory, Category, CategoryBudgetRow, CustomPeriodRow, Household, LedgerRow,
   ManualAsset, Member, PeriodSettingsRow, Reconciliation, SavingsContribution, SavingsGoal, ScheduledPayment, Split, Transaction,
 } from "@/lib/types";
 import { toPeriodSettings, type Snapshot } from "@/lib/finance/derive";
@@ -61,7 +61,7 @@ async function loadAll(sb: SupabaseClient, userId: string): Promise<Loaded> {
   const hh = me.household_id;
 
   const [household, members, settings, customPeriods, accounts, labels, balances, categories, budgets, txs, splits, ledger, assets, recs,
-    plans, planCategories, commitments, goals, contributions] =
+    plans, planCategories, commitments, goals, contributions, limits] =
     await Promise.all([
       sb.from("households").select("id, name, invite_code").eq("id", hh).single(),
       sb.from("household_members").select("*").eq("household_id", hh),
@@ -71,7 +71,7 @@ async function loadAll(sb: SupabaseClient, userId: string): Promise<Loaded> {
       sb.rpc("account_labels"),
       sb.rpc("account_balances"),
       sb.from("categories").select("*").eq("household_id", hh).order("name"),
-      sb.from("category_budgets").select("id, category_id, valid_from, amount, fixed_amount_a, fixed_amount_b").eq("household_id", hh),
+      sb.from("category_budgets").select("id, category_id, limit_id, valid_from, amount, fixed_amount_a, fixed_amount_b").eq("household_id", hh),
       fetchAll<Omit<Transaction, "splits">>((f, t) =>
         sb.from("transactions").select("*").eq("household_id", hh).order("occurred_on", { ascending: false }).order("created_at", { ascending: false }).range(f, t),
       ),
@@ -90,10 +90,11 @@ async function loadAll(sb: SupabaseClient, userId: string): Promise<Loaded> {
         sb.from("savings_contributions").select("id, goal_id, user_id, amount, occurred_on, note, created_at").eq("household_id", hh)
           .order("occurred_on", { ascending: false }).range(f, t),
       ),
+      sb.from("category_limits").select("id, category_id, scope, owner_user_id, responsibility, is_household_obligation, rollover_enabled").eq("household_id", hh),
     ]);
 
   for (const r of [household, members, settings, customPeriods, accounts, labels, balances, categories, budgets, assets, recs,
-    plans, planCategories, commitments, goals]) {
+    plans, planCategories, commitments, goals, limits]) {
     if (r.error) throw r.error;
   }
 
@@ -150,6 +151,7 @@ async function loadAll(sb: SupabaseClient, userId: string): Promise<Loaded> {
       planned_amount: num(g.planned_amount) as number | null,
     })),
     contributions: contributions.map((c) => ({ ...c, amount: Number(c.amount) })),
+    limits: (limits.data ?? []) as CategoryLimit[],
   };
 }
 
@@ -157,7 +159,7 @@ const REALTIME_TABLES = [
   "account_reconciliations",
   "accounts", "categories", "category_budgets", "transactions", "transaction_splits",
   "cross_ledger", "household_members", "period_settings", "manual_assets",
-  "budget_plans", "budget_plan_categories", "scheduled_payments", "savings_goals", "savings_contributions",
+  "category_limits", "budget_plans", "budget_plan_categories", "scheduled_payments", "savings_goals", "savings_contributions",
 ];
 
 export function FinanceProvider({ userId, children }: { userId: string; children: React.ReactNode }) {

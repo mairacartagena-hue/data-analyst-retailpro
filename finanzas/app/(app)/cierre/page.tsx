@@ -34,17 +34,14 @@ function monthLabel(month: string): string {
   return `${monthName(m - 1, true)} ${y}`;
 }
 
-/** Busca una categoría propia por nombre o la crea como personal y sin presupuesto. */
+/** Busca una categoría de gastos por nombre o la crea (sin presupuesto). */
 async function ensureCategory(state: FinanceState, sb: SupabaseClient, name: string, icon: string): Promise<string> {
   const existing = state.categories.find(
-    (c) => !c.archived && c.name.toLowerCase() === name.toLowerCase() && (c.responsibility !== "PRIVATE" || c.owner_user_id === state.me.user_id),
+    (c) => !c.archived && c.kind !== "INCOME" && c.name.toLowerCase() === name.toLowerCase(),
   );
   if (existing) return existing.id;
   const { data, error } = await sb.rpc("save_category", {
-    p: {
-      name, icon, responsibility: "PRIVATE", is_household_obligation: false, is_shared_progress: false, rollover_enabled: false,
-      budget: { valid_from: periodFor(state.settings, todayBogota()).start, amount: 0 },
-    },
+    p: { name, icon },
   });
   if (error) throw error;
   return data as string;
@@ -65,10 +62,10 @@ export default function CierrePage() {
   // ¿Qué hace falta? Obligaciones del periodo que cierra el mes, pendientes y avisos sin reconocer
   const closingPeriod = periodFor(state.settings, range.end);
   const statuses = useMemo(() => statusesFor(state, closingPeriod), [state, closingPeriod]);
-  const missingObligations = categories
-    .filter((c) => !c.archived && c.is_household_obligation)
-    .map((c) => ({ c, a: statuses.get(c.id)?.allocations.find((x) => x.userId === me.user_id) }))
-    .filter(({ a }) => a && a.remaining > 0);
+  const missingObligations = state.limits
+    .filter((l) => l.is_household_obligation)
+    .map((l) => ({ c: categories.find((x) => x.id === l.category_id), a: statuses.get(l.id)?.allocations.find((x) => x.userId === me.user_id) }))
+    .filter((x): x is { c: NonNullable<typeof x.c>; a: typeof x.a } => !!x.c && !x.c.archived && !!x.a && x.a.remaining > 0);
   const pendingInMonth = transactions.filter(
     (t) => t.status === "PENDING_REVIEW" && t.payer_user_id === me.user_id && t.occurred_on >= range.start && t.occurred_on <= range.end,
   );

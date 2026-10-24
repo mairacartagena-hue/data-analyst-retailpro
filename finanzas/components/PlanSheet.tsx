@@ -69,7 +69,6 @@ export function PlanSheet({ open, onOpenChange, plan }: { open: boolean; onOpenC
 
   // Un presupuesto del hogar solo usa categorías del hogar; uno personal, también las personales propias
   const available = categories.filter((c) => !c.archived && c.kind !== "INCOME"
-    && (c.responsibility !== "PRIVATE" || (scope === "PERSONAL" && c.owner_user_id === me.user_id))
     && !lines.some((l) => l.categoryId === c.id));
   const canMakePersonal = !plan || plan.owner_user_id === me.user_id;
   const linesTotal = lines.reduce((a, l) => a + (parseCop(l.amount) ?? 0), 0);
@@ -127,7 +126,6 @@ export function PlanSheet({ open, onOpenChange, plan }: { open: boolean; onOpenC
           <Segmented value={scope} onChange={(v) => {
             if (v === "PERSONAL" && !canMakePersonal) return;
             setScope(v);
-            if (v === "HOUSEHOLD") setLines(lines.filter((l) => categories.find((c) => c.id === l.categoryId)?.responsibility !== "PRIVATE"));
           }} options={[
             { value: "HOUSEHOLD", label: "Hogar" },
             { value: "PERSONAL", label: "Personal" },

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Inbox, Link2, Sparkles } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
@@ -15,8 +15,8 @@ import { accountLabel, categoryLabel } from "@/lib/finance/labels";
 import { findManualTwin } from "@/lib/ingest/match";
 import { fold } from "@/lib/ingest/normalize";
 import { SUBSCRIPTION_TAG } from "@/lib/finance/subscriptions";
-import { suggestedScope } from "@/lib/finance/spaces";
-import { formatDay, periodFor, todayBogota } from "@/lib/finance/periods";
+import type { Space } from "@/lib/types";
+import { formatDay } from "@/lib/finance/periods";
 import { errMsg } from "@/lib/utils";
 
 /** Cola de pendientes del inicio: movimientos que llegaron solos y esperan revisión. */
@@ -40,7 +40,7 @@ export function PendingReview() {
 }
 
 function PendingCard({ tx }: { tx: Transaction }) {
-  const { me, categories, labels, supabase, reload, memberById, transactions, settings } = useFinance();
+  const { me, categories, labels, supabase, reload, memberById, transactions } = useFinance();
   const { openTransaction } = useShell();
   const [always, setAlways] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -49,15 +49,22 @@ function PendingCard({ tx }: { tx: Transaction }) {
   // Cobro de suscripción (servicio conocido o que se repite cada mes): sugerir la categoría "Suscripciones"
   const isSubscription = tx.tags.includes(SUBSCRIPTION_TAG);
   const subsCategory = categories.find((c) => !c.archived && c.kind !== "INCOME" && fold(c.name) === "suscripciones"
-    && (c.responsibility !== "PRIVATE" || c.owner_user_id === me.user_id)) ?? null;
+) ?? null;
   const suggested = (tx.suggested_category_id ? categories.find((c) => c.id === tx.suggested_category_id) ?? null : null)
     ?? (isSubscription ? subsCategory : null);
   // El responsable sale de lo que recordó el comercio, o es quien pagó (la categoría no lo decide)
   const suggestedResp = tx.suggested_responsible_user_id
-    ?? (suggested?.responsibility === "PRIVATE" ? suggested.owner_user_id : null)
     ?? me.user_id;
   const who = memberById(suggestedResp);
-  const scope = suggestedScope(suggested);
+  // El espacio sale de lo que se recordó de este comercio (si se recordó), no de la categoría
+  const [scope, setScope] = useState<Space>("PERSONAL");
+  useEffect(() => {
+    if (!tx.merchant_norm) return;
+    let alive = true;
+    void supabase.from("merchant_memory").select("scope").eq("identifier_type", "MERCHANT").eq("identifier", tx.merchant_norm)
+      .maybeSingle().then(({ data }) => { if (alive && data?.scope) setScope(data.scope as Space); });
+    return () => { alive = false; };
+  }, [supabase, tx.merchant_norm]);
   const canConfirm = tx.kind === "EXPENSE" && !!suggested && !!tx.account_id && tx.movement_type !== "CARD_PAYMENT";
   const name = tx.merchant || tx.description || "comercio sin nombre";
   const twin = findManualTwin(tx, transactions, categories);
@@ -83,9 +90,7 @@ function PendingCard({ tx }: { tx: Transaction }) {
     setError(null);
     const { data: catId, error: catError } = await supabase.rpc("save_category", {
       p: {
-        name: "Suscripciones", icon: "🔁", responsibility: me.slot === "A" ? "MEMBER_A_100" : "MEMBER_B_100",
-        is_household_obligation: false, is_shared_progress: false, rollover_enabled: false,
-        budget: { valid_from: periodFor(settings, todayBogota()).start, amount: 0 },
+        name: "Suscripciones", icon: "🔁",
       },
     });
     if (catError) {

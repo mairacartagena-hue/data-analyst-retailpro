@@ -88,7 +88,7 @@ Ajustes → **Cierre del mes** (`app/(app)/cierre`), con recordatorio en el inic
 - **¿Qué hace falta?:** obligaciones del hogar sin pagar, movimientos por revisar, avisos no reconocidos y cuentas sin conciliar.
 - Cada cuenta guarda la **fecha de su saldo inicial** (`opening_at`): lo que ocurrió antes ya estaba incluido en ese saldo y no se vuelve a restar.
 
-## Hogar y personal (migraciones 0017 y 0018)
+## Hogar y personal (migraciones 0017, 0018 y 0019)
 
 Cada movimiento tiene campos independientes: **tipo**, **ámbito** (hogar o personal), **categoría/subcategoría**, **responsable** de cada parte, **quién pagó** y **cuenta**.
 
@@ -97,7 +97,7 @@ Cada movimiento tiene campos independientes: **tipo**, **ámbito** (hogar o pers
 - **Tipos**: gasto, ingreso, transferencia propia, liquidación, **pago de deuda** (cuenta en el presupuesto de su categoría), **reembolso** (resta del gasto de su categoría, no es ingreso) y **ajuste** (corrige el saldo; no es ingreso ni gasto). Transferencias, liquidaciones y ajustes no cuentan en gastos ni ingresos.
 - **Deuda opcional**: si la parte de un movimiento le corresponde a quien no pagó, la app pregunta si se anota en el cruce (`creates_debt`). Un gasto del hogar 100 % de una persona no genera deuda.
 - **Ajustes de la pareja**: un movimiento del hogar ya confirmado lo pueden ajustar los dos; quien pagó y su cuenta no cambian (`updated_by` guarda quién ajustó). Solo quien lo registró lo borra. Lo personal solo lo edita su dueño.
-- **La categoría no decide quién paga:** las categorías del hogar las usan los dos. Quién asume el pago se define en el **presupuesto de la categoría** (Presupuesto → tocar la barra → Editar, o “Poner límite a una categoría”): 100 % de una persona o montos fijos. Al pagar desde un presupuesto se propone ese responsable; al registrar eligiendo la categoría, el responsable es quien pagó, y siempre se puede cambiar. Más → Categorías solo cambia nombre, ícono, categoría principal y si es del hogar o personal.
+- **Las categorías no deciden nada (0019):** solo dicen en qué se gastó o de dónde vino la plata; todas las ven y usan los dos (también las de ingresos). Si algo es del hogar o personal, y quién lo asume, se define en el **presupuesto de la categoría** (`category_limits`, Presupuesto → “+ Categoría”) y en cada movimiento. Un presupuesto de categoría es del hogar (con responsable: 100 % de una persona o montos fijos; lo ven los dos y suma movimientos del hogar) o personal (solo su dueño lo ve; suma sus movimientos personales). Una categoría puede tener uno del hogar y uno personal por persona. Al pagar desde un presupuesto se proponen su espacio y su responsable; al registrar eligiendo la categoría, el responsable es quien pagó y el espacio es el último usado.
 - **Subcategorías** (`categories.parent_id`, un nivel): la barra de una principal suma sus subcategorías. Más → Categorías → “Agregar las que falten” carga la estructura sugerida sin duplicar nombres.
 - **Barras por categoría**: las compartidas (progreso compartido o montos fijos) solo suman movimientos del hogar, así cuadran en los dos celulares y lo personal no se filtra. Lo ejecutado se calcula con los movimientos que cada quien puede ver.
 - **Presupuestos con nombre** (`budget_plans`): del hogar o personales; categorías incluidas (con límite propio opcional), cada periodo o un rango de fechas, alerta (%) y estado (activo, en pausa, cerrado). Gastado = gastos y pagos de deuda menos reembolsos; Comprometido = vencimientos sin pagar; Disponible = límite − gastado; Proyección = gastado + comprometido + ritmo del gasto variable. Cada parte cuenta una sola vez.
@@ -142,7 +142,7 @@ Pestañas: **Inicio · Movimientos · + · Presupuesto · Informes · Más**. �
 ## Configuración
 
 ### 1. Base de datos (Supabase, proyecto `finanzas-pareja`)
-Las migraciones están en `supabase/migrations/` (0001 → 0018). Para aplicarlas a mano, pega cada archivo completo en **SQL Editor → Run**, en orden. Se pueden correr más de una vez.
+Las migraciones están en `supabase/migrations/` (0001 → 0019). Para aplicarlas a mano, pega cada archivo completo en **SQL Editor → Run**, en orden. Se pueden correr más de una vez.
 
 ### 2. Autenticación
 En Supabase → **Authentication → URL Configuration**:

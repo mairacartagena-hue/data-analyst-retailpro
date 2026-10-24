@@ -4,35 +4,23 @@ import { useEffect, useState } from "react";
 import { Archive, ArchiveRestore } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import type { Category } from "@/lib/types";
-import type { Responsibility } from "@/lib/finance/budget";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { ErrorText, Field, Input, Select } from "@/components/ui/input";
-import { SwitchRow } from "@/components/ui/switch";
-import { AmountInput } from "@/components/AmountInput";
-import { budgetVersionAt } from "@/lib/finance/budget";
-import { toBudgetCategories } from "@/lib/finance/derive";
-import { formatCop, parseCop } from "@/lib/finance/money";
-import { periodFor, periodLabel, todayBogota } from "@/lib/finance/periods";
-import { memberBySlot } from "@/lib/finance/labels";
-import { cn, errMsg } from "@/lib/utils";
+import { errMsg } from "@/lib/utils";
 
 const SUGGESTED_ICONS = ["🏠", "💡", "🛒", "🐾", "📺", "🍽️", "🚗", "💊", "🎓", "🎁", "✈️", "👕", "💳", "🧾"];
 
 const INCOME_ICONS = ["💼", "💰", "🏦", "🧾", "🎁", "🏠", "📈", "🛍️", "🔁"];
 
 /**
- * Dos modos:
- *  · "category": qué es la categoría (nombre, ícono, principal, del hogar o personal). Las usan los dos;
- *    no define quién paga.
- *  · "budget": el presupuesto de la categoría (límite, quién lo asume, obligación, progreso compartido, rollover).
+ * Categoría: solo dice en qué se gastó o de dónde vino la plata (nombre, ícono y categoría principal).
+ * La usan los dos. Si un gasto es del hogar o personal, y quién lo asume, se define en el presupuesto
+ * y en cada movimiento.
  */
 export function CategorySheet({
-  open, onOpenChange, category, kind = "EXPENSE", onSaved, parentId = null, mode = "category",
+  open, onOpenChange, category, kind = "EXPENSE", onSaved, parentId = null,
 }: {
-  mode?: "category" | "budget";
-  /** Categoría principal sugerida para una nueva (crear una subcategoría). */
-  parentId?: string | null;
   open: boolean;
   onOpenChange: (v: boolean) => void;
   category: Category | null;
@@ -40,22 +28,12 @@ export function CategorySheet({
   kind?: "EXPENSE" | "INCOME";
   /** Se llama con el id guardado (ej. para elegirla en el formulario de un movimiento). */
   onSaved?: (id: string) => void;
+  /** Categoría principal sugerida para una nueva (crear una subcategoría). */
+  parentId?: string | null;
 }) {
-  const state = useFinance();
-  const { me, partner, settings, budgets, supabase, reload, categories } = state;
-  const memberA = memberBySlot(me, partner, "A");
-  const memberB = memberBySlot(me, partner, "B");
-  const currentStart = periodFor(settings, todayBogota()).start;
-
+  const { supabase, reload, categories } = useFinance();
   const [name, setName] = useState("");
   const [icon, setIcon] = useState("");
-  const [resp, setResp] = useState<Responsibility>("MEMBER_A_100");
-  const [amount, setAmount] = useState("");
-  const [fixedA, setFixedA] = useState("");
-  const [fixedB, setFixedB] = useState("");
-  const [obligation, setObligation] = useState(false);
-  const [shared, setShared] = useState(false);
-  const [rollover, setRollover] = useState(false);
   const [parent, setParent] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -63,31 +41,9 @@ export function CategorySheet({
   useEffect(() => {
     if (!open) return;
     setError(null);
-    if (category) {
-      const bc = toBudgetCategories([category], budgets)[0];
-      const v = budgetVersionAt(bc.budgets, currentStart) ?? bc.budgets.at(-1) ?? null;
-      setName(category.name);
-      setIcon(category.icon ?? "");
-      setResp(category.responsibility);
-      setAmount(v ? String(v.amount) : "");
-      setFixedA(v?.fixedAmountA != null ? String(v.fixedAmountA) : "");
-      setFixedB(v?.fixedAmountB != null ? String(v.fixedAmountB) : "");
-      setObligation(category.is_household_obligation);
-      setShared(category.is_shared_progress);
-      setRollover(category.rollover_enabled);
-      setParent(category.parent_id ?? "");
-    } else {
-      setParent(parentId ?? "");
-      setName("");
-      setIcon("");
-      setResp("FIXED_AMOUNTS");
-      setAmount("");
-      setFixedA("");
-      setFixedB("");
-      setObligation(false);
-      setShared(true);
-      setRollover(false);
-    }
+    setName(category?.name ?? "");
+    setIcon(category?.icon ?? "");
+    setParent(category ? (category.parent_id ?? "") : (parentId ?? ""));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, category]);
 
@@ -96,61 +52,13 @@ export function CategorySheet({
   // Principales posibles: del mismo tipo, sin principal propia y distintas de esta
   const parentOptions = categories.filter((c) => !c.archived && !c.parent_id && c.id !== category?.id
     && (c.kind ?? "EXPENSE") === (isIncome ? "INCOME" : "EXPENSE"));
-  const parentCat = categories.find((c) => c.id === parent) ?? null;
-  const isPrivate = resp === "PRIVATE" || isIncome;
-  // Igual que can_see_budget() en la base de datos: si no puedo ver el presupuesto, no lo edito.
-  const canSeeBudget =
-    !category ||
-    category.is_shared_progress ||
-    category.responsibility === "FIXED_AMOUNTS" ||
-    category.responsibility === "PRIVATE" ||
-    (category.responsibility === "MEMBER_A_100" ? "A" : "B") === me.slot;
-  const fixedTotal = (parseCop(fixedA) ?? 0) + (parseCop(fixedB) ?? 0);
-
-  const options: { value: Responsibility; title: string; hint: string }[] = [
-    { value: "MEMBER_A_100", title: `100 % ${memberA?.display_name ?? "miembro A"}`, hint: "Asume toda la partida" },
-    { value: "MEMBER_B_100", title: `100 % ${memberB?.display_name ?? "miembro B (aún no se une)"}`, hint: "Asume toda la partida" },
-    { value: "FIXED_AMOUNTS", title: "Compartida con montos fijos", hint: "Cada uno aporta un monto en pesos" },
-    { value: "PRIVATE", title: "Personal (privada)", hint: "Solo tú la ves; se usa en tus movimientos personales" },
-  ];
-
-  const budgetMode = mode === "budget" && !!category && !isIncome;
-  const budgetOptions = options.filter((o) => o.value !== "PRIVATE");
-
-  /** Del hogar o personal (modo categoría). Al volverla del hogar queda compartida y sin dueño. */
-  function setPersonal(personal: boolean) {
-    if (personal) setResp("PRIVATE");
-    else if (resp === "PRIVATE") {
-      setResp("FIXED_AMOUNTS");
-      setShared(true);
-    }
-  }
 
   async function save() {
     setError(null);
     if (!name.trim()) return setError("Ponle un nombre.");
     setBusy(true);
     const { data: savedId, error } = await supabase.rpc("save_category", {
-      p: {
-        id: category?.id ?? null,
-        kind: isIncome ? "INCOME" : "EXPENSE",
-        parent_id: parent || null,
-        name,
-        icon,
-        responsibility: isIncome ? "PRIVATE" : resp,
-        is_household_obligation: !isPrivate && obligation,
-        is_shared_progress: !isPrivate && shared,
-        rollover_enabled: rollover,
-        // El monto solo se guarda desde el presupuesto de la categoría
-        budget: budgetMode && canSeeBudget
-          ? {
-              valid_from: currentStart,
-              amount: resp === "FIXED_AMOUNTS" ? fixedTotal : (parseCop(amount) ?? 0),
-              fixed_amount_a: resp === "FIXED_AMOUNTS" ? (parseCop(fixedA) ?? 0) : null,
-              fixed_amount_b: resp === "FIXED_AMOUNTS" ? (parseCop(fixedB) ?? 0) : null,
-            }
-          : null,
-      },
+      p: { id: category?.id ?? null, kind: isIncome ? "INCOME" : "EXPENSE", parent_id: parent || null, name, icon },
     });
     setBusy(false);
     if (error) return setError(errMsg(error));
@@ -170,11 +78,9 @@ export function CategorySheet({
   }
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}
-      title={budgetMode ? `Presupuesto de ${category!.name}` : category ? "Editar categoría" : isIncome ? "Nueva categoría de ingreso" : "Nueva categoría"}
-      description={budgetMode ? "Aquí se define quién asume el pago y cuánto. La categoría la pueden usar los dos." : undefined}>
+    <Sheet open={open} onOpenChange={onOpenChange} title={category ? "Editar categoría" : isIncome ? "Nueva categoría de ingreso" : "Nueva categoría"}
+      description="Las categorías las usan los dos. Si es del hogar o personal, y quién lo asume, se define en el presupuesto y en cada movimiento.">
       <div className="space-y-4 pb-2">
-        {!budgetMode && (<>
         <div className="grid grid-cols-[72px_1fr] gap-3">
           <Field label="Ícono" htmlFor="icon">
             <Input id="icon" value={icon} onChange={(e) => setIcon(e.target.value)} maxLength={4} className="text-center text-xl" placeholder="🛒" />
@@ -190,88 +96,19 @@ export function CategorySheet({
         </div>
 
         {hasChildren ? (
-          <p className="text-xs text-muted">Es una categoría principal: sus subcategorías suman en su presupuesto.</p>
+          <p className="text-xs text-muted">Es una categoría principal: sus subcategorías suman en sus presupuestos.</p>
         ) : (
           <Field label="Dentro de" hint="Elige una categoría principal para que esta sea una subcategoría (ej. Vivienda › Crédito hipotecario).">
-            <Select value={parent} onChange={(e) => {
-              setParent(e.target.value);
-              const p = categories.find((c) => c.id === e.target.value);
-              if (p?.responsibility === "PRIVATE") setResp("PRIVATE");
-            }} aria-label="Categoría principal">
+            <Select value={parent} onChange={(e) => setParent(e.target.value)} aria-label="Categoría principal">
               <option value="">Ninguna (es una categoría principal)</option>
               {parentOptions.map((c) => <option key={c.id} value={c.id}>{c.icon ? `${c.icon} ` : ""}{c.name}</option>)}
             </Select>
           </Field>
         )}
 
-        {isIncome ? (
-          <p className="rounded-2xl bg-surface-2 px-3 py-2 text-sm text-muted">
-            Las categorías de ingresos son personales y no tienen presupuesto: sirven para saber de dónde viene tu plata.
-          </p>
-        ) : (!category || category.responsibility === "PRIVATE" || canSeeBudget) && (
-          <Field label="¿Quién la puede usar?" hint="Las del hogar las usan los dos. Quién asume cada pago se define en el presupuesto o en cada movimiento.">
-            <div className="grid grid-cols-2 gap-2">
-              {[{ v: false, t: "Los dos (hogar)" }, { v: true, t: "Solo yo (personal)" }].map((o) => (
-                <button key={String(o.v)} type="button" onClick={() => setPersonal(o.v)} aria-pressed={(resp === "PRIVATE") === o.v}
-                  disabled={!o.v && parentCat?.responsibility === "PRIVATE"}
-                  className={cn("rounded-2xl border px-3 py-2.5 text-sm font-medium disabled:opacity-50", (resp === "PRIVATE") === o.v ? "border-olive bg-olive-soft" : "border-border bg-surface")}>
-                  {o.t}
-                </button>
-              ))}
-            </div>
-          </Field>
-        )}
-        </>)}
-
-        {budgetMode && (<>
-        {!canSeeBudget && (
-          <p className="rounded-2xl bg-surface-2 px-3 py-2 text-sm text-muted">
-            El progreso de esta categoría es privado de tu pareja. Puedes cambiarle el nombre o el ícono.
-          </p>
-        )}
-
-        {canSeeBudget && !isPrivate && <Field label="¿Quién asume este presupuesto?" hint="Al pagar desde este presupuesto se propone esta persona; en cada movimiento se puede cambiar.">
-          <div className="grid gap-2">
-            {budgetOptions.map((o) => (
-              <button key={o.value} type="button" onClick={() => setResp(o.value)} aria-pressed={resp === o.value}
-                disabled={o.value === "MEMBER_B_100" && !memberB && resp !== "MEMBER_B_100"}
-                className={cn("rounded-2xl border px-4 py-2.5 text-left disabled:opacity-50", resp === o.value ? "border-olive bg-olive-soft" : "border-border bg-surface")}>
-                <span className="block font-medium">{o.title}</span>
-                <span className="block text-xs text-muted">{o.hint}</span>
-              </button>
-            ))}
-          </div>
-        </Field>}
-
-        {canSeeBudget && (resp === "FIXED_AMOUNTS" ? (
-          <div className="grid grid-cols-2 gap-3">
-            <Field label={`Aporta ${memberA?.display_name ?? "A"}`}><AmountInput value={fixedA} onChange={setFixedA} /></Field>
-            <Field label={`Aporta ${memberB?.display_name ?? "B"}`}><AmountInput value={fixedB} onChange={setFixedB} /></Field>
-            <p className="col-span-2 -mt-1 text-sm text-muted">Presupuesto total: <span className="num font-semibold text-text">{formatCop(fixedTotal)}</span></p>
-          </div>
-        ) : (
-          <Field label="Límite por periodo"><AmountInput value={amount} onChange={setAmount} /></Field>
-        ))}
-        {canSeeBudget && category && (
-          <p className="-mt-2 text-xs text-muted">Un cambio de monto aplica desde el periodo actual ({periodLabel(periodFor(settings, todayBogota()))}); los anteriores quedan igual.</p>
-        )}
-
-        {!isPrivate && canSeeBudget && (
-          <>
-            <SwitchRow label="Obligación del hogar" hint="Lo que falte por pagar se aparta del Saldo Seguro del responsable."
-              checked={obligation} onCheckedChange={setObligation} />
-            <SwitchRow label="Progreso compartido" hint="Los dos ven la barra, el límite y los movimientos."
-              checked={shared} onCheckedChange={setShared} />
-          </>
-        )}
-        {canSeeBudget && <SwitchRow label="Pasar el saldo al siguiente periodo" hint="Rollover: el sobrante suma y el sobregiro resta en el siguiente periodo."
-          checked={rollover} onCheckedChange={setRollover} />}
-
-        </>)}
-
         <ErrorText>{error}</ErrorText>
         <div className="flex gap-3">
-          {category && !budgetMode && (
+          {category && (
             <Button variant="secondary" size="icon" onClick={toggleArchive} disabled={busy} aria-label={category.archived ? "Restaurar" : "Archivar"}>
               {category.archived ? <ArchiveRestore size={18} /> : <Archive size={18} />}
             </Button>

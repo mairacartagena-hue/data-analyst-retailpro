@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { cashFlow, statusesFor, type Snapshot } from "@/lib/finance/derive";
 import { DEFAULT_PERIOD_SETTINGS, periodFor } from "@/lib/finance/periods";
-import { accountSign, categoryPath, categoryTree, spendingRows, suggestedScope, withDescendants } from "@/lib/finance/spaces";
+import { accountSign, categoryPath, categoryTree, spendingRows, withDescendants } from "@/lib/finance/spaces";
 import { effectOn } from "@/lib/finance/reconcile";
-import type { Category, Member, Transaction } from "@/lib/types";
+import type { Category, CategoryLimit, Member, Transaction } from "@/lib/types";
 
 const A = "may";
 const B = "brei";
@@ -22,17 +22,22 @@ const tx = (p: Partial<Transaction>): Transaction => ({
 });
 const oct = periodFor(DEFAULT_PERIOD_SETTINGS, "2026-10-10");
 
-const categories = [
-  cat("vivienda"),
-  cat("hipoteca", { parent_id: "vivienda", responsibility: "MEMBER_A_100" }),
-  cat("remodelacion", { parent_id: "vivienda", responsibility: "MEMBER_B_100" }),
-  cat("restaurantes"),
-  cat("ropa", { responsibility: "PRIVATE", owner_user_id: A, is_shared_progress: false }),
+// Las categorías solo dicen en qué se gastó; los presupuestos dicen si es del hogar o personal y quién lo asume
+const categories = [cat("vivienda"), cat("hipoteca", { parent_id: "vivienda" }), cat("remodelacion", { parent_id: "vivienda" }), cat("restaurantes"), cat("ropa")];
+const lim = (id: string, category_id: string, scope: CategoryLimit["scope"], extra: Partial<CategoryLimit> = {}): CategoryLimit => ({
+  id, category_id, scope, owner_user_id: null, responsibility: null, is_household_obligation: false, rollover_enabled: false, ...extra,
+});
+const limits = [
+  lim("vivienda", "vivienda", "HOUSEHOLD", { responsibility: "FIXED_AMOUNTS" }),
+  lim("hipoteca", "hipoteca", "HOUSEHOLD", { responsibility: "MEMBER_A_100" }),
+  lim("restaurantes", "restaurantes", "HOUSEHOLD", { responsibility: "FIXED_AMOUNTS" }),
+  lim("mis-restaurantes", "restaurantes", "PERSONAL", { owner_user_id: A }),
+  lim("ropa", "ropa", "PERSONAL", { owner_user_id: A }),
 ];
-const budgets = ["vivienda", "hipoteca", "restaurantes", "ropa"].map((id, i) => ({
-  id: String(i), category_id: id, valid_from: "2026-01-01", amount: 5_000_000,
-  fixed_amount_a: id === "vivienda" || id === "restaurantes" ? 2_500_000 : null,
-  fixed_amount_b: id === "vivienda" || id === "restaurantes" ? 2_500_000 : null,
+const budgets = limits.map((l, i) => ({
+  id: String(i), category_id: l.category_id, limit_id: l.id, valid_from: "2026-01-01", amount: 5_000_000,
+  fixed_amount_a: l.responsibility === "FIXED_AMOUNTS" ? 2_500_000 : null,
+  fixed_amount_b: l.responsibility === "FIXED_AMOUNTS" ? 2_500_000 : null,
 }));
 
 const transactions = [
@@ -48,17 +53,18 @@ const transactions = [
 ];
 
 const snap: Snapshot = {
-  me, partner, settings: DEFAULT_PERIOD_SETTINGS, accounts: [], balances: {}, categories, budgets, transactions,
+  me, partner, settings: DEFAULT_PERIOD_SETTINGS, accounts: [], balances: {}, categories, limits, budgets, transactions,
   ledger: [], spending: spendingRows(transactions), assets: [],
 };
 
 describe("hogar y personal", () => {
-  it("la categoría principal suma sus subcategorías; las barras del hogar no suman lo personal; los reembolsos restan", () => {
+  it("principal suma subcategorías; el presupuesto del hogar no suma lo personal y el personal no suma lo del hogar; reembolsos restan", () => {
     const st = statusesFor(snap, oct);
     expect(st.get("vivienda")?.totalSpent).toBe(2_800_000);
     expect(st.get("vivienda")?.spentByUser).toEqual({ [A]: 2_000_000, [B]: 800_000 });
     expect(st.get("hipoteca")?.totalSpent).toBe(2_000_000);
     expect(st.get("restaurantes")?.totalSpent).toBe(80_000);
+    expect(st.get("mis-restaurantes")?.totalSpent).toBe(40_000);
     expect(st.get("ropa")?.totalSpent).toBe(150_000);
   });
 
@@ -66,13 +72,6 @@ describe("hogar y personal", () => {
     expect(cashFlow(snap, oct, "household")).toEqual({ income: 1_000_000 + 10_000, expense: 2_000_000 + 800_000 + 90_000, net: 1_010_000 - 2_890_000 });
     expect(cashFlow(snap, oct, "me").income).toBe(7_000_000 + 10_000);
     expect(cashFlow(snap, oct, "me").expense).toBe(2_000_000 + 90_000 + 40_000 + 150_000);
-  });
-
-  it("ámbito sugerido por la categoría (solo una sugerencia)", () => {
-    expect(suggestedScope(categories[3])).toBe("HOUSEHOLD");
-    expect(suggestedScope(categories[4])).toBe("PERSONAL");
-    expect(suggestedScope(cat("gym", { responsibility: "MEMBER_A_100", is_shared_progress: false }))).toBe("PERSONAL");
-    expect(suggestedScope(null)).toBe("PERSONAL");
   });
 
   it("árbol de categorías y rutas", () => {

@@ -53,6 +53,35 @@ describe("datos existentes (antes de 0017)", () => {
   });
 });
 
+describe("presupuestos de categoría existentes (antes de 0019)", () => {
+  it("se pasan a presupuestos del hogar o personales y las categorías quedan para los dos", async () => {
+    const c: Record<string, string> = {};
+    const db = await setupDb({
+      until: "0019",
+      before: async (db) => {
+        await household(db);
+        const save = (p: object) => rpc<string>(db, MAY, "save_category", { budget: { valid_from: "2026-10-01", amount: 1000 }, ...p });
+        c.shared = await save({ name: "Mercado", responsibility: "MEMBER_A_100", is_shared_progress: true, is_household_obligation: true });
+        c.fixed = await save({ name: "Arriendo", responsibility: "FIXED_AMOUNTS", budget: { valid_from: "2026-10-01", fixed_amount_a: 600, fixed_amount_b: 400 } });
+        c.mine = await save({ name: "Gimnasio", responsibility: "MEMBER_A_100" });
+        c.priv = await save({ name: "Ropa", responsibility: "PRIVATE" });
+        c.none = await rpc<string>(db, MAY, "save_category", { name: "Sin límite", responsibility: "MEMBER_B_100" });
+      },
+    });
+    const lim = async (cat: string) => (await db.query(`select scope, owner_user_id, responsibility, is_household_obligation from category_limits where category_id = $1`, [cat])).rows;
+    expect(await lim(c.shared)).toEqual([{ scope: "HOUSEHOLD", owner_user_id: null, responsibility: "MEMBER_A_100", is_household_obligation: true }]);
+    expect(await lim(c.fixed)).toEqual([{ scope: "HOUSEHOLD", owner_user_id: null, responsibility: "FIXED_AMOUNTS", is_household_obligation: false }]);
+    expect(await lim(c.mine)).toEqual([{ scope: "PERSONAL", owner_user_id: MAY, responsibility: null, is_household_obligation: false }]);
+    expect(await lim(c.priv)).toEqual([{ scope: "PERSONAL", owner_user_id: MAY, responsibility: null, is_household_obligation: false }]);
+    expect(await lim(c.none)).toEqual([]);
+    expect((await db.query(`select count(*)::int n from category_budgets where limit_id is null`)).rows[0]).toEqual({ n: 0 });
+    expect((await db.query(`select amount::int, fixed_amount_a::int a from category_budgets b join category_limits l on l.id = b.limit_id where l.category_id = $1`, [c.fixed])).rows).toEqual([{ amount: 1000, a: 600 }]);
+    // Brei ve todas las categorías, pero no los presupuestos personales de May
+    expect((await as(db, BREI, `select id from categories`)).length).toBe(5);
+    expect((await as<{ category_id: string }>(db, BREI, `select category_id from category_limits`)).map((r) => r.category_id).sort()).toEqual([c.shared, c.fixed].sort());
+  });
+});
+
 describe("hogar y personal", () => {
   let db: PGlite;
   let h: Home;
@@ -72,13 +101,14 @@ describe("hogar y personal", () => {
     ropa = await rpc<string>(db, MAY, "save_category", { name: "Ropa May", responsibility: "PRIVATE" });
   }, 30_000);
 
-  it("categorías sugeridas con subcategorías, sin duplicar; las de ingresos son personales", async () => {
+  it("categorías sugeridas con subcategorías, sin duplicar; todas las ven los dos", async () => {
     const before = (await db.query(`select id from categories`)).rows.length;
     expect((await as<{ n: number }>(db, MAY, `select public.add_suggested_categories() as n`))[0].n).toBe(0);
     expect((await db.query(`select id from categories`)).rows.length).toBe(before);
     const parent = (await db.query<{ name: string }>(`select p.name from categories c join categories p on p.id = c.parent_id where c.name = 'Mercado'`)).rows[0];
     expect(parent.name).toBe("Alimentación");
-    expect(await as(db, BREI, `select name from categories where kind = 'INCOME'`)).toHaveLength(0);
+    expect(await as(db, BREI, `select name from categories where kind = 'INCOME'`)).toHaveLength(5);
+    expect((await as(db, BREI, `select id from categories`)).length).toBe((await as(db, MAY, `select id from categories`)).length);
     await expect(rpc(db, MAY, "save_category", { name: "Nieta", responsibility: "FIXED_AMOUNTS", parent_id: mercado })).rejects.toThrow(/no puede tener subcategorías/);
   });
 
@@ -110,8 +140,28 @@ describe("hogar y personal", () => {
     await expect(rpc(db, BREI, "save_transaction", { id: p, kind: "EXPENSE", amount: 1, account_id: h.mayAcc, splits: [{ amount: 1 }] })).rejects.toThrow(/Solo quien registró/);
   });
 
-  it("una categoría personal no se usa en un movimiento del hogar", async () => {
-    await expect(rpc(db, MAY, "save_transaction", { kind: "EXPENSE", scope: "HOUSEHOLD", amount: 10, account_id: h.mayAcc, splits: [{ amount: 10, category_id: ropa }] })).rejects.toThrow(/es personal/);
+  it("la categoría no decide nada: Brei usa la misma categoría en un gasto del hogar; sin responsable, lo asume quien pagó", async () => {
+    const t = await rpc<string>(db, BREI, "save_transaction", { kind: "EXPENSE", scope: "HOUSEHOLD", amount: 10, account_id: h.breiAcc, splits: [{ amount: 10, category_id: hipoteca }] });
+    expect((await db.query(`select responsible_user_id from transaction_splits where transaction_id = $1`, [t])).rows).toEqual([{ responsible_user_id: BREI }]);
+    expect(await as(db, MAY, `select id from transactions where id = $1`, [t])).toHaveLength(1);
+  });
+
+  it("presupuesto de categoría: del hogar con responsable (lo ven los dos) y personal (solo su dueño)", async () => {
+    const hh = await rpc<string>(db, MAY, "save_category_limit", { category_id: mercado, scope: "HOUSEHOLD", responsibility: "FIXED_AMOUNTS", is_household_obligation: true, budget: { valid_from: "2026-10-01", fixed_amount_a: 400_000, fixed_amount_b: 300_000 } });
+    const mine = await rpc<string>(db, MAY, "save_category_limit", { category_id: mercado, scope: "PERSONAL", responsibility: "MEMBER_B_100", is_household_obligation: true, budget: { valid_from: "2026-10-01", amount: 100_000 } });
+    expect((await db.query(`select scope, owner_user_id, responsibility, is_household_obligation from category_limits where id = $1`, [mine])).rows[0])
+      .toEqual({ scope: "PERSONAL", owner_user_id: MAY, responsibility: null, is_household_obligation: false });
+    expect(ids(await as<{ id: string }>(db, BREI, `select id from category_limits`))).toEqual([hh]);
+    expect((await as<{ amount: number }>(db, BREI, `select amount::int from category_budgets where limit_id = $1`, [hh]))[0].amount).toBe(700_000);
+    expect(await as(db, BREI, `select * from category_budgets where limit_id = $1`, [mine])).toHaveLength(0);
+    await expect(rpc(db, MAY, "save_category_limit", { category_id: mercado, scope: "HOUSEHOLD", responsibility: "MEMBER_A_100" })).rejects.toThrow(/ya tiene/);
+    await expect(rpc(db, BREI, "save_category_limit", { id: mine, responsibility: null })).rejects.toThrow(/no existe/);
+    // Brei puede editar el del hogar; nadie más que May borra el personal
+    await rpc(db, BREI, "save_category_limit", { id: hh, responsibility: "MEMBER_B_100", budget: { valid_from: "2026-11-01", amount: 650_000 } });
+    expect((await db.query(`select responsibility from category_limits where id = $1`, [hh])).rows[0]).toEqual({ responsibility: "MEMBER_B_100" });
+    await expect(as(db, BREI, `select public.delete_category_limit($1)`, [mine])).rejects.toThrow(/no existe/);
+    await as(db, MAY, `select public.delete_category_limit($1)`, [mine]);
+    expect((await db.query(`select count(*)::int n from category_budgets where limit_id = $1`, [mine])).rows[0]).toEqual({ n: 0 });
   });
 
   it("pagado por May y asignado a Brei: la deuda en el cruce es opcional; Brei ajusta y May sigue siendo quien pagó", async () => {
@@ -167,7 +217,6 @@ describe("hogar y personal", () => {
     expect(ids(await as<{ id: string }>(db, BREI, `select id from budget_plans`))).toEqual([hhPlan]);
     expect(await as(db, BREI, `select * from budget_plan_categories where plan_id = $1`, [myPlan])).toHaveLength(0);
     expect(await as(db, MAY, `select id from budget_plans`)).toHaveLength(2);
-    await expect(rpc(db, MAY, "save_budget_plan", { scope: "HOUSEHOLD", name: "x", amount: 1, categories: [{ category_id: ropa }] })).rejects.toThrow(/personal/);
     await expect(as(db, BREI, `select public.delete_budget_plan($1)`, [myPlan])).rejects.toThrow(/no existe/);
     await expect(rpc(db, BREI, "save_budget_plan", { id: hhPlan, scope: "PERSONAL", name: "Comida", amount: 1, categories: [{ category_id: mercado }] })).resolves.toBe(hhPlan);
     await expect(rpc(db, MAY, "save_budget_plan", { id: hhPlan, scope: "HOUSEHOLD", name: "Comida", amount: 1, categories: [{ category_id: mercado }] })).rejects.toThrow(/no existe/);
@@ -211,11 +260,11 @@ describe("hogar y personal", () => {
     expect((await db.query(`select amount::int, kind from transactions where id = $1`, [manual])).rows[0]).toEqual({ amount: 101_500, kind: "DEBT_PAYMENT" });
   });
 
-  it("las migraciones 0017 y 0018 se pueden volver a correr", async () => {
+  it("las migraciones 0017, 0018 y 0019 se pueden volver a correr", async () => {
     const fs = await import("node:fs");
     const path = await import("node:path");
     const dir = path.join(__dirname, "../../supabase/migrations");
-    for (const f of ["0017_household_personal.sql", "0018_budgets_goals.sql"]) {
+    for (const f of ["0017_household_personal.sql", "0018_budgets_goals.sql", "0019_category_limits.sql"]) {
       await db.exec(fs.readFileSync(path.join(dir, f), "utf8"));
     }
     expect((await db.query(`select count(*)::int n from transactions where scope is null`)).rows[0]).toEqual({ n: 0 });
