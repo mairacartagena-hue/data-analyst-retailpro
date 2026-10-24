@@ -126,7 +126,7 @@ export function guessInstitution(ev: RawEvent): string | null {
   if (t.includes("nequi")) return "Nequi";
   if (t.includes("bancolombia")) return "Bancolombia";
   if (t.includes("bogota")) return "Banco de Bogotá";
-  if (t.includes("wallet") || t.includes("walletnfcrel")) return "Google Wallet";
+  if (t.includes("wallet") || t.includes("billetera de google")) return "Google Wallet";
   if (t.includes("bbva")) return "BBVA";
   if (t.includes("caja social")) return "Banco Caja Social";
   if (t.includes("lulo")) return "Lulo Bank";

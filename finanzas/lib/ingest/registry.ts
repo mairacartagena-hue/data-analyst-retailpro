@@ -8,13 +8,15 @@ import { isKnownSubscription, SUBSCRIPTION_TAG } from "@/lib/finance/subscriptio
 import { bancolombiaParser } from "./parsers/bancolombia";
 import { bbvaParser } from "./parsers/bbva";
 import { cajaSocialParser } from "./parsers/cajaSocial";
+import { googleWalletParser } from "./parsers/googleWallet";
 import { cleanMerchant, detectIgnore, eventText, findDate, findIdentifiers, guessInstitution, normalizeMerchant } from "./normalize";
 
 export const PARSERS: BankParser[] = [
   bancolombiaParser,
   bbvaParser,
   cajaSocialParser,
-  // Nequi, Banco de Bogotá y Google Wallet: se agregan cuando haya ejemplos reales
+  googleWalletParser,
+  // Nequi y Banco de Bogotá: se agregan cuando haya ejemplos reales
 ];
 
 export interface ParseOutcome {
