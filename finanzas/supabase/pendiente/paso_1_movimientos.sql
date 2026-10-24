@@ -1,11 +1,5 @@
--- Finanzas en Pareja · parte 3 de 4. Pegar completo en SQL Editor → Run. Correr en orden: 1, 2, 3, 4.
+-- PASO 1 de 2 · Funciones de movimientos. Copiar todo → Supabase → finanzas-pareja → SQL Editor → Run.
 
--- ---------------------------------------------------------------
--- Transacciones + motor de cruce
--- p = { id?, kind, amount, occurred_on, description, merchant, account_id, to_account_id,
---       counterparty_user_id, is_shared, tags: [], splits: [{ amount, category_id, responsible_user_id, origin, note }] }
--- Quien registra es quien pagó (payer_user_id = auth.uid()).
--- ---------------------------------------------------------------
 create or replace function public.save_transaction(p jsonb)
 returns uuid
 language plpgsql security definer set search_path = public
@@ -180,58 +174,6 @@ begin
 end;
 $$;
 
--- El responsable de un desglose puede ponerle su propia categoría
--- (ej. tu pareja registró "35.000 tuyos" sin categoría).
-create or replace function public.set_split_category(p_split_id uuid, p_category_id uuid)
-returns void
-language plpgsql security definer set search_path = public
-as $$
-declare
-  v_split transaction_splits;
-  v_cat categories;
-begin
-  select * into v_split from transaction_splits where id = p_split_id and household_id = my_household_id();
-  if not found then raise exception 'Ese desglose no existe'; end if;
-  if v_split.responsible_user_id <> auth.uid() then
-    raise exception 'Solo el responsable puede cambiar la categoría de su parte';
-  end if;
-  if p_category_id is not null then
-    select * into v_cat from categories where id = p_category_id;
-    if not found or not can_see_category(p_category_id) then raise exception 'Categoría no válida'; end if;
-    if v_cat.responsibility = 'PRIVATE' and v_cat.owner_user_id <> auth.uid() then
-      raise exception 'Categoría no válida';
-    end if;
-  end if;
-  update transaction_splits set category_id = p_category_id where id = p_split_id;
-end;
-$$;
-
--- Préstamos directos y encargos entre los dos.
-create or replace function public.add_ledger_entry(
-  p_kind text, p_creditor uuid, p_debtor uuid, p_amount bigint, p_description text, p_occurred_on date
-)
-returns uuid
-language plpgsql security definer set search_path = public
-as $$
-declare
-  v_hh uuid := my_household_id();
-  v_id uuid;
-begin
-  if v_hh is null then raise exception 'No perteneces a un hogar'; end if;
-  if p_kind not in ('LOAN', 'ERRAND') then raise exception 'Tipo no válido'; end if;
-  if p_amount is null or p_amount <= 0 then raise exception 'El monto debe ser mayor que cero'; end if;
-  if auth.uid() not in (p_creditor, p_debtor) then raise exception 'Debes ser una de las dos partes'; end if;
-  if p_creditor = p_debtor
-     or (select count(*) from household_members where household_id = v_hh and user_id in (p_creditor, p_debtor)) <> 2 then
-    raise exception 'El asiento es entre los dos miembros del hogar';
-  end if;
-  insert into cross_ledger (household_id, creditor_user_id, debtor_user_id, amount, kind, description, occurred_on, created_by)
-  values (v_hh, p_creditor, p_debtor, p_amount, p_kind, nullif(trim(coalesce(p_description, '')), ''),
-          coalesce(p_occurred_on, today_bogota()), auth.uid())
-  returning id into v_id;
-  return v_id;
-end;
-$$;
 
 create or replace function public.delete_ledger_entry(p_id uuid)
 returns void

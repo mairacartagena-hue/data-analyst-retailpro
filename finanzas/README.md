@@ -38,7 +38,7 @@ Pendiente para fases siguientes: ingesta automática (Fase 2), voz/OCR/Telegram/
 ## Configuración
 
 ### 1. Base de datos (Supabase, proyecto `finanzas-pareja`)
-Las migraciones están en `supabase/migrations/` (0001 → 0004). Si se aplican a mano desde el celular, usa `supabase/sql_por_partes/` (partes 1 a 4, en orden) en **SQL Editor → Run**. Se pueden correr más de una vez.
+Las migraciones están en `supabase/migrations/` (0001 → 0004). Para aplicarlas a mano, pega cada archivo completo en **SQL Editor → Run**, en orden. Se pueden correr más de una vez.
 
 ### 2. Autenticación
 En Supabase → **Authentication → URL Configuration**:

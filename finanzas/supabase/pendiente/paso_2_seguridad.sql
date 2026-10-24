@@ -1,4 +1,13 @@
--- Finanzas en Pareja · parte 4 de 4. Pegar completo en SQL Editor → Run. Correr en orden: 1, 2, 3, 4.
+-- PASO 2 de 2 · Seguridad por filas (RLS). Correr después del paso 1.
+
+-- Limpia políticas de un intento anterior (para poder volver a crearlas)
+do $$
+declare r record;
+begin
+  for r in select policyname, tablename from pg_policies where schemaname = 'public' loop
+    execute format('drop policy if exists %I on public.%I', r.policyname, r.tablename);
+  end loop;
+end $$;
 
 -- 0003 · Seguridad a nivel de fila (RLS). Lo que no está marcado como compartido es privado.
 -- Las tablas sin política de escritura solo se modifican con las funciones de 0002.
