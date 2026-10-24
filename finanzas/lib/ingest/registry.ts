@@ -4,10 +4,16 @@
 // Los formatos de cada banco se escriben a partir de ejemplos reales (no se inventan).
 
 import type { BankParser, ParsedEvent, RawEvent } from "./types";
+import { bancolombiaParser } from "./parsers/bancolombia";
+import { bbvaParser } from "./parsers/bbva";
+import { cajaSocialParser } from "./parsers/cajaSocial";
 import { cleanMerchant, detectIgnore, eventText, findIdentifiers, guessInstitution, normalizeMerchant } from "./normalize";
 
 export const PARSERS: BankParser[] = [
-  // nequiParser, bancolombiaParser, bancoBogotaParser, googleWalletParser → cuando lleguen los ejemplos reales
+  bancolombiaParser,
+  bbvaParser,
+  cajaSocialParser,
+  // Nequi, Banco de Bogotá y Google Wallet: se agregan cuando haya ejemplos reales
 ];
 
 export interface ParseOutcome {

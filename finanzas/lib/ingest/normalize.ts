@@ -62,10 +62,12 @@ export function cleanMerchant(raw: string | null | undefined): string | null {
   let s = raw.replace(/\s+/g, " ").trim();
   for (let i = 0; i < 3; i++) for (const re of GATEWAY_PREFIXES) s = s.replace(re, "");
   s = s
-    .replace(/\b(?:bogota|medellin|cali|barranquilla|bucaramanga|cartagena)\b\s*(?:co|col)?\.?$/i, "")
+    // Ciudad + país al final, como en los datáfonos: "TIENDA XYZ BOGOTA CO"
+    .replace(/\s+(?:bogota|medellin|cali|barranquilla|bucaramanga|cartagena)\s+(?:co|col)\.?$/i, "")
     .replace(/\s+(?:co|col)$/i, "")
+    .replace(/\s+s\.?\s?a\.?(?:\s?s\.?)?$/i, "")
     .replace(/[#*]+/g, " ")
-    .replace(/\s\d{4,}$/, "")
+    .replace(/\s\d{6,}$/, "")
     .replace(/\s+/g, " ")
     .trim();
   if (!s) return null;
@@ -121,7 +123,37 @@ export function guessInstitution(ev: RawEvent): string | null {
   if (t.includes("bancolombia")) return "Bancolombia";
   if (t.includes("bogota")) return "Banco de Bogotá";
   if (t.includes("wallet") || t.includes("walletnfcrel")) return "Google Wallet";
+  if (t.includes("bbva")) return "BBVA";
+  if (t.includes("caja social")) return "Banco Caja Social";
+  if (t.includes("lulo")) return "Lulo Bank";
   if (t.includes("daviplata")) return "Daviplata";
   if (t.includes("davivienda")) return "Davivienda";
+  return null;
+}
+
+/** Arma una fecha ISO en hora de Colombia (UTC-5). Devuelve null si no es válida. */
+export function bogotaIso(y: number, m: number, d: number, h = 0, mi = 0, sec = 0): string | null {
+  if (y < 100) y += 2000;
+  if (m < 1 || m > 12 || d < 1 || d > 31 || h > 23 || mi > 59) return null;
+  const date = new Date(Date.UTC(y, m - 1, d, h + 5, mi, sec));
+  const local = new Date(date.getTime() - 5 * 3_600_000);
+  if (local.getUTCFullYear() !== y || local.getUTCMonth() !== m - 1 || local.getUTCDate() !== d) return null;
+  return date.toISOString();
+}
+
+/**
+ * Fechas de los bancos: "22/10/2026 a las 14:10", "23/10/2026 10:42:10", "23/10/26 a las 18:19",
+ * "el 10:07 a las 23/10/2026" (hora antes de la fecha), "2026-10-23 a las 12:51" y, con order MDY, "06/25/2026 12:21".
+ */
+export function findDate(text: string, order: "DMY" | "MDY" = "DMY"): string | null {
+  let m = /(\d{4})-(\d{2})-(\d{2})(?:\s+a las\s+|\s+|T)(\d{1,2}):(\d{2})/i.exec(text);
+  if (m) return bogotaIso(+m[1], +m[2], +m[3], +m[4], +m[5]);
+  m = /(\d{1,2}):(\d{2})\s+a las\s+(\d{1,2})\/(\d{1,2})\/(\d{2,4})/i.exec(text);
+  if (m) return order === "DMY" ? bogotaIso(+m[5], +m[4], +m[3], +m[1], +m[2]) : bogotaIso(+m[5], +m[3], +m[4], +m[1], +m[2]);
+  m = /(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:\s+a las)?\s+(\d{1,2}):(\d{2})(?::(\d{2}))?/i.exec(text);
+  if (m) {
+    const [a, b] = order === "DMY" ? [+m[1], +m[2]] : [+m[2], +m[1]];
+    return bogotaIso(+m[3], b, a, +m[4], +m[5], m[6] ? +m[6] : 0);
+  }
   return null;
 }
