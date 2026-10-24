@@ -10,6 +10,7 @@ import { Segmented } from "@/components/ui/segmented";
 import { Sheet } from "@/components/ui/sheet";
 import { SwitchRow } from "@/components/ui/switch";
 import type { MerchantMemory } from "@/lib/types";
+import { applyChange, memoryChange, memoryMatches, memoryValues } from "@/lib/finance/memoryApply";
 import { errMsg } from "@/lib/utils";
 
 /** Cómo se muestra el identificador de una memoria cuando no tiene nombre. */
@@ -26,7 +27,7 @@ export function memoryTitle(m: MerchantMemory): string {
 
 /** Editar dónde se guarda un comercio, llave o cuenta: nombre, categoría, responsable, espacio y si se aplica solo. */
 export function MemorySheet({ memory, onClose, onChanged }: { memory: MerchantMemory | null; onClose: () => void; onChanged: () => void }) {
-  const { categories, me, partner, supabase, reload } = useFinance();
+  const { categories, me, partner, supabase, reload, transactions } = useFinance();
   const [label, setLabel] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [responsibleId, setResponsibleId] = useState("");
@@ -35,9 +36,11 @@ export function MemorySheet({ memory, onClose, onChanged }: { memory: MerchantMe
   const [auto, setAuto] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
 
   useEffect(() => {
     if (!memory) return;
+    setResult(null);
     setLabel(memory.label ?? "");
     setCategoryId(memory.category_id ?? "");
     setResponsibleId(memory.responsible_user_id ?? me.user_id);
@@ -57,19 +60,46 @@ export function MemorySheet({ memory, onClose, onChanged }: { memory: MerchantMe
     if (auto && !categoryId) return setError("Para aplicarlo solo hace falta una categoría.");
     setBusy(true);
     setError(null);
+    const after = { label: label.trim() || null, categoryId: categoryId || null, responsibleId: responsibleId || me.user_id, scope, createsDebt };
     const { error } = await supabase.from("merchant_memory").update({
-      label: label.trim() || null,
-      category_id: categoryId || null,
+      label: after.label,
+      category_id: after.categoryId,
       responsible_user_id: responsibleId || null,
       scope,
       creates_debt: createsDebt,
       auto_apply: auto,
     }).eq("id", memory.id);
+    if (error) {
+      setBusy(false);
+      return setError(errMsg(error));
+    }
+
+    // Los movimientos anteriores de este origen cambian igual, solo en lo que se editó
+    const change = memoryChange(memoryValues(memory, me.user_id), after);
+    const matches = transactions.filter((t) => memoryMatches(t, memory));
+    let updated = 0;
+    let pending = 0;
+    let divided = 0;
+    let failed: string | null = null;
+    for (const tx of matches) {
+      const r = applyChange(tx, change, memory.label, me.user_id);
+      if (r.skipped === "PENDING") pending++;
+      else if (r.skipped === "DIVIDED") divided++;
+      if (!r.payload) continue;
+      const { error } = await supabase.rpc("save_transaction", { p: r.payload });
+      if (error) failed = errMsg(error);
+      else updated++;
+    }
     setBusy(false);
-    if (error) return setError(errMsg(error));
     onChanged();
     void reload();
-    onClose();
+    if (Object.keys(change).length === 0 || matches.length === 0 || (updated === 0 && !failed && pending === 0 && divided === 0)) return onClose();
+    setResult([
+      updated > 0 ? `Actualicé ${updated} movimiento${updated === 1 ? "" : "s"} anterior${updated === 1 ? "" : "es"}.` : "",
+      pending > 0 ? `${pending} por revisar no se tocan: se resuelven al revisarlos.` : "",
+      divided > 0 ? `${divided} dividido${divided === 1 ? "" : "s"} no cambian de categoría ni responsable.` : "",
+      failed ? `Alguno falló: ${failed}` : "",
+    ].filter(Boolean).join(" "));
   }
 
   async function forget() {
@@ -121,10 +151,17 @@ export function MemorySheet({ memory, onClose, onChanged }: { memory: MerchantMe
           <SwitchRow label="Aplicar siempre sin preguntar" hint={refund ? "El ingreso entra solo como reembolso." : "El movimiento se confirma solo cuando llegue el aviso."} checked={auto} onCheckedChange={setAuto} />
         </div>
 
+        {(() => {
+          const n = transactions.filter((t) => t.status === "CONFIRMED" && memoryMatches(t, memory)).length;
+          return n > 0 && !result ? <p className="text-xs text-muted">Al guardar, lo que cambies también se aplica a los {n} movimiento{n === 1 ? "" : "s"} anterior{n === 1 ? "" : "es"} de este origen.</p> : null;
+        })()}
         <ErrorText>{error}</ErrorText>
+        {result && <p className="rounded-xl bg-olive-soft px-3 py-2 text-sm">{result}</p>}
         <div className="flex gap-3">
-          <Button variant="danger" size="icon" onClick={forget} disabled={busy} aria-label="Olvidar"><Trash2 size={18} /></Button>
-          <Button className="flex-1" size="lg" onClick={save} disabled={busy}>{busy ? "Guardando..." : "Guardar"}</Button>
+          {!result && <Button variant="danger" size="icon" onClick={forget} disabled={busy} aria-label="Olvidar"><Trash2 size={18} /></Button>}
+          {result
+            ? <Button className="flex-1" size="lg" onClick={onClose}>Listo</Button>
+            : <Button className="flex-1" size="lg" onClick={save} disabled={busy}>{busy ? "Guardando y actualizando..." : "Guardar"}</Button>}
         </div>
       </div>
     </Sheet>

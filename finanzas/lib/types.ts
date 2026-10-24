@@ -180,6 +180,8 @@ export interface Transaction {
   merchant_norm?: string | null;
   movement_type?: "PURCHASE" | "TRANSFER_OUT" | "TRANSFER_IN" | "WITHDRAWAL" | "CARD_PAYMENT" | "INCOME" | "OWN_TRANSFER" | null;
   card_last4?: string | null;
+  /** Llaves, cuentas, celulares o NIT que traía el aviso del banco. */
+  ingest_identifiers?: { type: string; value: string }[] | null;
   suggested_category_id?: string | null;
   suggested_responsible_user_id?: string | null;
   suggested_to_account_id?: string | null;
