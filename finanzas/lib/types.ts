@@ -45,6 +45,8 @@ export interface Account {
   kind: AccountKind;
   institution: string | null;
   last4: string | null;
+  /** Otros últimos 4 dígitos de la misma cuenta (ej. su tarjeta débito). */
+  alias_last4?: string[];
   visibility: Visibility;
   reveal_in_shared: boolean;
   opening_balance: number;
