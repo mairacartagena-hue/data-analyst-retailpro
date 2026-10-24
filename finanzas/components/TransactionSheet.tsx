@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRightLeft, Plus, Scissors, Trash2, X } from "lucide-react";
+import { ArrowRightLeft, Home, Lock, Plus, Scissors, Trash2, X } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
-import type { Category, Transaction, TxKind } from "@/lib/types";
-import { CHANNEL_LABEL } from "@/lib/types";
+import type { Category, Space, Transaction, TxKind } from "@/lib/types";
+import { CHANNEL_LABEL, SPACE_LABEL, TX_KIND_LABEL } from "@/lib/types";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { ErrorText, Field, Input, Select } from "@/components/ui/input";
@@ -13,16 +13,28 @@ import { ChipGroup, Segmented } from "@/components/ui/segmented";
 import { SwitchRow } from "@/components/ui/switch";
 import { AmountInput } from "@/components/AmountInput";
 import { CategorySheet } from "@/components/CategorySheet";
+import { CategoryOptions, CategoryPicker } from "@/components/CategoryPicker";
 import { MemberBadge } from "@/components/MemberBadge";
 import { formatCop, parseCop } from "@/lib/finance/money";
-import { periodFor, todayBogota } from "@/lib/finance/periods";
+import { formatDay, periodFor, todayBogota } from "@/lib/finance/periods";
 import { statusesFor } from "@/lib/finance/derive";
 import { fixedAmountsExcess } from "@/lib/finance/budget";
 import { unassigned, validateSplits, type SplitDraft } from "@/lib/finance/crossLedger";
 import { accountLabel, categoryLabel, categoryResponsible } from "@/lib/finance/labels";
+import { categoryPath, hasSplits, suggestedScope } from "@/lib/finance/spaces";
 import { errMsg } from "@/lib/utils";
 
 type FormKind = Exclude<TxKind, "SETTLEMENT">;
+type KindGroup = "EXPENSE" | "INCOME" | "TRANSFER" | "OTHER";
+const OTHER_KINDS: FormKind[] = ["DEBT_PAYMENT", "REFUND", "ADJUSTMENT"];
+/** Tipos que la pareja puede ajustar en un movimiento del hogar. */
+const PARTNER_EDITABLE: TxKind[] = ["EXPENSE", "INCOME", "DEBT_PAYMENT", "REFUND"];
+
+const KIND_HINT: Partial<Record<FormKind, string>> = {
+  DEBT_PAYMENT: "Cuota de un crédito o deuda. Cuenta en el presupuesto de su categoría (ej. Deudas › Cuotas o Vivienda › Crédito hipotecario).",
+  REFUND: "Te devolvieron plata de un gasto: resta de la categoría y no cuenta como ingreso.",
+  ADJUSTMENT: "Corrige el saldo de una cuenta. No es ingreso ni gasto y no entra en presupuestos ni informes.",
+};
 
 interface SplitRow {
   key: string;
@@ -44,14 +56,29 @@ function newKey() {
   return Math.random().toString(36).slice(2);
 }
 
-/** Valores iniciales: pago de una categoría desde su barra, o un aviso no reconocido de Captura automática. */
+/** Valores iniciales: pago de una categoría o de un vencimiento, o un aviso no reconocido de Captura automática. */
 export interface TxPreset {
+  kind?: FormKind;
   categoryId?: string;
   amount?: number;
   description?: string;
   date?: string;
+  scope?: Space;
+  responsibleId?: string;
+  toAccountId?: string;
+  /** Vencimiento que se paga con este movimiento. */
+  scheduledPaymentId?: string;
+  scheduledFor?: string;
   /** Aviso de ingest_logs que se marca como registrado al guardar. */
   logId?: string;
+}
+
+/** ¿Puedo editar este movimiento? Quien lo registró siempre; la pareja, si es del hogar y ya está confirmado. */
+export function canEditTransaction(tx: Transaction, meId: string): "owner" | "partner" | null {
+  if (tx.kind === "SETTLEMENT") return null;
+  if (tx.created_by === meId) return "owner";
+  if (tx.scope === "HOUSEHOLD" && tx.status === "CONFIRMED" && PARTNER_EDITABLE.includes(tx.kind)) return "partner";
+  return null;
 }
 
 export function TransactionSheet({
@@ -59,7 +86,7 @@ export function TransactionSheet({
 }: { open: boolean; onOpenChange: (v: boolean) => void; editing: Transaction | null; preset?: TxPreset | null }) {
   const state = useFinance();
   const router = useRouter();
-  const { me, partner, accounts, categories, labels, supabase, reload } = state;
+  const { me, partner, accounts, categories, labels, supabase, reload, memberById } = state;
 
   const myAccounts = accounts.filter((a) => a.owner_user_id === me.user_id && !a.archived);
   const usable = categories.filter((c) => !c.archived && c.kind !== "INCOME");
@@ -67,21 +94,28 @@ export function TransactionSheet({
     (c) => !c.archived && c.kind === "INCOME" && (c.responsibility !== "PRIVATE" || c.owner_user_id === me.user_id),
   );
 
-  const readOnly = !!editing && (editing.created_by !== me.user_id || editing.kind === "SETTLEMENT");
+  const access = editing ? canEditTransaction(editing, me.user_id) : "owner";
+  const partnerEdit = access === "partner";
   const isPendingReview = editing?.status === "PENDING_REVIEW";
+  const payerId = editing?.payer_user_id ?? me.user_id;
+  const payer = memberById(payerId);
 
   const [kind, setKind] = useState<FormKind>("EXPENSE");
+  const [scope, setScope] = useState<Space>("PERSONAL");
+  const [scopeTouched, setScopeTouched] = useState(false);
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
   const [date, setDate] = useState(todayBogota());
   const [accountId, setAccountId] = useState<string>("");
   const [toAccountId, setToAccountId] = useState<string>("");
+  const [direction, setDirection] = useState<"IN" | "OUT">("OUT");
   const [categoryId, setCategoryId] = useState<string>("");
   const [responsibleId, setResponsibleId] = useState<string>(me.user_id);
   const [splitMode, setSplitMode] = useState(false);
   const [splits, setSplits] = useState<SplitRow[]>([]);
-  const [isShared, setIsShared] = useState(false);
+  const [createsDebt, setCreatesDebt] = useState(true);
   const [incomeCategoryId, setIncomeCategoryId] = useState("");
+  const [scheduled, setScheduled] = useState<{ id: string; for: string } | null>(null);
   const [newCategory, setNewCategory] = useState<"EXPENSE" | "INCOME" | null>(null);
   const [fixedPrompt, setFixedPrompt] = useState<FixedPrompt | null>(null);
   const [remember, setRemember] = useState(true);
@@ -95,15 +129,19 @@ export function TransactionSheet({
     setError(null);
     setFixedPrompt(null);
     setBusy(false);
+    setScopeTouched(false);
     if (editing) {
       setKind(editing.kind === "SETTLEMENT" ? "EXPENSE" : editing.kind);
+      setScope(editing.scope ?? "PERSONAL");
       setAmount(String(editing.amount));
       setDescription(editing.description ?? editing.merchant ?? "");
       setDate(editing.occurred_on);
       setAccountId(editing.account_id ?? "");
       setToAccountId(editing.to_account_id ?? "");
-      setIsShared(editing.is_shared);
+      setDirection(editing.direction ?? "OUT");
+      setCreatesDebt(editing.creates_debt ?? true);
       setIncomeCategoryId(editing.income_category_id ?? "");
+      setScheduled(editing.scheduled_payment_id && editing.scheduled_for ? { id: editing.scheduled_payment_id, for: editing.scheduled_for } : null);
       const sp = editing.splits;
       if (sp.length > 1) {
         setSplitMode(true);
@@ -112,7 +150,12 @@ export function TransactionSheet({
         setSplitMode(false);
         const pendingCat = editing.status === "PENDING_REVIEW" && !sp[0]?.category_id ? editing.suggested_category_id ?? "" : "";
         setCategoryId(sp[0]?.category_id ?? pendingCat);
-        setResponsibleId(pendingCat ? (editing.suggested_responsible_user_id ?? me.user_id) : (sp[0]?.responsible_user_id ?? me.user_id));
+        setResponsibleId(pendingCat ? (editing.suggested_responsible_user_id ?? me.user_id) : (sp[0]?.responsible_user_id ?? payerId));
+        // Un aviso que llegó solo queda personal; al revisarlo se sugiere el ámbito de su categoría
+        if (editing.status === "PENDING_REVIEW") {
+          const c = usable.find((x) => x.id === (sp[0]?.category_id ?? pendingCat));
+          if (c) setScope(suggestedScope(c));
+        }
       }
       setRemember(true);
       setAutoApply(false);
@@ -128,28 +171,43 @@ export function TransactionSheet({
     let last = "";
     try { last = localStorage.getItem(LAST_ACCOUNT_KEY) ?? ""; } catch {}
     const presetCategory = preset?.categoryId ? usable.find((c) => c.id === preset.categoryId) ?? null : null;
-    setKind("EXPENSE");
+    setKind(preset?.kind ?? "EXPENSE");
     setAmount(preset?.amount && preset.amount > 0 ? String(preset.amount) : "");
     setDescription(preset?.description ?? (presetCategory ? presetCategory.name : ""));
     setDate(preset?.date ?? todayBogota());
     setAccountId(myAccounts.some((a) => a.id === last) ? last : (myAccounts[0]?.id ?? ""));
-    setToAccountId("");
+    setToAccountId(preset?.toAccountId ?? "");
+    setDirection("OUT");
     setCategoryId(presetCategory?.id ?? "");
-    setResponsibleId(presetCategory ? (categoryResponsible(presetCategory, me, partner) ?? me.user_id) : me.user_id);
+    setResponsibleId(preset?.responsibleId ?? (presetCategory ? (categoryResponsible(presetCategory, me, partner) ?? me.user_id) : me.user_id));
+    setScope(preset?.scope ?? suggestedScope(presetCategory));
+    setScopeTouched(!!preset?.scope);
     setSplitMode(false);
     setSplits([]);
-    setIsShared(false);
+    setCreatesDebt(true);
     setIncomeCategoryId("");
+    setScheduled(preset?.scheduledPaymentId && preset.scheduledFor ? { id: preset.scheduledPaymentId, for: preset.scheduledFor } : null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, editing, preset]);
 
   const total = parseCop(amount) ?? 0;
   const selectedCategory = usable.find((c) => c.id === categoryId) ?? null;
+  const withSplits = hasSplits(kind);
+  const kindGroup: KindGroup = OTHER_KINDS.includes(kind) ? "OTHER" : (kind as KindGroup);
+  const scheduledPayment = scheduled ? state.commitments.find((c) => c.id === scheduled.id) ?? null : null;
+
+  function chooseScope(s: Space) {
+    setScope(s);
+    setScopeTouched(true);
+  }
 
   function pickCategory(c: Category) {
     setCategoryId(c.id);
     const resp = categoryResponsible(c, me, partner);
-    setResponsibleId(resp ?? me.user_id);
+    setResponsibleId(resp ?? payerId);
+    // Una categoría personal solo cabe en un movimiento personal; si no, se sugiere el ámbito de la categoría
+    if (c.responsibility === "PRIVATE") setScope("PERSONAL");
+    else if (!scopeTouched && !partnerEdit) setScope(suggestedScope(c));
   }
 
   const memberOptions = [me, partner].filter(Boolean).map((m) => ({
@@ -158,9 +216,9 @@ export function TransactionSheet({
     color: m!.color,
   }));
 
-  // Categorías que puede elegir cada responsable en el desglose: las privadas solo su dueño.
+  // Categorías que puede elegir cada responsable en el desglose: las privadas solo su dueño y solo en lo personal.
   const categoriesFor = (userId: string) =>
-    usable.filter((c) => c.responsibility !== "PRIVATE" || c.owner_user_id === userId);
+    usable.filter((c) => c.responsibility !== "PRIVATE" || (c.owner_user_id === userId && scope === "PERSONAL"));
 
   function startSplit() {
     const first: SplitRow = { key: newKey(), amount: amount, categoryId, responsibleId };
@@ -173,9 +231,12 @@ export function TransactionSheet({
     ? splits.map((s) => ({ amount: parseCop(s.amount) ?? 0, categoryId: s.categoryId || null, responsibleUserId: s.responsibleId }))
     : [{ amount: total, categoryId: categoryId || null, responsibleUserId: responsibleId }];
   const remaining = unassigned(total, splitDrafts);
+  // Partes que le corresponden a alguien distinto de quien pagó
+  const crossedAmount = withSplits ? splitDrafts.filter((s) => s.responsibleUserId !== payerId).reduce((a, s) => a + s.amount, 0) : 0;
+  const otherId = splitDrafts.find((s) => s.responsibleUserId !== payerId)?.responsibleUserId ?? null;
 
   const fixedContext = useMemo(() => {
-    if (kind !== "EXPENSE" || splitMode || !selectedCategory || !partner) return null;
+    if (kind !== "EXPENSE" || splitMode || !selectedCategory || !partner || partnerEdit) return null;
     if (selectedCategory.responsibility !== "FIXED_AMOUNTS" || responsibleId !== me.user_id) return null;
     const period = periodFor(state.settings, date);
     const st = statusesFor(state, period).get(selectedCategory.id);
@@ -188,7 +249,7 @@ export function TransactionSheet({
       .reduce((acc, s) => acc + s.amount, 0) ?? 0;
     const sameCat = editing && editing.occurred_on >= period.start && editing.occurred_on <= period.end ? own : 0;
     return { mine: { ...mine, spent: mine.spent - sameCat }, theirs };
-  }, [kind, splitMode, selectedCategory, partner, responsibleId, me.user_id, state, date, editing]);
+  }, [kind, splitMode, selectedCategory, partner, partnerEdit, responsibleId, me.user_id, state, date, editing]);
 
   async function save(chargeExcess?: number) {
     setError(null);
@@ -196,10 +257,14 @@ export function TransactionSheet({
     if (kind !== "TRANSFER" && !accountId) return setError("Elige la cuenta.");
 
     let payloadSplits: (SplitDraft & { origin?: string })[] = [];
-    if (kind === "EXPENSE") {
+    if (withSplits) {
       payloadSplits = splitDrafts;
       const v = validateSplits(total, payloadSplits);
       if (v) return setError(v);
+      const personalCat = payloadSplits.map((s) => usable.find((c) => c.id === s.categoryId)).find((c) => c?.responsibility === "PRIVATE");
+      if (scope === "HOUSEHOLD" && personalCat) {
+        return setError(`La categoría “${personalCat.name}” es personal: márcalo como Personal o elige otra categoría.`);
+      }
 
       // Partida de montos fijos: si me paso de mi parte, preguntar si se cobra
       if (chargeExcess === undefined && fixedContext) {
@@ -237,19 +302,26 @@ export function TransactionSheet({
       p: {
         id: editing?.id ?? null,
         kind,
+        scope,
         amount: total,
         occurred_on: date,
         description,
+        merchant: editing?.merchant ?? null,
+        tags: editing?.tags ?? [],
         account_id: accountId || null,
         to_account_id: kind === "TRANSFER" ? toAccountId : null,
-        is_shared: kind === "INCOME" ? isShared : false,
+        direction: kind === "ADJUSTMENT" ? direction : null,
+        creates_debt: createsDebt,
+        is_shared: kind === "INCOME" && scope === "HOUSEHOLD",
         income_category_id: kind === "INCOME" ? incomeCategoryId || null : null,
-        splits: payloadSplits.map((s) => ({
+        scheduled_payment_id: scheduled && (kind === "EXPENSE" || kind === "DEBT_PAYMENT") ? scheduled.id : null,
+        scheduled_for: scheduled && (kind === "EXPENSE" || kind === "DEBT_PAYMENT") ? scheduled.for : null,
+        splits: withSplits ? payloadSplits.map((s) => ({
           amount: s.amount,
           category_id: s.categoryId,
           responsible_user_id: s.responsibleUserId,
           origin: s.origin ?? "NORMAL",
-        })),
+        })) : [],
       },
     });
     if (!error && isPendingReview && kind === "EXPENSE" && !splitMode && remember && (editing?.merchant_norm || (editing?.splits.length ?? 0) > 0)) {
@@ -260,7 +332,7 @@ export function TransactionSheet({
     }
     setBusy(false);
     if (error) return setError(errMsg(error));
-    try { if (accountId) localStorage.setItem(LAST_ACCOUNT_KEY, accountId); } catch {}
+    try { if (accountId && !partnerEdit) localStorage.setItem(LAST_ACCOUNT_KEY, accountId); } catch {}
     onOpenChange(false);
     void reload();
   }
@@ -275,16 +347,18 @@ export function TransactionSheet({
     void reload();
   }
 
-  if (readOnly && editing) {
+  if (editing && !access) {
     return <TransactionDetail open={open} onOpenChange={onOpenChange} tx={editing} />;
   }
 
   const partnerName = partner?.display_name ?? "tu pareja";
-  const crossing = kind === "EXPENSE" && !splitMode && responsibleId !== me.user_id;
+  const nameOf = (id: string | null) => (id === me.user_id ? "tú" : memberById(id)?.display_name ?? "tu pareja");
+  const title = isPendingReview ? "Revisar movimiento" : editing ? (partnerEdit ? "Ajustar movimiento" : "Editar movimiento")
+    : scheduledPayment ? "Pagar vencimiento" : preset?.categoryId ? "Registrar pago" : "Registrar";
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} title={isPendingReview ? "Revisar movimiento" : editing ? "Editar movimiento" : preset?.categoryId ? "Registrar pago" : "Registrar"}>
-      {myAccounts.length === 0 ? (
+    <Sheet open={open} onOpenChange={onOpenChange} title={title}>
+      {myAccounts.length === 0 && !partnerEdit ? (
         <div className="space-y-3 py-6 text-center">
           <p className="text-[15px]">Primero agrega una cuenta (ahorros, Nequi, efectivo o tarjeta) en la pestaña Cuentas.</p>
           <Button onClick={() => { onOpenChange(false); router.push("/cuentas"); }}>Ir a Cuentas</Button>
@@ -315,28 +389,53 @@ export function TransactionSheet({
               Llegó automáticamente{editing?.source ? ` (${CHANNEL_LABEL[editing.source] ?? editing.source})` : ""}. Revisa los datos y guarda para confirmarlo.
             </p>
           )}
+          {partnerEdit && (
+            <p className="flex items-center gap-2 rounded-2xl bg-surface-2 px-3 py-2.5 text-sm">
+              <MemberBadge member={payer} size={22} />
+              <span>Lo registró {payer?.display_name}: sigue figurando como quien pagó, con la misma cuenta. Tú puedes ajustar el resto.</span>
+            </p>
+          )}
+          {scheduledPayment && (
+            <p className="rounded-2xl bg-olive-soft px-3 py-2.5 text-sm">
+              Paga el vencimiento <strong>{scheduledPayment.name}</strong> del {formatDay(scheduled!.for)}: deja de contar como comprometido.
+              <button className="ml-1 text-muted underline" onClick={() => setScheduled(null)}>Quitar</button>
+            </p>
+          )}
 
           {(!editing || isPendingReview) && (
-            <Segmented value={kind} onChange={setKind} options={[
-              { value: "EXPENSE", label: "Gasto" },
-              { value: "INCOME", label: "Ingreso" },
-              { value: "TRANSFER", label: "Transferencia" },
-            ]} />
+            <>
+              <Segmented value={kindGroup} onChange={(g) => setKind(g === "OTHER" ? "DEBT_PAYMENT" : g)} options={[
+                { value: "EXPENSE", label: "Gasto" },
+                { value: "INCOME", label: "Ingreso" },
+                { value: "TRANSFER", label: "Transferir" },
+                { value: "OTHER", label: "Otro" },
+              ]} />
+              {kindGroup === "OTHER" && (
+                <ChipGroup value={kind} onChange={setKind}
+                  options={OTHER_KINDS.map((k) => ({ value: k, label: TX_KIND_LABEL[k] }))} />
+              )}
+            </>
           )}
+          {editing && !isPendingReview && <p className="text-sm font-medium text-muted">{TX_KIND_LABEL[kind]}</p>}
+          {KIND_HINT[kind] && <p className="-mt-2 text-xs text-muted">{KIND_HINT[kind]}</p>}
 
           <AmountInput large value={amount} onChange={setAmount} autoFocus={!editing && !preset} />
 
           <div className="grid grid-cols-[1fr_auto] gap-3">
             <Input value={description} onChange={(e) => setDescription(e.target.value)}
-              placeholder={kind === "INCOME" ? "¿De dónde? (salario, venta…)" : kind === "TRANSFER" ? "Nota (opcional)" : "¿En qué? (comercio o concepto)"}
+              placeholder={kind === "INCOME" ? "¿De dónde? (salario, venta…)" : kind === "TRANSFER" || kind === "ADJUSTMENT" ? "Nota (opcional)" : kind === "REFUND" ? "¿Qué te devolvieron?" : "¿En qué? (comercio o concepto)"}
               aria-label="Descripción" />
             <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-[150px]" aria-label="Fecha" />
           </div>
 
-          <Field label={kind === "INCOME" ? "Entró a" : kind === "TRANSFER" ? "Sale de" : "Pagué con"}>
-            <ChipGroup value={accountId} onChange={setAccountId}
-              options={myAccounts.map((a) => ({ value: a.id, label: accountLabel(labels, a.id) }))} />
-          </Field>
+          {partnerEdit ? (
+            <p className="text-sm text-muted">Pagó {payer?.display_name} con {accountLabel(labels, accountId || null)}</p>
+          ) : (
+            <Field label={kind === "INCOME" || kind === "REFUND" ? "Entró a" : kind === "TRANSFER" ? "Sale de" : kind === "ADJUSTMENT" ? "Cuenta" : "Pagué con"}>
+              <ChipGroup value={accountId} onChange={setAccountId}
+                options={myAccounts.map((a) => ({ value: a.id, label: accountLabel(labels, a.id) }))} />
+            </Field>
+          )}
 
           {kind === "TRANSFER" && (
             <Field label="Llega a" hint="Para pagar una tarjeta, elige la tarjeta como destino. No consume presupuesto.">
@@ -345,13 +444,20 @@ export function TransactionSheet({
             </Field>
           )}
 
-          {kind === "INCOME" && (
+          {kind === "ADJUSTMENT" && (
+            <Segmented value={direction} onChange={setDirection} options={[
+              { value: "IN", label: "Suma al saldo" },
+              { value: "OUT", label: "Resta del saldo" },
+            ]} />
+          )}
+
+          {kind === "INCOME" && !partnerEdit && (
             <Field label="Categoría del ingreso (opcional)">
               <div className="flex flex-wrap gap-2">
                 {incomeCategories.map((c) => (
                   <button key={c.id} type="button" onClick={() => setIncomeCategoryId(c.id === incomeCategoryId ? "" : c.id)} aria-pressed={c.id === incomeCategoryId}
                     className={`flex items-center gap-1.5 rounded-full border px-3 py-2 text-sm ${c.id === incomeCategoryId ? "border-olive bg-olive-soft font-semibold" : "border-border bg-surface text-muted"}`}>
-                    <span>{c.icon || "•"}</span>{c.name}
+                    <span>{c.icon || "•"}</span>{categoryPath(incomeCategories, c.id)}
                   </button>
                 ))}
                 <button type="button" onClick={() => setNewCategory("INCOME")}
@@ -362,40 +468,18 @@ export function TransactionSheet({
             </Field>
           )}
 
-          {kind === "INCOME" && partner && (
-            <SwitchRow label={`Compartir con ${partnerName}`} hint="Si lo compartes, lo ve y cuenta en el flujo del hogar."
-              checked={isShared} onCheckedChange={setIsShared} />
-          )}
-
-          {kind === "EXPENSE" && !splitMode && (
+          {withSplits && !splitMode && (
             <>
               <Field label="Categoría">
-                <div className="flex flex-wrap gap-2">
-                  {usable.map((c) => (
-                    <button key={c.id} type="button" onClick={() => pickCategory(c)} aria-pressed={c.id === categoryId}
-                      className={`flex items-center gap-1.5 rounded-full border px-3 py-2 text-sm ${c.id === categoryId ? "border-olive bg-olive-soft font-semibold" : "border-border bg-surface text-muted"}`}>
-                      <span>{c.icon || "•"}</span>{c.name}
-                    </button>
-                  ))}
-                  <button type="button" onClick={() => setNewCategory("EXPENSE")}
-                    className="flex items-center gap-1 rounded-full border border-dashed border-olive px-3 py-2 text-sm font-medium text-olive">
-                    <Plus size={15} /> Nueva
-                  </button>
-                </div>
+                <CategoryPicker categories={usable.filter((c) => !partnerEdit || c.responsibility !== "PRIVATE")} value={categoryId}
+                  onPick={pickCategory} onNew={partnerEdit ? undefined : () => setNewCategory("EXPENSE")} />
               </Field>
 
               {partner && (
-                <Field label="¿A quién le corresponde?">
+                <Field label="¿A quién le corresponde?" hint="Quién asume económicamente el gasto; no tiene que ser quien pagó.">
                   <ChipGroup value={responsibleId} onChange={setResponsibleId}
                     options={memberOptions.filter((o) => selectedCategory?.responsibility !== "PRIVATE" || o.value === selectedCategory.owner_user_id)} />
                 </Field>
-              )}
-
-              {crossing && (
-                <div className="flex items-center gap-2 rounded-2xl bg-wood-soft px-3 py-2.5 text-sm">
-                  <ArrowRightLeft size={16} className="text-wood" />
-                  Pagado por ti, corresponde a {partnerName}. Se anota a tu favor en el cruce.
-                </div>
               )}
 
               <Button variant="outline" size="sm" onClick={startSplit} disabled={!total}>
@@ -404,7 +488,7 @@ export function TransactionSheet({
             </>
           )}
 
-          {kind === "EXPENSE" && splitMode && (
+          {withSplits && splitMode && (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <p className="text-sm font-medium text-muted">Desglose por montos exactos</p>
@@ -437,20 +521,20 @@ export function TransactionSheet({
                   )}
                   <Select value={s.categoryId} aria-label="Categoría de esta parte"
                     onChange={(e) => setSplits(splits.map((x) => (x.key === s.key ? { ...x, categoryId: e.target.value } : x)))}>
-                    <option value="">{s.responsibleId === me.user_id ? "Sin categoría" : `Sin categoría (la elige ${partnerName})`}</option>
-                    {categoriesFor(s.responsibleId).map((c) => <option key={c.id} value={c.id}>{c.icon ? `${c.icon} ` : ""}{c.name}</option>)}
+                    <option value="">{s.responsibleId === me.user_id ? "Sin categoría" : `Sin categoría (la elige ${nameOf(s.responsibleId)})`}</option>
+                    <CategoryOptions categories={categoriesFor(s.responsibleId)} />
                   </Select>
                 </div>
               ))}
               <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => setSplits([...splits, { key: newKey(), amount: remaining > 0 ? String(remaining) : "", categoryId: "", responsibleId: me.user_id }])}>
+                <Button variant="outline" size="sm" onClick={() => setSplits([...splits, { key: newKey(), amount: remaining > 0 ? String(remaining) : "", categoryId: "", responsibleId: payerId }])}>
                   <Plus size={16} /> Agregar parte
                 </Button>
                 <Button variant="ghost" size="sm" onClick={() => {
                   const f = splits[0];
                   setSplitMode(false);
                   setCategoryId(f?.categoryId ?? "");
-                  setResponsibleId(f?.responsibleId ?? me.user_id);
+                  setResponsibleId(f?.responsibleId ?? payerId);
                 }}>
                   Sin dividir
                 </Button>
@@ -458,9 +542,42 @@ export function TransactionSheet({
             </div>
           )}
 
+          {crossedAmount > 0 && otherId && (
+            <div className="space-y-2 rounded-2xl bg-wood-soft px-3 py-2.5 text-sm">
+              <p className="flex items-center gap-2">
+                <ArrowRightLeft size={16} className="shrink-0 text-wood" />
+                {kind === "REFUND"
+                  ? <>El reembolso entró a la cuenta de {nameOf(payerId)}, pero {formatCop(crossedAmount)} eran de {nameOf(otherId)}.</>
+                  : <>Pagó {nameOf(payerId)}; {formatCop(crossedAmount)} le corresponden a {nameOf(otherId)}.</>}
+              </p>
+              <p className="font-medium">¿Se anota como deuda en el cruce?</p>
+              <Segmented value={createsDebt ? "YES" : "NO"} onChange={(v) => setCreatesDebt(v === "YES")} options={[
+                { value: "YES", label: kind === "REFUND" ? `Sí, ${nameOf(payerId)} se la debe` : `Sí, ${nameOf(otherId)} la debe` },
+                { value: "NO", label: "No, sin deuda" },
+              ]} />
+              {!createsDebt && <p className="text-xs text-muted">Queda a cargo de {nameOf(otherId)} en los informes, sin cobrarse.</p>}
+            </div>
+          )}
+
+          {!partnerEdit ? (
+            <Field label="¿De qué espacio es?">
+              <Segmented value={scope} onChange={chooseScope} options={[
+                { value: "HOUSEHOLD", label: "Hogar" },
+                { value: "PERSONAL", label: "Personal" },
+              ]} />
+              <p className="mt-1.5 flex items-start gap-1.5 text-xs text-muted">
+                {scope === "HOUSEHOLD"
+                  ? <><Home size={13} className="mt-px shrink-0" /> Lo ven los dos y cuenta en el hogar, aunque la cuenta sea personal (su nombre no se muestra si es privada).</>
+                  : <><Lock size={13} className="mt-px shrink-0" /> Solo lo ves tú{partner ? ` (y ${partnerName} solo si le asignas una parte)` : ""}. No entra en los informes del hogar.</>}
+              </p>
+            </Field>
+          ) : (
+            <p className="flex items-center gap-1.5 text-xs text-muted"><Home size={13} /> Movimiento del hogar</p>
+          )}
+
           {isPendingReview && kind === "EXPENSE" && !splitMode && (
             <div className="rounded-2xl border border-border bg-surface px-3">
-              <SwitchRow label="Recordar este comercio" hint="La próxima vez te sugiero la misma categoría y responsable."
+              <SwitchRow label="Recordar este comercio" hint="La próxima vez te sugiero la misma categoría, responsable y espacio."
                 checked={remember} onCheckedChange={setRemember} />
               {remember && (
                 <SwitchRow label="Aplicar siempre sin preguntar" hint="Se confirma solo cuando llegue otro pago igual."
@@ -472,7 +589,7 @@ export function TransactionSheet({
           <ErrorText>{error}</ErrorText>
 
           <div className="flex gap-3 pt-1">
-            {editing && (
+            {editing && access === "owner" && (
               <Button variant="danger" size="icon" onClick={remove} disabled={busy} aria-label="Borrar">
                 <Trash2 size={18} />
               </Button>
@@ -497,13 +614,14 @@ export function TransactionSheet({
   );
 }
 
-/** Vista de solo lectura (movimientos de la pareja). El responsable puede ponerle categoría a su parte. */
+/** Vista de solo lectura (movimientos personales de la pareja en los que participo, o liquidaciones). */
 function TransactionDetail({ open, onOpenChange, tx }: { open: boolean; onOpenChange: (v: boolean) => void; tx: Transaction }) {
   const { me, categories, labels, supabase, reload, memberById } = useFinance();
   const [error, setError] = useState<string | null>(null);
   const payer = memberById(tx.payer_user_id);
-  const hiddenAmount = tx.kind === "EXPENSE" ? tx.amount - tx.splits.reduce((a, s) => a + s.amount, 0) : 0;
-  const myCategories = categories.filter((c) => !c.archived && (c.responsibility !== "PRIVATE" || c.owner_user_id === me.user_id));
+  const hiddenAmount = hasSplits(tx.kind) ? tx.amount - tx.splits.reduce((a, s) => a + s.amount, 0) : 0;
+  const myCategories = categories.filter((c) => !c.archived && c.kind !== "INCOME"
+    && (c.responsibility !== "PRIVATE" || (c.owner_user_id === me.user_id && tx.scope === "PERSONAL")));
 
   async function setCategory(splitId: string, categoryId: string) {
     setError(null);
@@ -513,13 +631,13 @@ function TransactionDetail({ open, onOpenChange, tx }: { open: boolean; onOpenCh
   }
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} title={tx.description || tx.merchant || "Movimiento"}>
+    <Sheet open={open} onOpenChange={onOpenChange} title={tx.description || tx.merchant || TX_KIND_LABEL[tx.kind]}>
       <div className="space-y-4 pb-2">
         <p className="num font-display text-4xl">{formatCop(tx.amount)}</p>
-        <div className="flex items-center gap-2 text-sm text-muted">
+        <div className="flex flex-wrap items-center gap-2 text-sm text-muted">
           <MemberBadge member={payer} size={22} />
-          {tx.kind === "SETTLEMENT" ? "Liquidación" : `Pagó ${payer?.user_id === me.user_id ? "yo" : payer?.display_name}`} ·{" "}
-          {accountLabel(labels, tx.account_id)} · {tx.occurred_on}
+          {tx.kind === "SETTLEMENT" ? "Liquidación" : `${TX_KIND_LABEL[tx.kind]} · pagó ${payer?.user_id === me.user_id ? "yo" : payer?.display_name}`} ·{" "}
+          {accountLabel(labels, tx.account_id)} · {tx.occurred_on} · {SPACE_LABEL[tx.scope]}
         </div>
         {tx.splits.map((s) => {
           const cat = categoryLabel(categories, s.category_id);
@@ -527,13 +645,13 @@ function TransactionDetail({ open, onOpenChange, tx }: { open: boolean; onOpenCh
           return (
             <div key={s.id} className="space-y-2 rounded-2xl border border-border bg-surface p-3">
               <div className="flex items-center justify-between gap-2">
-                <span className="flex items-center gap-2"><MemberBadge member={resp} size={22} /> {cat.icon} {cat.name}</span>
+                <span className="flex items-center gap-2"><MemberBadge member={resp} size={22} /> {cat.icon} {categoryPath(categories, s.category_id) || cat.name}</span>
                 <span className="num font-semibold">{formatCop(s.amount)}</span>
               </div>
               {s.responsible_user_id === me.user_id && (
                 <Select value={s.category_id ?? ""} aria-label="Categoría de mi parte" onChange={(e) => setCategory(s.id, e.target.value)}>
                   <option value="">Sin categoría</option>
-                  {myCategories.map((c) => <option key={c.id} value={c.id}>{c.icon ? `${c.icon} ` : ""}{c.name}</option>)}
+                  <CategoryOptions categories={myCategories} />
                 </Select>
               )}
             </div>
@@ -541,7 +659,11 @@ function TransactionDetail({ open, onOpenChange, tx }: { open: boolean; onOpenCh
         })}
         {hiddenAmount > 0 && <p className="text-sm text-muted">Y {formatCop(hiddenAmount)} en conceptos privados.</p>}
         <ErrorText>{error}</ErrorText>
-        <p className="text-xs text-muted">Solo quien registró el movimiento puede editarlo o borrarlo.</p>
+        <p className="text-xs text-muted">
+          {tx.kind === "SETTLEMENT"
+            ? "Las liquidaciones no se editan."
+            : "Es un movimiento personal de tu pareja: solo quien lo registró puede editarlo. Los del hogar los pueden ajustar los dos."}
+        </p>
       </div>
     </Sheet>
   );

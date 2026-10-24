@@ -10,6 +10,7 @@ import type { Category } from "@/lib/types";
 import type { CategoryStatus } from "@/lib/finance/budget";
 import { formatCop } from "@/lib/finance/money";
 import { formatDay, isWithin } from "@/lib/finance/periods";
+import { categoryPath, consumptionSign, isSharedBudget, withDescendants } from "@/lib/finance/spaces";
 
 const SOURCE: Record<string, { label: string; icon: typeof Mail }> = {
   GMAIL: { label: "Llegó por correo", icon: Mail },
@@ -25,15 +26,18 @@ export function BudgetDetailSheet({ category, status, onClose, onEdit }: {
   onClose: () => void;
   onEdit: (c: Category) => void;
 }) {
-  const { transactions, period, memberById, me } = useFinance();
+  const { transactions, period, memberById, me, categories } = useFinance();
   const { openTransaction, openPayment } = useShell();
   if (!category) return null;
 
+  // La categoría con sus subcategorías; en una barra compartida solo cuentan los movimientos del hogar
+  const ids = withDescendants(categories, [category.id]);
+  const shared = isSharedBudget(category);
   const items = transactions
-    .filter((t) => t.kind === "EXPENSE" && isWithin(t.occurred_on, period))
-    .flatMap((t) => t.splits.filter((s) => s.category_id === category.id).map((s) => ({ t, s })))
+    .filter((t) => consumptionSign(t.kind) !== 0 && isWithin(t.occurred_on, period) && (!shared || t.scope === "HOUSEHOLD"))
+    .flatMap((t) => t.splits.filter((s) => s.category_id && ids.has(s.category_id)).map((s) => ({ t, s, sign: consumptionSign(t.kind) })))
     .sort((a, b) => b.t.occurred_on.localeCompare(a.t.occurred_on));
-  const visible = items.reduce((a, i) => a + i.s.amount, 0);
+  const visible = items.reduce((a, i) => a + i.sign * i.s.amount, 0);
   const spent = status?.totalSpent ?? visible;
   const available = status?.totalAvailable ?? 0;
   const hidden = Math.max(0, spent - visible);
@@ -53,7 +57,7 @@ export function BudgetDetailSheet({ category, status, onClose, onEdit }: {
           <p className="text-sm text-muted">Aún no hay pagos en este periodo.</p>
         ) : (
           <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface">
-            {items.map(({ t, s }) => {
+            {items.map(({ t, s, sign }) => {
               const src = SOURCE[t.source] ?? SOURCE.MANUAL;
               const Icon = src.icon;
               return (
@@ -61,14 +65,15 @@ export function BudgetDetailSheet({ category, status, onClose, onEdit }: {
                   <MemberBadge member={memberById(s.responsible_user_id)} size={24} />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-medium">{t.merchant || t.description || category.name}</span>
+                    {s.category_id !== category.id && <span className="block truncate text-xs text-muted">{categoryPath(categories, s.category_id)}</span>}
                     <span className="flex items-center gap-1 text-xs text-muted"><Icon size={12} /> {src.label} · {formatDay(t.occurred_on)}{t.status === "PENDING_REVIEW" ? " · por revisar" : ""}</span>
                   </span>
-                  <span className="num shrink-0 font-semibold">{formatCop(s.amount)}</span>
+                  <span className="num shrink-0 font-semibold">{sign < 0 ? "−" : ""}{formatCop(s.amount)}</span>
                 </button>
               );
             })}
             {hidden > 0 && (
-              <p className="px-3.5 py-3 text-sm text-muted">Y {formatCop(hidden)} en pagos que tu pareja no comparte en detalle.</p>
+              <p className="px-3.5 py-3 text-sm text-muted">Y {formatCop(hidden)} en pagos que no puedes abrir.</p>
             )}
           </div>
         )}

@@ -10,9 +10,11 @@ import { cn } from "@/lib/utils";
 
 /** Barra de progreso de una categoría: quién es responsable, cuánto lleva cada uno y alerta de tope. */
 export function BudgetBar({
-  category, status, memberById, onClick, onPay, meId,
+  category, status, memberById, onClick, onPay, meId, label,
 }: {
   category: Category;
+  /** Nombre a mostrar (ej. "Vivienda › Hipoteca"); por defecto el de la categoría. */
+  label?: string;
   status: CategoryStatus | undefined;
   memberById: (id: string | null | undefined) => Member | null;
   /** Abre la edición de la categoría. */
@@ -39,7 +41,7 @@ export function BudgetBar({
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           <span className="text-lg">{category.icon || "•"}</span>
-          <span className="truncate font-semibold">{category.name}</span>
+          <span className="truncate font-semibold">{label ?? category.name}</span>
           {category.responsibility === "PRIVATE" && <Lock size={14} className="shrink-0 text-muted" aria-label="Privada" />}
           {category.is_shared_progress && <Users size={14} className="shrink-0 text-muted" aria-label="Progreso compartido" />}
           {level !== "ok" && (

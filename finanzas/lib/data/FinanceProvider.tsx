@@ -4,15 +4,20 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabase } from "@/lib/supabase/client";
 import type {
-  Account, AccountLabel, Category, CategoryBudgetRow, CustomPeriodRow, Household, LedgerRow, ManualAsset, Member,
-  PeriodSettingsRow, Reconciliation, Split, Transaction,
+  Account, AccountLabel, BudgetPlan, BudgetPlanCategory, Category, CategoryBudgetRow, CustomPeriodRow, Household, LedgerRow,
+  ManualAsset, Member, PeriodSettingsRow, Reconciliation, SavingsContribution, SavingsGoal, ScheduledPayment, Split, Transaction,
 } from "@/lib/types";
-import type { SpendingRow } from "@/lib/finance/budget";
 import { toPeriodSettings, type Snapshot } from "@/lib/finance/derive";
+import { spendingRows } from "@/lib/finance/spaces";
 import { periodFor, todayBogota, type Period } from "@/lib/finance/periods";
 
 export interface FinanceState extends Snapshot {
   household: Household;
+  plans: BudgetPlan[];
+  planCategories: BudgetPlanCategory[];
+  commitments: ScheduledPayment[];
+  goals: SavingsGoal[];
+  contributions: SavingsContribution[];
   uvt: number;
   reconciliations: Reconciliation[];
   labels: AccountLabel[];
@@ -55,7 +60,8 @@ async function loadAll(sb: SupabaseClient, userId: string): Promise<Loaded> {
   const me = meRow as Member;
   const hh = me.household_id;
 
-  const [household, members, settings, customPeriods, accounts, labels, balances, categories, budgets, txs, splits, ledger, assets, spending, recs] =
+  const [household, members, settings, customPeriods, accounts, labels, balances, categories, budgets, txs, splits, ledger, assets, recs,
+    plans, planCategories, commitments, goals, contributions] =
     await Promise.all([
       sb.from("households").select("id, name, invite_code").eq("id", hh).single(),
       sb.from("household_members").select("*").eq("household_id", hh),
@@ -74,14 +80,20 @@ async function loadAll(sb: SupabaseClient, userId: string): Promise<Loaded> {
         sb.from("cross_ledger").select("*").eq("household_id", hh).order("occurred_on", { ascending: false }).order("created_at", { ascending: false }).range(f, t),
       ),
       sb.from("manual_assets").select("*").eq("household_id", hh).order("created_at"),
-      fetchAll<{ category_id: string; responsible_user_id: string; occurred_on: string; total: number }>((f, t) =>
-        sb.rpc("category_daily_spending", { p_from: "2000-01-01", p_to: "2100-12-31" }).range(f, t),
-      ),
       sb.from("account_reconciliations").select("id, account_id, month, statement_balance, app_balance, difference, status, note, updated_at")
         .eq("owner_user_id", userId).order("month", { ascending: false }),
+      sb.from("budget_plans").select("*").eq("household_id", hh).order("name"),
+      sb.from("budget_plan_categories").select("plan_id, category_id, amount").eq("household_id", hh),
+      sb.from("scheduled_payments").select("*").eq("household_id", hh).order("name"),
+      sb.from("savings_goals").select("*").eq("household_id", hh).order("created_at"),
+      fetchAll<SavingsContribution>((f, t) =>
+        sb.from("savings_contributions").select("id, goal_id, user_id, amount, occurred_on, note, created_at").eq("household_id", hh)
+          .order("occurred_on", { ascending: false }).range(f, t),
+      ),
     ]);
 
-  for (const r of [household, members, settings, customPeriods, accounts, labels, balances, categories, budgets, assets, recs]) {
+  for (const r of [household, members, settings, customPeriods, accounts, labels, balances, categories, budgets, assets, recs,
+    plans, planCategories, commitments, goals]) {
     if (r.error) throw r.error;
   }
 
@@ -92,6 +104,7 @@ async function loadAll(sb: SupabaseClient, userId: string): Promise<Loaded> {
     splitsByTx.set(s.transaction_id, list);
   }
 
+  const transactions: Transaction[] = txs.map((t) => ({ ...t, amount: Number(t.amount), splits: splitsByTx.get(t.id) ?? [] }));
   const memberRows = (members.data ?? []) as Member[];
   const balanceMap: Record<string, number> = {};
   for (const b of (balances.data ?? []) as { account_id: string; balance: number }[]) balanceMap[b.account_id] = Number(b.balance);
@@ -123,15 +136,20 @@ async function loadAll(sb: SupabaseClient, userId: string): Promise<Loaded> {
       fixed_amount_a: num(b.fixed_amount_a) as number | null,
       fixed_amount_b: num(b.fixed_amount_b) as number | null,
     })),
-    transactions: txs.map((t) => ({ ...t, amount: Number(t.amount), splits: splitsByTx.get(t.id) ?? [] })),
+    transactions,
     ledger: ledger.map((l) => ({ ...l, amount: Number(l.amount) })),
     assets: ((assets.data ?? []) as ManualAsset[]).map((a) => ({ ...a, value: Number(a.value) })),
-    spending: spending.map<SpendingRow>((r) => ({
-      categoryId: r.category_id,
-      responsibleUserId: r.responsible_user_id,
-      occurredOn: r.occurred_on,
-      total: Number(r.total),
+    // Lo ejecutado sale de los movimientos visibles (respeta el ámbito: lo personal de la pareja no llega)
+    spending: spendingRows(transactions),
+    plans: ((plans.data ?? []) as BudgetPlan[]).map((b) => ({ ...b, amount: Number(b.amount), alert_pct: Number(b.alert_pct) })),
+    planCategories: ((planCategories.data ?? []) as BudgetPlanCategory[]).map((c) => ({ ...c, amount: num(c.amount) as number | null })),
+    commitments: ((commitments.data ?? []) as ScheduledPayment[]).map((c) => ({ ...c, amount: Number(c.amount) })),
+    goals: ((goals.data ?? []) as SavingsGoal[]).map((g) => ({
+      ...g,
+      target_amount: Number(g.target_amount),
+      planned_amount: num(g.planned_amount) as number | null,
     })),
+    contributions: contributions.map((c) => ({ ...c, amount: Number(c.amount) })),
   };
 }
 
@@ -139,6 +157,7 @@ const REALTIME_TABLES = [
   "account_reconciliations",
   "accounts", "categories", "category_budgets", "transactions", "transaction_splits",
   "cross_ledger", "household_members", "period_settings", "manual_assets",
+  "budget_plans", "budget_plan_categories", "scheduled_payments", "savings_goals", "savings_contributions",
 ];
 
 export function FinanceProvider({ userId, children }: { userId: string; children: React.ReactNode }) {

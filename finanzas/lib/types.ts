@@ -4,7 +4,21 @@ import type { AccountKind } from "@/lib/finance/safeToSpend";
 import type { LedgerKind, SplitOrigin } from "@/lib/finance/crossLedger";
 
 export type Visibility = "PUBLIC" | "BALANCE_ONLY" | "PRIVATE";
-export type TxKind = "EXPENSE" | "INCOME" | "TRANSFER" | "SETTLEMENT";
+export type TxKind = "EXPENSE" | "INCOME" | "TRANSFER" | "SETTLEMENT" | "DEBT_PAYMENT" | "REFUND" | "ADJUSTMENT";
+/** Espacio al que pertenece un movimiento, presupuesto, compromiso o meta. */
+export type Space = "HOUSEHOLD" | "PERSONAL";
+
+export const SPACE_LABEL: Record<Space, string> = { HOUSEHOLD: "Hogar", PERSONAL: "Personal" };
+
+export const TX_KIND_LABEL: Record<TxKind, string> = {
+  EXPENSE: "Gasto",
+  INCOME: "Ingreso",
+  TRANSFER: "Transferencia",
+  SETTLEMENT: "Liquidación",
+  DEBT_PAYMENT: "Pago de deuda",
+  REFUND: "Reembolso",
+  ADJUSTMENT: "Ajuste",
+};
 
 export interface Household {
   id: string;
@@ -96,6 +110,8 @@ export interface Category {
   created_at: string;
   /** EXPENSE: categoría de presupuesto · INCOME: de dónde viene un ingreso. */
   kind?: "EXPENSE" | "INCOME";
+  /** Categoría principal (si es una subcategoría). */
+  parent_id?: string | null;
 }
 
 export interface CategoryBudgetRow {
@@ -130,6 +146,15 @@ export interface Transaction {
   payer_user_id: string;
   counterparty_user_id: string | null;
   is_shared: boolean;
+  /** Hogar o personal: decide quién lo ve (junto con quién participa en él). */
+  scope: Space;
+  /** Si quien pagó y quien responde son distintos: ¿se anota deuda en el cruce? */
+  creates_debt: boolean;
+  /** Solo en ajustes: IN suma al saldo, OUT resta. */
+  direction?: "IN" | "OUT" | null;
+  updated_by?: string | null;
+  scheduled_payment_id?: string | null;
+  scheduled_for?: string | null;
   source: string;
   tags: string[];
   created_by: string;
@@ -206,7 +231,7 @@ export const ACCOUNT_KIND_LABEL: Record<AccountKind, string> = {
 };
 
 export const VISIBILITY_LABEL: Record<Visibility, string> = {
-  PUBLIC: "Pública: ve saldo y movimientos",
+  PUBLIC: "Visible: ve la cuenta y su saldo",
   BALANCE_ONLY: "Solo saldo",
   PRIVATE: "Privada: no ve nada",
 };
@@ -226,3 +251,66 @@ export const ASSET_TYPE_LABEL: Record<ManualAsset["asset_type"], string> = {
   MORTGAGE: "Hipoteca",
   OTHER: "Otro",
 };
+
+export interface BudgetPlan {
+  id: string;
+  scope: Space;
+  owner_user_id: string;
+  name: string;
+  icon: string | null;
+  /** PERIOD: se repite cada periodo del hogar · RANGE: un rango fijo de fechas. */
+  periodicity: "PERIOD" | "RANGE";
+  amount: number;
+  start_date: string;
+  end_date: string | null;
+  alert_pct: number;
+  status: "ACTIVE" | "PAUSED" | "CLOSED";
+}
+
+export interface BudgetPlanCategory {
+  plan_id: string;
+  category_id: string;
+  /** Límite propio de la categoría dentro del presupuesto (opcional). */
+  amount: number | null;
+}
+
+export interface ScheduledPayment {
+  id: string;
+  scope: Space;
+  owner_user_id: string;
+  name: string;
+  kind: "EXPENSE" | "DEBT_PAYMENT";
+  amount: number;
+  category_id: string | null;
+  responsible_user_id: string | null;
+  frequency: "ONCE" | "MONTHLY";
+  due_date: string | null;
+  day_of_month: number | null;
+  start_date: string;
+  end_date: string | null;
+  active: boolean;
+}
+
+export interface SavingsGoal {
+  id: string;
+  scope: Space;
+  owner_user_id: string;
+  name: string;
+  icon: string | null;
+  target_amount: number;
+  target_date: string | null;
+  planned_amount: number | null;
+  account_id: string | null;
+  status: "ACTIVE" | "DONE" | "ARCHIVED";
+  created_at: string;
+}
+
+export interface SavingsContribution {
+  id: string;
+  goal_id: string;
+  user_id: string;
+  amount: number;
+  occurred_on: string;
+  note: string | null;
+  created_at: string;
+}

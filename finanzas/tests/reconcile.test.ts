@@ -10,7 +10,7 @@ const acc: Account = {
 const tx = (p: Partial<Transaction>): Transaction => ({
   id: Math.random().toString(36), kind: "EXPENSE", status: "CONFIRMED", occurred_on: "2026-10-24", amount: 0, description: null,
   merchant: null, account_id: "bc", to_account_id: null, payer_user_id: "a", counterparty_user_id: null, is_shared: false,
-  source: "MANUAL", tags: [], created_by: "a", created_at: "", splits: [], ...p,
+  source: "MANUAL", tags: [], created_by: "a", created_at: "", splits: [], scope: "PERSONAL", creates_debt: true, ...p,
 });
 
 describe("cierre del mes", () => {

@@ -1,12 +1,14 @@
 // Une los datos que llegan de Supabase con las funciones puras de presupuesto, cruce y Saldo Seguro.
 
 import type {
-  Account, Category, CategoryBudgetRow, LedgerRow, ManualAsset, Member, PeriodSettingsRow, Transaction,
+  Account, Category, CategoryBudgetRow, LedgerRow, ManualAsset, Member, PeriodSettingsRow, SavingsContribution, SavingsGoal, Transaction,
 } from "@/lib/types";
 import { categoryStatus, pendingObligationsFor, type BudgetCategory, type CategoryStatus, type Members, type SpendingRow } from "./budget";
 import { netFor, owedToPartner, type LedgerEntry } from "./crossLedger";
 import { DEFAULT_PERIOD_SETTINGS, isWithin, type Period, type PeriodSettings } from "./periods";
 import { computeSafeToSpend, creditCardDebtOf, realBalanceOf, type SafeToSpendResult } from "./safeToSpend";
+import { pendingSavingsFor } from "./goals";
+import { consumptionSign, isSharedBudget } from "./spaces";
 
 export interface Snapshot {
   me: Member;
@@ -20,6 +22,8 @@ export interface Snapshot {
   ledger: LedgerRow[];
   spending: SpendingRow[];
   assets: ManualAsset[];
+  goals?: SavingsGoal[];
+  contributions?: SavingsContribution[];
 }
 
 export function toPeriodSettings(row: PeriodSettingsRow | null | undefined): PeriodSettings {
@@ -63,11 +67,36 @@ export function hasVisibleBudget(categoryId: string, budgets: CategoryBudgetRow[
   return budgets.some((b) => b.category_id === categoryId);
 }
 
+/**
+ * Ejecutado que cuenta para la barra de cada categoría:
+ *  · una categoría principal suma también lo de sus subcategorías
+ *  · una barra compartida (progreso compartido o montos fijos) solo suma movimientos del hogar,
+ *    así cuadra en los dos celulares y lo personal no se filtra al hogar
+ */
+export function spendingByCategory(s: Pick<Snapshot, "categories" | "spending">): Map<string, SpendingRow[]> {
+  const byId = new Map(s.categories.map((c) => [c.id, c]));
+  const out = new Map<string, SpendingRow[]>();
+  const add = (id: string, r: SpendingRow) => {
+    const c = byId.get(id);
+    if (c && isSharedBudget(c) && r.scope === "PERSONAL") return;
+    const list = out.get(id) ?? [];
+    list.push(r);
+    out.set(id, list);
+  };
+  for (const r of s.spending) {
+    add(r.categoryId, r);
+    const parent = byId.get(r.categoryId)?.parent_id;
+    if (parent && byId.has(parent)) add(parent, { ...r, categoryId: parent });
+  }
+  return out;
+}
+
 export function statusesFor(s: Snapshot, period: Period): Map<string, CategoryStatus> {
   const members = membersOf(s.me, s.partner);
+  const rows = spendingByCategory(s);
   const out = new Map<string, CategoryStatus>();
   for (const c of toBudgetCategories(s.categories, s.budgets)) {
-    out.set(c.id, categoryStatus(c, period, s.spending, s.settings, members));
+    out.set(c.id, categoryStatus(c, period, rows.get(c.id) ?? [], s.settings, members));
   }
   return out;
 }
@@ -93,8 +122,7 @@ export function safeToSpendFor(s: Snapshot, period: Period, statuses = statusesF
   return computeSafeToSpend({
     realBalance: realBalanceOf(me, accounts),
     householdObligationsPending: pendingObligationsFor(me, toBudgetCategories(s.categories, s.budgets), [...statuses.values()]),
-    // Las metas de ahorro llegan en la Fase 4; mientras tanto no hay ahorros programados.
-    scheduledSavingsPending: 0,
+    scheduledSavingsPending: pendingSavingsFor(me, s.goals ?? [], s.contributions ?? [], period),
     creditCardDebt: creditCardDebtOf(me, accounts),
     owedToPartner: owedToPartner(me, ledgerEntries(s.ledger)),
   });
@@ -140,32 +168,25 @@ export interface CashFlow {
   net: number;
 }
 
-/** Flujo de caja del periodo. "me": lo que entró y salió de mis cuentas. "household": ingresos compartidos y gastos del hogar. */
+/**
+ * Flujo de caja del periodo. "me": lo que entró y salió de mis cuentas. "household": movimientos del hogar.
+ * Ingresos y reembolsos entran; gastos y pagos de deuda salen. Transferencias propias, liquidaciones y
+ * ajustes no cuentan (no son ingresos ni gastos nuevos).
+ */
 export function cashFlow(s: Snapshot, period: Period, scope: Scope): CashFlow {
-  const privateCats = new Set(s.categories.filter((c) => c.responsibility === "PRIVATE").map((c) => c.id));
   let income = 0;
   let expense = 0;
   for (const t of s.transactions) {
     if (!isWithin(t.occurred_on, period)) continue;
+    if (scope === "me" && t.payer_user_id !== s.me.user_id) continue;
+    if (scope === "household" && t.scope !== "HOUSEHOLD") continue;
     const amount = Number(t.amount);
-    if (scope === "me") {
-      if (t.payer_user_id !== s.me.user_id) continue;
-      if (t.kind === "INCOME") income += amount;
-      if (t.kind === "EXPENSE") expense += amount;
-    } else if (scope === "household") {
-      if (t.kind === "INCOME" && t.is_shared) income += amount;
-      if (t.kind === "EXPENSE") {
-        expense += t.splits
-          .filter((sp) => sp.category_id && !privateCats.has(sp.category_id))
-          .reduce((acc, sp) => acc + Number(sp.amount), 0);
-      }
-    } else {
-      if (t.kind === "INCOME") income += amount;
-      if (t.kind === "EXPENSE") expense += amount;
-    }
+    if (t.kind === "INCOME" || t.kind === "REFUND") income += amount;
+    else if (consumptionSign(t.kind) > 0) expense += amount;
   }
   return { income, expense, net: income - expense };
 }
+
 
 /** Categorías que se muestran en cada vista del inicio. */
 export function categoriesForScope(s: Snapshot, scope: Scope): Category[] {
