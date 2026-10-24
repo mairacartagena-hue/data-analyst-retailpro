@@ -25,7 +25,7 @@ const sp = (p: Partial<ScheduledPayment>): ScheduledPayment => ({
 });
 const plan = (p: Partial<BudgetPlan>): BudgetPlan => ({
   id: "p", scope: "HOUSEHOLD", owner_user_id: A, name: "Comida", icon: null, periodicity: "PERIOD", amount: 1_000_000,
-  start_date: "2026-01-01", end_date: null, alert_pct: 85, status: "ACTIVE", ...p,
+  start_date: "2026-01-01", end_date: null, alert_pct: 85, status: "ACTIVE", shared_with_partner: false, ...p,
 });
 
 describe("compromisos", () => {

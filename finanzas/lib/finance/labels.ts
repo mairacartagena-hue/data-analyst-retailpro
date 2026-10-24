@@ -16,17 +16,6 @@ export function categoryLabel(categories: Category[], id: string | null): { name
   return { name: c.name, icon: c.icon || parentIcon || "•" };
 }
 
-/** Responsable único de la categoría según su tipo, o null si es de montos fijos. */
-export function categoryResponsible(c: Category, me: Member, partner: Member | null): string | null {
-  const bySlot = (slot: "A" | "B") => [me, partner].find((m) => m?.slot === slot)?.user_id ?? null;
-  switch (c.responsibility) {
-    case "MEMBER_A_100": return bySlot("A");
-    case "MEMBER_B_100": return bySlot("B");
-    case "PRIVATE": return c.owner_user_id;
-    default: return null;
-  }
-}
-
 export function memberBySlot(me: Member, partner: Member | null, slot: "A" | "B"): Member | null {
   return [me, partner].find((m) => m?.slot === slot) ?? null;
 }

@@ -51,8 +51,7 @@ export function CommitmentSheet({ open, onOpenChange, payment }: { open: boolean
     setActive(p?.active ?? true);
   }, [open, payment]);
 
-  const usable = categories.filter((c) => !c.archived && c.kind !== "INCOME"
-    && (c.responsibility !== "PRIVATE" || (scope === "PERSONAL" && c.owner_user_id === me.user_id)));
+  const usable = categories.filter((c) => !c.archived && c.kind !== "INCOME");
   const canMakePersonal = !payment || payment.owner_user_id === me.user_id;
 
   async function save() {

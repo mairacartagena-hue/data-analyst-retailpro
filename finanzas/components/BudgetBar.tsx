@@ -1,18 +1,22 @@
 "use client";
 
 import { motion } from "motion/react";
-import { AlertTriangle, Check, Lock, Pencil, Plus, Users } from "lucide-react";
-import type { Category, Member } from "@/lib/types";
+import { AlertTriangle, Check, Home, Lock, Pencil, Plus, Users } from "lucide-react";
+import type { Category, CategoryLimit, Member } from "@/lib/types";
 import type { CategoryStatus } from "@/lib/finance/budget";
 import { formatCop, formatCopShort } from "@/lib/finance/money";
 import { MemberBadge } from "@/components/MemberBadge";
 import { cn } from "@/lib/utils";
 
-/** Barra de progreso de una categoría: quién es responsable, cuánto lleva cada uno y alerta de tope. */
+/** Barra de un presupuesto de categoría: quién lo asume, cuánto lleva cada uno y alerta de tope. */
 export function BudgetBar({
-  category, status, memberById, onClick, onPay, meId, label,
+  category, limit, status, memberById, onClick, onPay, meId, label, icon,
 }: {
+  /** Ícono a mostrar (ej. el de la principal en una subcategoría). */
+  icon?: string;
   category: Category;
+  /** El presupuesto (del hogar o personal) que muestra la barra. */
+  limit: CategoryLimit;
   /** Nombre a mostrar (ej. "Vivienda › Hipoteca"); por defecto el de la categoría. */
   label?: string;
   status: CategoryStatus | undefined;
@@ -40,10 +44,12 @@ export function BudgetBar({
     <button onClick={onClick} className="w-full rounded-t-2xl p-3.5 pb-2.5 text-left transition-colors hover:bg-surface-2" aria-label={`Ver pagos de ${category.name}`}>
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="text-lg">{category.icon || "•"}</span>
+          <span className="text-lg">{icon ?? (category.icon || "•")}</span>
           <span className="truncate font-semibold">{label ?? category.name}</span>
-          {category.responsibility === "PRIVATE" && <Lock size={14} className="shrink-0 text-muted" aria-label="Privada" />}
-          {category.is_shared_progress && <Users size={14} className="shrink-0 text-muted" aria-label="Progreso compartido" />}
+          {limit.scope === "PERSONAL"
+            ? <Lock size={14} className="shrink-0 text-muted" aria-label="Presupuesto personal" />
+            : <Home size={14} className="shrink-0 text-muted" aria-label="Presupuesto del hogar" />}
+          {limit.scope === "PERSONAL" && limit.shared_with_partner && <Users size={14} className="shrink-0 text-muted" aria-label="Compartido con la pareja" />}
           {level !== "ok" && (
             <AlertTriangle size={15} className={cn("shrink-0", level === "over" ? "text-danger" : "text-warning")}
               aria-label={level === "over" ? "Pasó el tope" : "Cerca del tope"} />
@@ -70,7 +76,7 @@ export function BudgetBar({
         </span>
       </div>
 
-      {category.responsibility === "FIXED_AMOUNTS" && allocations.length > 1 && (
+      {limit.responsibility === "FIXED_AMOUNTS" && allocations.length > 1 && (
         <div className="mt-2 grid grid-cols-2 gap-2">
           {allocations.map((a) => (
             <div key={a.userId} className="rounded-xl bg-surface-2 px-2.5 py-1.5 text-xs">

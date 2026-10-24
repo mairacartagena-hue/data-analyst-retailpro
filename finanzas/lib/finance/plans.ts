@@ -7,7 +7,7 @@
 // Cada parte de un movimiento cuenta una sola vez, aunque su categoría y su principal estén en el presupuesto.
 
 import type { BudgetPlan, BudgetPlanCategory, Category, Transaction } from "@/lib/types";
-import type { AlertLevel } from "./budget";
+import type { AlertLevel, SpendingRow } from "./budget";
 import { committedTotal, type Occurrence } from "./commitments";
 import { daysInPeriod, type Period } from "./periods";
 import { consumptionSign, withDescendants } from "./spaces";
@@ -119,4 +119,19 @@ export function planMetrics(
     byCategory: own.map((c) => ({ categoryId: c.category_id, limit: c.amount, spent: catSpent.get(c.category_id) ?? 0 })),
     occurrences: occ,
   };
+}
+
+/**
+ * Movimientos "resumen" a partir de los totales que comparte la pareja (sin detalle), para medir
+ * sus presupuestos personales compartidos. Solo sirven para el cálculo; no se muestran.
+ */
+export function sharedAsTransactions(rows: SpendingRow[]): Transaction[] {
+  return rows.map((r, i) => ({
+    id: `compartido-${i}`, kind: r.total < 0 ? "REFUND" : "EXPENSE", status: "CONFIRMED", occurred_on: r.occurredOn,
+    amount: Math.abs(r.total), description: null, merchant: null, account_id: null, to_account_id: null,
+    payer_user_id: r.responsibleUserId, counterparty_user_id: null, is_shared: false, scope: "PERSONAL", creates_debt: false,
+    source: "COMPARTIDO", tags: [], created_by: r.responsibleUserId, created_at: "",
+    splits: [{ id: `compartido-${i}`, transaction_id: `compartido-${i}`, amount: Math.abs(r.total), category_id: r.categoryId,
+      responsible_user_id: r.responsibleUserId, origin: "NORMAL", note: null }],
+  }));
 }

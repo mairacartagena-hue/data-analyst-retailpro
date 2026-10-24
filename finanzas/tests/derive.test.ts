@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { cashFlow, categoriesForScope, crossNet, netWorth, safeToSpendFor, type Snapshot } from "@/lib/finance/derive";
+import { cashFlow, crossNet, limitsForScope, netWorth, safeToSpendFor, type Snapshot } from "@/lib/finance/derive";
 import { periodFor, DEFAULT_PERIOD_SETTINGS } from "@/lib/finance/periods";
-import type { Account, Category, Member } from "@/lib/types";
+import type { Account, Category, CategoryLimit, Member } from "@/lib/types";
 
 const A = "user-a";
 const B = "user-b";
@@ -18,24 +18,29 @@ const cat = (id: string, responsibility: Category["responsibility"], extra: Part
   created_at: "2026-01-01", ...extra,
 });
 
+const lim = (id: string, category_id: string, scope: CategoryLimit["scope"], extra: Partial<CategoryLimit> = {}): CategoryLimit => ({
+  id, category_id, scope, owner_user_id: null, responsibility: null, is_household_obligation: false, rollover_enabled: false, shared_with_partner: false, ...extra,
+});
+
 const snapshot: Snapshot = {
   me, partner, settings: DEFAULT_PERIOD_SETTINGS,
   accounts: [acc("ahorros", A, "DEPOSIT"), acc("nequi", A, "WALLET"), acc("visa", A, "CREDIT_CARD"), acc("b-ahorros", B, "DEPOSIT")],
   balances: { ahorros: 2_000_000, nequi: 300_000, visa: -500_000, "b-ahorros": 1_000_000 },
-  categories: [
-    cat("mercado", "MEMBER_A_100", { is_household_obligation: true, is_shared_progress: true }),
-    cat("arriendo", "FIXED_AMOUNTS", { is_household_obligation: true }),
-    cat("internet", "MEMBER_B_100", { is_household_obligation: true }),
-    cat("ropa", "PRIVATE", { owner_user_id: A }),
+  // Las categorías no deciden nada; los presupuestos sí (del hogar con responsable, o personales)
+  categories: [cat("mercado", "FIXED_AMOUNTS"), cat("arriendo", "FIXED_AMOUNTS"), cat("internet", "FIXED_AMOUNTS"), cat("ropa", "FIXED_AMOUNTS")],
+  limits: [
+    lim("l-mercado", "mercado", "HOUSEHOLD", { responsibility: "MEMBER_A_100", is_household_obligation: true }),
+    lim("l-arriendo", "arriendo", "HOUSEHOLD", { responsibility: "FIXED_AMOUNTS", is_household_obligation: true }),
+    lim("l-ropa", "ropa", "PERSONAL", { owner_user_id: A }),
   ],
   budgets: [
-    { id: "1", category_id: "mercado", valid_from: "2026-10-01", amount: 1_000_000, fixed_amount_a: null, fixed_amount_b: null },
-    { id: "2", category_id: "arriendo", valid_from: "2026-10-01", amount: 800_000, fixed_amount_a: 500_000, fixed_amount_b: 300_000 },
-    { id: "3", category_id: "ropa", valid_from: "2026-10-01", amount: 200_000, fixed_amount_a: null, fixed_amount_b: null },
+    { id: "1", category_id: "mercado", limit_id: "l-mercado", valid_from: "2026-10-01", amount: 1_000_000, fixed_amount_a: null, fixed_amount_b: null },
+    { id: "2", category_id: "arriendo", limit_id: "l-arriendo", valid_from: "2026-10-01", amount: 800_000, fixed_amount_a: 500_000, fixed_amount_b: 300_000 },
+    { id: "3", category_id: "ropa", limit_id: "l-ropa", valid_from: "2026-10-01", amount: 200_000, fixed_amount_a: null, fixed_amount_b: null },
   ],
   transactions: [],
   ledger: [{ id: "l1", creditor_user_id: B, debtor_user_id: A, amount: 70_000, kind: "CROSS_PAYMENT", transaction_id: null, description: null, occurred_on: "2026-10-02", created_by: B, created_at: "" }],
-  spending: [{ categoryId: "mercado", responsibleUserId: A, occurredOn: "2026-10-05", total: 400_000 }],
+  spending: [{ categoryId: "mercado", responsibleUserId: A, occurredOn: "2026-10-05", total: 400_000, scope: "HOUSEHOLD" }],
   assets: [{ id: "x", owner_user_id: A, name: "CDT", kind: "ASSET", asset_type: "INVESTMENT", value: 1_000_000, visibility: "PRIVATE" }],
 };
 const oct = periodFor(DEFAULT_PERIOD_SETTINGS, "2026-10-10");
@@ -59,9 +64,9 @@ describe("derivados del inicio", () => {
     expect(netWorth(snapshot, "global").total).toBe(3_800_000);
   });
 
-  it("categorías por vista", () => {
-    expect(categoriesForScope(snapshot, "me").map((c) => c.id)).toEqual(["mercado", "arriendo", "ropa"]);
-    expect(categoriesForScope(snapshot, "household").map((c) => c.id)).toEqual(["mercado", "arriendo"]);
+  it("presupuestos por vista", () => {
+    expect(limitsForScope(snapshot, "me").map((l) => l.id)).toEqual(["l-mercado", "l-arriendo", "l-ropa"]);
+    expect(limitsForScope(snapshot, "household").map((l) => l.id)).toEqual(["l-mercado", "l-arriendo"]);
   });
 
   it("flujo de caja vacío", () => {

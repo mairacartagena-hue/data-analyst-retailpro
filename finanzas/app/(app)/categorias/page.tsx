@@ -18,7 +18,7 @@ import { errMsg } from "@/lib/utils";
 
 /** Configuración de categorías: las mismas que usan Presupuesto y el formulario de pagos. */
 export default function CategoriasPage() {
-  const { categories, budgets, transactions, settings, me, partner, supabase, reload } = useFinance();
+  const { categories, budgets, limits, transactions, settings, me, partner, supabase, reload } = useFinance();
   const [editing, setEditing] = useState<Category | null>(null);
   const [parentFor, setParentFor] = useState<string | null>(null);
   const [seedMsg, setSeedMsg] = useState<string | null>(null);
@@ -42,23 +42,29 @@ export default function CategoriasPage() {
     return m;
   }, [transactions]);
 
-  const budgetOf = useMemo(() => {
+  // Monto vigente de cada presupuesto de categoría (por id de presupuesto)
+  const amountOf = useMemo(() => {
     const m = new Map<string, number>();
-    for (const bc of toBudgetCategories(categories, budgets)) {
+    for (const bc of toBudgetCategories(limits, budgets)) {
       const v = budgetVersionAt(bc.budgets, currentStart);
       if (v) m.set(bc.id, v.amount);
     }
     return m;
-  }, [categories, budgets, currentStart]);
+  }, [limits, budgets, currentStart]);
 
-  /** Quién asume el presupuesto de la categoría (solo si tiene límite). */
-  function budgetOwner(c: Category): string | null {
-    switch (c.responsibility) {
-      case "MEMBER_A_100": return `a cargo de ${memberA?.display_name ?? "A"}`;
-      case "MEMBER_B_100": return `a cargo de ${memberB?.display_name ?? "B"}`;
-      case "FIXED_AMOUNTS": return "montos fijos";
-      default: return null;
+  /** Resumen de los presupuestos de una categoría: el del hogar (con quién lo asume) y el mío personal. */
+  function budgetSummary(c: Category): string | null {
+    const parts: string[] = [];
+    for (const l of limits.filter((x) => x.category_id === c.id)) {
+      const amount = amountOf.get(l.id);
+      if (amount == null) continue;
+      if (l.scope === "PERSONAL") parts.push(`tu presupuesto ${formatCop(amount)}`);
+      else {
+        const who = l.responsibility === "MEMBER_A_100" ? memberA?.display_name : l.responsibility === "MEMBER_B_100" ? memberB?.display_name : null;
+        parts.push(`hogar ${formatCop(amount)}${who ? ` a cargo de ${who}` : ", montos fijos"}`);
+      }
     }
+    return parts.length ? parts.join(" · ") : null;
   }
 
   function edit(c: Category | null, k: "EXPENSE" | "INCOME" = "EXPENSE", parent: string | null = null) {
@@ -85,18 +91,11 @@ export default function CategoriasPage() {
   const tree = categoryTree(expense);
   const roots = tree.map((n) => n.category);
   const childrenOf = new Map(tree.map((n) => [n.category.id, n.children]));
-  const groups: { title: string; items: Category[] }[] = [
-    { title: "Obligaciones del hogar", items: roots.filter((c) => c.is_household_obligation) },
-    { title: "Del hogar", items: roots.filter((c) => !c.is_household_obligation && c.responsibility !== "PRIVATE") },
-    { title: "Personales", items: roots.filter((c) => c.responsibility === "PRIVATE") },
-  ];
 
   function row(c: Category, child = false) {
-    const amount = budgetOf.get(c.id);
     const n = uses.get(c.id) ?? 0;
     const detail = [
-      c.kind === "INCOME" ? "Ingreso" : c.responsibility === "PRIVATE" ? "Personal" : "Del hogar",
-      c.kind !== "INCOME" && amount != null ? [`límite ${formatCop(amount)}`, budgetOwner(c)].filter(Boolean).join(", ") : null,
+      c.kind === "INCOME" ? "Ingreso" : budgetSummary(c) ?? "Sin presupuesto",
       `${n} movimiento${n === 1 ? "" : "s"}`,
     ].filter(Boolean).join(" · ");
     return (
@@ -139,7 +138,7 @@ export default function CategoriasPage() {
       </div>
       <p className="px-1 text-sm text-muted">
         Son las mismas de <Link href="/presupuestos" className="font-semibold text-olive underline">Presupuesto</Link> y
-        las que eliges al registrar un pago. Las usan los dos. Toca una para cambiar nombre, ícono o su categoría principal; el límite y quién lo asume se definen en Presupuesto.
+        las que eliges al registrar un pago. Las usan los dos: solo dicen en qué se gastó. Si un gasto es del hogar o personal, y quién lo asume, se define en Presupuesto y en cada movimiento.
       </p>
 
       <div className="mt-3 space-y-1.5 rounded-2xl bg-surface-2 p-3">
@@ -158,12 +157,7 @@ export default function CategoriasPage() {
           <Button onClick={() => edit(null)}><Plus size={16} /> Crear la primera</Button>
         </Card>
       ) : (
-        groups.map((g) => g.items.length > 0 && (
-          <section key={g.title} className="mt-3">
-            <p className="mb-1.5 px-1 text-xs font-semibold uppercase tracking-wide text-muted">{g.title}</p>
-            {list(g.items)}
-          </section>
-        ))
+        list(roots)
       )}
 
       <div className="mt-6 flex items-center justify-between">
@@ -171,7 +165,7 @@ export default function CategoriasPage() {
         <Button size="sm" variant="ghost" onClick={() => edit(null, "INCOME")}><Plus size={16} /> Nueva</Button>
       </div>
       {income.length === 0
-        ? <p className="px-1 text-sm text-muted">Salario, ventas, reembolsos… Son personales y no tienen presupuesto.</p>
+        ? <p className="px-1 text-sm text-muted">Salario, honorarios, rendimientos… Sirven para saber de dónde viene la plata.</p>
         : list(income)}
 
       {archived.length > 0 && (

@@ -20,8 +20,8 @@ import { formatDay, periodFor, todayBogota } from "@/lib/finance/periods";
 import { statusesFor } from "@/lib/finance/derive";
 import { fixedAmountsExcess } from "@/lib/finance/budget";
 import { unassigned, validateSplits, type SplitDraft } from "@/lib/finance/crossLedger";
-import { accountLabel, categoryLabel, categoryResponsible } from "@/lib/finance/labels";
-import { categoryPath, hasSplits, suggestedScope } from "@/lib/finance/spaces";
+import { accountLabel, categoryLabel } from "@/lib/finance/labels";
+import { categoryPath, hasSplits } from "@/lib/finance/spaces";
 import { errMsg } from "@/lib/utils";
 
 type FormKind = Exclude<TxKind, "SETTLEMENT">;
@@ -51,6 +51,16 @@ interface FixedPrompt {
 }
 
 const LAST_ACCOUNT_KEY = "last-account";
+const LAST_SCOPE_KEY = "last-scope";
+
+/** Último espacio elegido al registrar (personal si no hay ninguno). */
+function lastScope(): Space {
+  try {
+    return localStorage.getItem(LAST_SCOPE_KEY) === "HOUSEHOLD" ? "HOUSEHOLD" : "PERSONAL";
+  } catch {
+    return "PERSONAL";
+  }
+}
 
 function newKey() {
   return Math.random().toString(36).slice(2);
@@ -91,7 +101,7 @@ export function TransactionSheet({
   const myAccounts = accounts.filter((a) => a.owner_user_id === me.user_id && !a.archived);
   const usable = categories.filter((c) => !c.archived && c.kind !== "INCOME");
   const incomeCategories = categories.filter(
-    (c) => !c.archived && c.kind === "INCOME" && (c.responsibility !== "PRIVATE" || c.owner_user_id === me.user_id),
+    (c) => !c.archived && c.kind === "INCOME",
   );
 
   const access = editing ? canEditTransaction(editing, me.user_id) : "owner";
@@ -102,7 +112,6 @@ export function TransactionSheet({
 
   const [kind, setKind] = useState<FormKind>("EXPENSE");
   const [scope, setScope] = useState<Space>("PERSONAL");
-  const [scopeTouched, setScopeTouched] = useState(false);
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
   const [date, setDate] = useState(todayBogota());
@@ -129,7 +138,6 @@ export function TransactionSheet({
     setError(null);
     setFixedPrompt(null);
     setBusy(false);
-    setScopeTouched(false);
     if (editing) {
       setKind(editing.kind === "SETTLEMENT" ? "EXPENSE" : editing.kind);
       setScope(editing.scope ?? "PERSONAL");
@@ -151,11 +159,8 @@ export function TransactionSheet({
         const pendingCat = editing.status === "PENDING_REVIEW" && !sp[0]?.category_id ? editing.suggested_category_id ?? "" : "";
         setCategoryId(sp[0]?.category_id ?? pendingCat);
         setResponsibleId(pendingCat ? (editing.suggested_responsible_user_id ?? me.user_id) : (sp[0]?.responsible_user_id ?? payerId));
-        // Un aviso que llegó solo queda personal; al revisarlo se sugiere el ámbito de su categoría
-        if (editing.status === "PENDING_REVIEW") {
-          const c = usable.find((x) => x.id === (sp[0]?.category_id ?? pendingCat));
-          if (c) setScope(suggestedScope(c));
-        }
+        // Un aviso que llegó solo queda personal; al revisarlo se propone el último espacio usado
+        if (editing.status === "PENDING_REVIEW") setScope(lastScope());
       }
       setRemember(true);
       setAutoApply(false);
@@ -179,9 +184,9 @@ export function TransactionSheet({
     setToAccountId(preset?.toAccountId ?? "");
     setDirection("OUT");
     setCategoryId(presetCategory?.id ?? "");
-    setResponsibleId(preset?.responsibleId ?? (presetCategory ? (categoryResponsible(presetCategory, me, partner) ?? me.user_id) : me.user_id));
-    setScope(preset?.scope ?? suggestedScope(presetCategory));
-    setScopeTouched(!!preset?.scope);
+    // Desde un presupuesto: su espacio y quien lo asume. Si no: quien paga y el último espacio usado.
+    setResponsibleId(preset?.responsibleId ?? me.user_id);
+    setScope(preset?.scope ?? lastScope());
     setSplitMode(false);
     setSplits([]);
     setCreatesDebt(true);
@@ -198,17 +203,11 @@ export function TransactionSheet({
 
   function chooseScope(s: Space) {
     setScope(s);
-    setScopeTouched(true);
   }
 
-  // La categoría no decide quién asume el pago (la usan los dos): solo una categoría personal
-  // queda a cargo de su dueño. El responsable de un presupuesto se propone al pagar desde ese presupuesto.
+  // La categoría solo dice en qué se gastó: no cambia quién lo asume ni si es del hogar o personal.
   function pickCategory(c: Category) {
     setCategoryId(c.id);
-    if (c.responsibility === "PRIVATE" && c.owner_user_id) setResponsibleId(c.owner_user_id);
-    // Una categoría personal solo cabe en un movimiento personal; si no, se sugiere el ámbito de la categoría
-    if (c.responsibility === "PRIVATE") setScope("PERSONAL");
-    else if (!scopeTouched && !partnerEdit) setScope(suggestedScope(c));
   }
 
   const memberOptions = [me, partner].filter(Boolean).map((m) => ({
@@ -218,8 +217,7 @@ export function TransactionSheet({
   }));
 
   // Categorías que puede elegir cada responsable en el desglose: las privadas solo su dueño y solo en lo personal.
-  const categoriesFor = (userId: string) =>
-    usable.filter((c) => c.responsibility !== "PRIVATE" || (c.owner_user_id === userId && scope === "PERSONAL"));
+  const categoriesFor = (_userId: string) => usable;
 
   function startSplit() {
     const first: SplitRow = { key: newKey(), amount: amount, categoryId, responsibleId };
@@ -237,10 +235,12 @@ export function TransactionSheet({
   const otherId = splitDrafts.find((s) => s.responsibleUserId !== payerId)?.responsibleUserId ?? null;
 
   const fixedContext = useMemo(() => {
-    if (kind !== "EXPENSE" || splitMode || !selectedCategory || !partner || partnerEdit) return null;
-    if (selectedCategory.responsibility !== "FIXED_AMOUNTS" || responsibleId !== me.user_id) return null;
+    if (kind !== "EXPENSE" || splitMode || !selectedCategory || !partner || partnerEdit || scope !== "HOUSEHOLD") return null;
+    // Presupuesto del hogar de montos fijos en esta categoría
+    const limit = state.limits.find((l) => l.category_id === selectedCategory.id && l.scope === "HOUSEHOLD" && l.responsibility === "FIXED_AMOUNTS");
+    if (!limit || responsibleId !== me.user_id) return null;
     const period = periodFor(state.settings, date);
-    const st = statusesFor(state, period).get(selectedCategory.id);
+    const st = statusesFor(state, period).get(limit.id);
     if (!st) return null;
     const mine = st.allocations.find((a) => a.userId === me.user_id);
     const theirs = st.allocations.find((a) => a.userId === partner.user_id);
@@ -250,7 +250,7 @@ export function TransactionSheet({
       .reduce((acc, s) => acc + s.amount, 0) ?? 0;
     const sameCat = editing && editing.occurred_on >= period.start && editing.occurred_on <= period.end ? own : 0;
     return { mine: { ...mine, spent: mine.spent - sameCat }, theirs };
-  }, [kind, splitMode, selectedCategory, partner, partnerEdit, responsibleId, me.user_id, state, date, editing]);
+  }, [kind, splitMode, selectedCategory, partner, partnerEdit, scope, responsibleId, me.user_id, state, date, editing]);
 
   async function save(chargeExcess?: number) {
     setError(null);
@@ -262,10 +262,6 @@ export function TransactionSheet({
       payloadSplits = splitDrafts;
       const v = validateSplits(total, payloadSplits);
       if (v) return setError(v);
-      const personalCat = payloadSplits.map((s) => usable.find((c) => c.id === s.categoryId)).find((c) => c?.responsibility === "PRIVATE");
-      if (scope === "HOUSEHOLD" && personalCat) {
-        return setError(`La categoría “${personalCat.name}” es personal: márcalo como Personal o elige otra categoría.`);
-      }
 
       // Partida de montos fijos: si me paso de mi parte, preguntar si se cobra
       if (chargeExcess === undefined && fixedContext) {
@@ -333,7 +329,10 @@ export function TransactionSheet({
     }
     setBusy(false);
     if (error) return setError(errMsg(error));
-    try { if (accountId && !partnerEdit) localStorage.setItem(LAST_ACCOUNT_KEY, accountId); } catch {}
+    try {
+      if (accountId && !partnerEdit) localStorage.setItem(LAST_ACCOUNT_KEY, accountId);
+      if (!partnerEdit && kind !== "TRANSFER" && kind !== "ADJUSTMENT") localStorage.setItem(LAST_SCOPE_KEY, scope);
+    } catch {}
     onOpenChange(false);
     void reload();
   }
@@ -472,14 +471,14 @@ export function TransactionSheet({
           {withSplits && !splitMode && (
             <>
               <Field label="Categoría">
-                <CategoryPicker categories={usable.filter((c) => !partnerEdit || c.responsibility !== "PRIVATE")} value={categoryId}
+                <CategoryPicker categories={usable} value={categoryId}
                   onPick={pickCategory} onNew={partnerEdit ? undefined : () => setNewCategory("EXPENSE")} />
               </Field>
 
               {partner && (
                 <Field label="¿A quién le corresponde?" hint={preset?.categoryId && !editing ? "Propuesto por el presupuesto de la categoría; puedes cambiarlo. No tiene que ser quien pagó." : "Quién asume económicamente el gasto; no tiene que ser quien pagó."}>
                   <ChipGroup value={responsibleId} onChange={setResponsibleId}
-                    options={memberOptions.filter((o) => selectedCategory?.responsibility !== "PRIVATE" || o.value === selectedCategory.owner_user_id)} />
+                    options={memberOptions} />
                 </Field>
               )}
 
@@ -622,7 +621,7 @@ function TransactionDetail({ open, onOpenChange, tx }: { open: boolean; onOpenCh
   const payer = memberById(tx.payer_user_id);
   const hiddenAmount = hasSplits(tx.kind) ? tx.amount - tx.splits.reduce((a, s) => a + s.amount, 0) : 0;
   const myCategories = categories.filter((c) => !c.archived && c.kind !== "INCOME"
-    && (c.responsibility !== "PRIVATE" || (c.owner_user_id === me.user_id && tx.scope === "PERSONAL")));
+);
 
   async function setCategory(splitId: string, categoryId: string) {
     setError(null);

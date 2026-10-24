@@ -26,15 +26,6 @@ export function hasSplits(kind: TxKind): boolean {
   return kind === "EXPENSE" || kind === "DEBT_PAYMENT" || kind === "REFUND";
 }
 
-/** Una categoría de presupuesto que ven y comparten los dos (sus barras solo suman movimientos del hogar). */
-export function isSharedBudget(c: Pick<Category, "is_shared_progress" | "responsibility">): boolean {
-  return c.is_shared_progress || c.responsibility === "FIXED_AMOUNTS";
-}
-
-/** Ámbito sugerido al elegir una categoría: hogar si la categoría se comparte; si no, personal. */
-export function suggestedScope(c: Pick<Category, "is_shared_progress" | "responsibility"> | null | undefined): Space {
-  return c && c.responsibility !== "PRIVATE" && isSharedBudget(c) ? "HOUSEHOLD" : "PERSONAL";
-}
 
 /** Ejecutado por categoría, día, responsable y ámbito a partir de los movimientos visibles. */
 export function spendingRows(txs: Transaction[]): SpendingRow[] {

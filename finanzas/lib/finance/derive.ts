@@ -1,14 +1,14 @@
 // Une los datos que llegan de Supabase con las funciones puras de presupuesto, cruce y Saldo Seguro.
 
 import type {
-  Account, Category, CategoryBudgetRow, LedgerRow, ManualAsset, Member, PeriodSettingsRow, SavingsContribution, SavingsGoal, Transaction,
+  Account, Category, CategoryBudgetRow, CategoryLimit, LedgerRow, ManualAsset, Member, PeriodSettingsRow, SavingsContribution, SavingsGoal, Transaction,
 } from "@/lib/types";
 import { categoryStatus, pendingObligationsFor, type BudgetCategory, type CategoryStatus, type Members, type SpendingRow } from "./budget";
 import { netFor, owedToPartner, type LedgerEntry } from "./crossLedger";
 import { DEFAULT_PERIOD_SETTINGS, isWithin, type Period, type PeriodSettings } from "./periods";
 import { computeSafeToSpend, creditCardDebtOf, realBalanceOf, type SafeToSpendResult } from "./safeToSpend";
 import { pendingSavingsFor } from "./goals";
-import { consumptionSign, isSharedBudget } from "./spaces";
+import { consumptionSign } from "./spaces";
 
 export interface Snapshot {
   me: Member;
@@ -22,6 +22,8 @@ export interface Snapshot {
   ledger: LedgerRow[];
   spending: SpendingRow[];
   assets: ManualAsset[];
+  /** Presupuestos de categoría (del hogar o personales). */
+  limits: CategoryLimit[];
   goals?: SavingsGoal[];
   contributions?: SavingsContribution[];
 }
@@ -44,15 +46,17 @@ export function membersOf(me: Member, partner: Member | null): Members {
   };
 }
 
-export function toBudgetCategories(categories: Category[], budgets: CategoryBudgetRow[]): BudgetCategory[] {
-  return categories.map((c) => ({
-    id: c.id,
-    responsibility: c.responsibility,
-    ownerUserId: c.owner_user_id,
-    rolloverEnabled: c.rollover_enabled,
-    isHouseholdObligation: c.is_household_obligation,
+/** Presupuestos de categoría en el formato del cálculo (el id es el del presupuesto, no el de la categoría). */
+export function toBudgetCategories(limits: CategoryLimit[], budgets: CategoryBudgetRow[]): BudgetCategory[] {
+  return limits.map((l) => ({
+    id: l.id,
+    // Un presupuesto personal lo asume su dueño
+    responsibility: l.scope === "PERSONAL" ? "PRIVATE" : (l.responsibility ?? "FIXED_AMOUNTS"),
+    ownerUserId: l.owner_user_id,
+    rolloverEnabled: l.rollover_enabled,
+    isHouseholdObligation: l.is_household_obligation,
     budgets: budgets
-      .filter((b) => b.category_id === c.id)
+      .filter((b) => b.limit_id === l.id)
       .map((b) => ({
         validFrom: b.valid_from,
         amount: Number(b.amount),
@@ -62,43 +66,49 @@ export function toBudgetCategories(categories: Category[], budgets: CategoryBudg
   }));
 }
 
-/** Categorías cuyo presupuesto puedo ver (la RLS solo me entrega esas versiones). */
-export function hasVisibleBudget(categoryId: string, budgets: CategoryBudgetRow[]): boolean {
-  return budgets.some((b) => b.category_id === categoryId);
-}
-
 /**
- * Ejecutado que cuenta para la barra de cada categoría:
- *  · una categoría principal suma también lo de sus subcategorías
- *  · una barra compartida (progreso compartido o montos fijos) solo suma movimientos del hogar,
- *    así cuadra en los dos celulares y lo personal no se filtra al hogar
+ * Ejecutado que cuenta para cada presupuesto de categoría:
+ *  · la categoría y sus subcategorías
+ *  · del hogar: solo movimientos del hogar (cuadra en los dos celulares y lo personal no se filtra)
+ *  · personal: solo movimientos personales a cargo de su dueño
  */
-export function spendingByCategory(s: Pick<Snapshot, "categories" | "spending">): Map<string, SpendingRow[]> {
-  const byId = new Map(s.categories.map((c) => [c.id, c]));
+export function spendingByLimit(s: Pick<Snapshot, "categories" | "spending" | "limits">): Map<string, SpendingRow[]> {
   const out = new Map<string, SpendingRow[]>();
-  const add = (id: string, r: SpendingRow) => {
-    const c = byId.get(id);
-    if (c && isSharedBudget(c) && r.scope === "PERSONAL") return;
-    const list = out.get(id) ?? [];
-    list.push(r);
-    out.set(id, list);
-  };
+  const parentOf = new Map(s.categories.map((c) => [c.id, c.parent_id ?? null]));
+  const byCategory = new Map<string, CategoryLimit[]>();
+  for (const l of s.limits) byCategory.set(l.category_id, [...(byCategory.get(l.category_id) ?? []), l]);
   for (const r of s.spending) {
-    add(r.categoryId, r);
-    const parent = byId.get(r.categoryId)?.parent_id;
-    if (parent && byId.has(parent)) add(parent, { ...r, categoryId: parent });
+    const parent = parentOf.get(r.categoryId);
+    const candidates = [...(byCategory.get(r.categoryId) ?? []), ...(parent ? byCategory.get(parent) ?? [] : [])];
+    for (const l of candidates) {
+      const counts = l.scope === "HOUSEHOLD"
+        ? r.scope !== "PERSONAL"
+        : r.scope === "PERSONAL" && r.responsibleUserId === l.owner_user_id;
+      if (!counts) continue;
+      out.set(l.id, [...(out.get(l.id) ?? []), { ...r, categoryId: l.id }]);
+    }
   }
   return out;
 }
 
+/** Estado de cada presupuesto de categoría en el periodo (por id de presupuesto). */
 export function statusesFor(s: Snapshot, period: Period): Map<string, CategoryStatus> {
   const members = membersOf(s.me, s.partner);
-  const rows = spendingByCategory(s);
+  const rows = spendingByLimit(s);
   const out = new Map<string, CategoryStatus>();
-  for (const c of toBudgetCategories(s.categories, s.budgets)) {
+  for (const c of toBudgetCategories(s.limits, s.budgets)) {
     out.set(c.id, categoryStatus(c, period, rows.get(c.id) ?? [], s.settings, members));
   }
   return out;
+}
+
+/** Quién asume un presupuesto de categoría (null en montos fijos: los dos). */
+export function limitResponsible(l: CategoryLimit, me: Member, partner: Member | null): string | null {
+  if (l.scope === "PERSONAL") return l.owner_user_id;
+  const bySlot = (slot: "A" | "B") => [me, partner].find((m) => m?.slot === slot)?.user_id ?? null;
+  if (l.responsibility === "MEMBER_A_100") return bySlot("A");
+  if (l.responsibility === "MEMBER_B_100") return bySlot("B");
+  return null;
 }
 
 export function ledgerEntries(rows: LedgerRow[]): LedgerEntry[] {
@@ -121,7 +131,7 @@ export function safeToSpendFor(s: Snapshot, period: Period, statuses = statusesF
   const accounts = balanceAccounts(s);
   return computeSafeToSpend({
     realBalance: realBalanceOf(me, accounts),
-    householdObligationsPending: pendingObligationsFor(me, toBudgetCategories(s.categories, s.budgets), [...statuses.values()]),
+    householdObligationsPending: pendingObligationsFor(me, toBudgetCategories(s.limits, s.budgets), [...statuses.values()]),
     scheduledSavingsPending: pendingSavingsFor(me, s.goals ?? [], s.contributions ?? [], period),
     creditCardDebt: creditCardDebtOf(me, accounts),
     owedToPartner: owedToPartner(me, ledgerEntries(s.ledger)),
@@ -188,15 +198,17 @@ export function cashFlow(s: Snapshot, period: Period, scope: Scope): CashFlow {
 }
 
 
-/** Categorías que se muestran en cada vista del inicio. */
-export function categoriesForScope(s: Snapshot, scope: Scope): Category[] {
+/** Presupuestos de categoría que se muestran en cada vista del inicio. */
+export function limitsForScope(s: Snapshot, scope: Scope): CategoryLimit[] {
   const me = s.me.user_id;
-  const visible = s.categories.filter((c) => !c.archived && hasVisibleBudget(c.id, s.budgets));
+  const active = new Set(s.categories.filter((c) => !c.archived).map((c) => c.id));
+  const visible = s.limits.filter((l) => active.has(l.category_id) && s.budgets.some((b) => b.limit_id === l.id));
   if (scope === "global") return visible;
-  if (scope === "household") return visible.filter((c) => c.responsibility !== "PRIVATE");
-  return visible.filter((c) => {
-    if (c.responsibility === "PRIVATE") return c.owner_user_id === me;
-    if (c.responsibility === "FIXED_AMOUNTS") return true;
-    return (c.responsibility === "MEMBER_A_100" ? "A" : "B") === s.me.slot;
+  if (scope === "household") return visible.filter((l) => l.scope === "HOUSEHOLD");
+  // Mis finanzas: lo que me toca (los personales de la pareja, aunque los comparta, van en la vista global)
+  return visible.filter((l) => {
+    if (l.scope === "PERSONAL") return l.owner_user_id === me;
+    if (l.responsibility === "FIXED_AMOUNTS") return true;
+    return (l.responsibility === "MEMBER_A_100" ? "A" : "B") === s.me.slot;
   });
 }
