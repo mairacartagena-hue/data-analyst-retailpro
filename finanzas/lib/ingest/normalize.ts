@@ -58,6 +58,9 @@ const GATEWAY_PREFIXES = [
 ];
 
 /** Nombre limpio para mostrar: sin pasarelas, códigos ni ciudad/país al final. */
+/** Largo máximo del nombre de un comercio (la base de datos también lo recorta). */
+export const MAX_MERCHANT = 60;
+
 export function cleanMerchant(raw: string | null | undefined): string | null {
   if (!raw) return null;
   const original = raw.replace(/\s+/g, " ").trim();
@@ -77,6 +80,8 @@ export function cleanMerchant(raw: string | null | undefined): string | null {
   if (!s) return null;
   // Mayúscula inicial en cada palabra si venía todo en mayúsculas
   if (s === s.toUpperCase()) s = s.toLowerCase().replace(/\b\p{L}/gu, (c) => c.toUpperCase());
+  // Un nombre de comercio nunca es tan largo: si el lector de respaldo copia parte del correo, se corta
+  if (s.length > MAX_MERCHANT) s = s.slice(0, MAX_MERCHANT).replace(/\s+\S*$/, "").trim() || s.slice(0, MAX_MERCHANT);
   return s;
 }
 

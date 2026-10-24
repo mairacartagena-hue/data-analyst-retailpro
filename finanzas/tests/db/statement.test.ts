@@ -54,7 +54,7 @@ describe("importar extracto", () => {
     expect(parsed.lines).toHaveLength(6);
     const r = reconcileStatement(account, await load(), parsed.lines, range);
     expect(r.matched).toHaveLength(2); // D1 (1 día de diferencia) y la consignación
-    expect(r.missing.map((l) => l.description)).toEqual(["PAGO PSE DAVIVIENDA", "ABONO INTERESES AHORROS", "IMPTO GOBIERNO 4X1000", "CUOTA DE MANEJO"]);
+    expect(r.missing.map((l) => l.description).sort()).toEqual(["ABONO INTERESES AHORROS", "CUOTA DE MANEJO", "IMPTO GOBIERNO 4X1000", "PAGO PSE DAVIVIENDA"]);
     expect(r.duplicates).toHaveLength(0);
   });
 

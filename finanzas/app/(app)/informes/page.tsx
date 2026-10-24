@@ -12,13 +12,14 @@ import type { Member } from "@/lib/types";
 import { formatCop } from "@/lib/finance/money";
 import { isWithin, monthName, todayBogota } from "@/lib/finance/periods";
 import { shiftMonth } from "@/lib/finance/reconcile";
+import { spendingByTag } from "@/lib/finance/tags";
 import { inReportSpace, monthlyTrend, spendingByCategory, spendingByPerson, toCsv, type ReportSpace } from "@/lib/finance/reports";
 
 const SERIES_1 = "var(--series-1)";
 const SERIES_2 = "var(--series-2)";
 
 export default function InformesPage() {
-  const { transactions: all, categories, labels, period, me, partner, memberById } = useFinance();
+  const { transactions: all, categories, labels, period, me, partner, memberById, tags, txTags } = useFinance();
   const router = useRouter();
   const members = [me, partner].filter(Boolean) as Member[];
   const [space, setSpace] = useState<ReportSpace>("all");
@@ -33,11 +34,12 @@ export default function InformesPage() {
     return Array.from({ length: 6 }, (_, i) => shiftMonth(current, i - 5));
   }, []);
   const trend = useMemo(() => monthlyTrend(transactions, months), [transactions, months]);
+  const byTag = useMemo(() => spendingByTag(transactions, txTags, tags, period), [transactions, txTags, tags, period]);
   const people = useMemo(() => spendingByPerson(transactions, categories, period, members), [transactions, categories, period, members]);
 
   function download() {
     const inPeriod = transactions.filter((t) => isWithin(t.occurred_on, period));
-    const csv = toCsv(inPeriod, { categories, labels, memberById });
+    const csv = toCsv(inPeriod, { categories, labels, memberById, tagsOf: (id) => (txTags[id] ?? []).map((x) => tags.find((t) => t.id === x)?.name).filter((n): n is string => !!n) });
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
     const a = document.createElement("a");
     a.href = url;
@@ -85,6 +87,16 @@ export default function InformesPage() {
                 onSelect={(key) => key !== "none" && key !== "private" && router.push(`/movimientos?categoria=${key}`)} />
             )}
           </ChartCard>
+
+          {tags.length > 0 && (
+            <ChartCard title="Gastos por etiqueta" subtitle="Un movimiento con varias etiquetas cuenta en cada una. Toca una para ver sus movimientos"
+              table={{ columns: ["Etiqueta", "Movimientos", "Gastos", "Ingresos"], rows: byTag.map((t) => [t.name, t.count, t.expense, t.income]) }}>
+              {byTag.length === 0 ? <p className="text-sm text-muted">Ningún movimiento de este periodo tiene etiqueta.</p> : (
+                <BarList items={byTag.map((t) => ({ key: t.tagId, label: `${t.name} · ${t.count}`, value: Math.max(0, t.expense) }))} color={SERIES_1}
+                  onSelect={(key) => router.push(`/movimientos?etiqueta=${key}`)} />
+              )}
+            </ChartCard>
+          )}
 
           <ChartCard title="Por persona y hogar" subtitle="Lo que asumió cada uno: gastos del hogar y personales"
             table={{ columns: ["Persona", "Hogar", "Personal"], rows: people.map((p) => [p.name, p.household, p.personal]) }}>

@@ -180,6 +180,8 @@ export interface Transaction {
   merchant_norm?: string | null;
   movement_type?: "PURCHASE" | "TRANSFER_OUT" | "TRANSFER_IN" | "WITHDRAWAL" | "CARD_PAYMENT" | "INCOME" | "OWN_TRANSFER" | null;
   card_last4?: string | null;
+  /** Llaves, cuentas, celulares o NIT que traía el aviso del banco. */
+  ingest_identifiers?: { type: string; value: string }[] | null;
   suggested_category_id?: string | null;
   suggested_responsible_user_id?: string | null;
   suggested_to_account_id?: string | null;
@@ -208,6 +210,20 @@ export interface MerchantMemory {
   tag: string | null;
   auto_apply: boolean;
   hits: number;
+  /** Nombre que la persona le puso (ej. "Heladería", "Hermano"). */
+  label: string | null;
+  scope: "HOUSEHOLD" | "PERSONAL" | null;
+  creates_debt: boolean;
+  /** REFUND: los ingresos de este origen entran como reembolso de la categoría. */
+  movement_kind: "REFUND" | null;
+}
+
+/** Etiqueta del hogar para filtrar e informar (se pueden crear, renombrar y borrar). */
+export interface Tag {
+  id: string;
+  household_id: string;
+  name: string;
+  color: string | null;
 }
 
 export const CHANNEL_LABEL: Record<string, string> = {

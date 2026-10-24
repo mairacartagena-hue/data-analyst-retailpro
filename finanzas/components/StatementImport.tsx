@@ -14,8 +14,9 @@ import { formatCop } from "@/lib/finance/money";
 import { formatDay } from "@/lib/finance/periods";
 import { monthRange } from "@/lib/finance/reconcile";
 import { ensureCategory } from "@/lib/finance/ensureCategory";
+import { readStatementFile } from "@/lib/finance/statementFile";
 import {
-  BANK_CATEGORY, INTEREST_CATEGORY, UNKNOWN_CATEGORY, bankCharges, closingBalance, isBankLine, parseStatement, reconcileStatement, registerPayload,
+  BANK_CATEGORY, INTEREST_CATEGORY, UNKNOWN_CATEGORY, bankCharges, closingBalance, isBankLine, parseStatementRows, reconcileStatement, registerPayload,
   type AppEntry, type ColumnMap, type LineKind, type StatementLine,
 } from "@/lib/finance/statement";
 import { cn, errMsg } from "@/lib/utils";
@@ -35,7 +36,7 @@ export function StatementImport({ account, month, onBalance }: { account: Accoun
   const isCard = account.kind === "CREDIT_CARD";
 
   const [open, setOpen] = useState(false);
-  const [text, setText] = useState<string | null>(null);
+  const [rows, setRows] = useState<string[][] | null>(null);
   const [fileName, setFileName] = useState("");
   const [flip, setFlip] = useState(false);
   const [purchasesPositive, setPurchasesPositive] = useState(true);
@@ -45,11 +46,11 @@ export function StatementImport({ account, month, onBalance }: { account: Accoun
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const parsed = useMemo(() => (text === null ? null : parseStatement(text, { map, flip, purchasesPositive, isCard })), [text, map, flip, purchasesPositive, isCard]);
+  const parsed = useMemo(() => (rows === null ? null : parseStatementRows(rows, { map, flip, purchasesPositive, isCard, yearHint: Number(month.slice(0, 4)) })), [rows, map, flip, purchasesPositive, isCard, month]);
   const inMonth = useMemo(() => (parsed?.lines ?? []).filter((l) => l.date >= range.start && l.date <= range.end), [parsed, range.start, range.end]);
   const rec = useMemo(() => (parsed ? reconcileStatement(account, transactions, parsed.lines, range) : null), [parsed, account, transactions, range.start, range.end]); // eslint-disable-line react-hooks/exhaustive-deps
   const charges = useMemo(() => bankCharges(account, inMonth, uvt), [account, inMonth, uvt]);
-  const closing = useMemo(() => (parsed ? closingBalance(inMonth) : null), [parsed, inMonth]);
+  const closing = useMemo(() => (parsed ? closingBalance(parsed.raw.filter((l) => l.date >= range.start && l.date <= range.end)) : null), [parsed, range.start, range.end]);
   const inflow = inMonth.filter((l) => l.amount > 0).reduce((a, l) => a + l.amount, 0);
   const outflow = inMonth.filter((l) => l.amount < 0).reduce((a, l) => a - l.amount, 0);
 
@@ -61,14 +62,15 @@ export function StatementImport({ account, month, onBalance }: { account: Accoun
     if (!file) return;
     setError(null);
     setNotice(null);
-    if (file.size > 5_000_000) return setError("El archivo es muy grande (más de 5 MB). ¿Es el extracto en CSV?");
+    if (file.size > 5_000_000) return setError("El archivo es muy grande (más de 5 MB). ¿Es el extracto en CSV o Excel?");
     try {
-      setText(await file.text());
+      setRows(await readStatementFile(file));
       setFileName(file.name);
       setMap({});
       setFlip(false);
-    } catch {
-      setError("No se pudo leer el archivo.");
+    } catch (e) {
+      setRows(null);
+      setError(e instanceof Error && e.message ? e.message : "No se pudo leer el archivo.");
     }
   }
 
@@ -137,17 +139,17 @@ export function StatementImport({ account, month, onBalance }: { account: Accoun
   return (
     <>
       <Button variant="outline" size="sm" className="w-full" onClick={() => setOpen(true)}>
-        <FileUp size={16} /> Importar extracto (CSV) y conciliar
+        <FileUp size={16} /> Importar extracto (Excel o CSV) y conciliar
       </Button>
 
       <Sheet open={open} onOpenChange={setOpen} title="Importar extracto" description={`${account.name}${account.last4 ? ` ··${account.last4}` : ""} · ${month}`}>
         <div className="space-y-4 pb-2">
           <div className="space-y-2">
             <label className="flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-border bg-surface px-4 py-5 text-sm font-medium hover:bg-surface-2">
-              <FileUp size={18} /> {fileName || "Elegir el archivo CSV del banco"}
-              <input type="file" accept=".csv,.txt,text/csv,text/plain" className="sr-only" onChange={(e) => { void pickFile(e.target.files?.[0]); e.target.value = ""; }} />
+              <FileUp size={18} /> {fileName || "Elegir el extracto (Excel o CSV)"}
+              <input type="file" accept=".csv,.txt,.xlsx,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="sr-only" onChange={(e) => { void pickFile(e.target.files?.[0]); e.target.value = ""; }} />
             </label>
-            <p className="text-xs text-muted">El archivo se lee en tu celular; no se sube a ningún lado. Descárgalo desde la página o app de tu banco (extracto o movimientos en CSV).</p>
+            <p className="text-xs text-muted">El archivo se lee en tu celular; no se sube a ningún lado. Descárgalo desde la página o app de tu banco (extracto en Excel .xlsx o CSV). Si trae varios meses, se compara solo el mes que estás cerrando.</p>
           </div>
 
           <ErrorText>{error}</ErrorText>
@@ -202,6 +204,12 @@ export function StatementImport({ account, month, onBalance }: { account: Accoun
               <p className={cn("flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium", rec.matched.length === inMonth.length ? "bg-olive-soft" : "bg-surface-2")}>
                 <CheckCircle2 size={16} /> {rec.matched.length} de {inMonth.length} ya están en la app
               </p>
+              {rec.matched.some((m) => m.approx) && (
+                <p className="px-1 text-xs text-muted">
+                  {rec.matched.filter((m) => m.approx).length} coinciden con una pequeña diferencia de valor (compras internacionales: el banco cobra comisión de cambio):{" "}
+                  {rec.matched.filter((m) => m.approx).map((m) => `${(m.line.description || "").slice(0, 24)} ${formatCop(Math.abs(m.line.amount))} vs ${formatCop(Math.abs(m.entry?.amount ?? 0))} en la app`).join("; ")}.
+                </p>
+              )}
 
               {rec.missing.length > 0 && (
                 <section className="space-y-1">
@@ -250,9 +258,11 @@ export function StatementImport({ account, month, onBalance }: { account: Accoun
               <section className="space-y-2 rounded-2xl border border-border bg-surface p-3 text-sm">
                 <h3 className="flex items-center gap-1.5 font-semibold"><Landmark size={15} /> Cobros del banco en el extracto</h3>
                 {charges.gmf.applies ? (
-                  <p className={cn("rounded-xl px-3 py-2", charges.gmf.ok ? "bg-olive-soft" : "bg-warning-soft")}>
+                  <p className={cn("rounded-xl px-3 py-2", charges.gmf.ok || charges.gmf.charged === 0 ? "bg-olive-soft" : "bg-warning-soft")}>
                     <strong>4x1000:</strong> el banco cobró {formatCop(charges.gmf.charged)}; según tus salidas debería rondar {formatCop(charges.gmf.expected)}.{" "}
-                    {charges.gmf.ok
+                    {charges.gmf.charged === 0
+                      ? `El extracto no trae cobros de 4x1000: ${charges.gmf.expected <= 0 ? "coincide con una cuenta exenta." : "tu cuenta parece exenta (lo que sale está por debajo del tope de 350 UVT). Si es así, cámbialo en Cuentas → 4x1000 para que la app no lo estime."}`
+                      : charges.gmf.ok
                       ? "Coincide."
                       : charges.gmf.diff > 0
                         ? `Cobró ${formatCop(charges.gmf.diff)} de más: ${account.gmf_mode && account.gmf_mode !== "TAXED" ? "tu cuenta está marcada como exenta, revisa con el banco." : "revisa si hay otra cuenta exenta."}`

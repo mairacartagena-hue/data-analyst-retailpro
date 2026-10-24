@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  cleanMerchant, detectIgnore, findAmount, findIdentifiers, findLast4, guessInstitution, maskSensitive, normalizeMerchant, parseAmountCo,
+  MAX_MERCHANT, cleanMerchant, detectIgnore, findAmount, findIdentifiers, findLast4, guessInstitution, maskSensitive, normalizeMerchant, parseAmountCo,
 } from "@/lib/ingest/normalize";
 import { parseWithRules } from "@/lib/ingest/registry";
 import type { RawEvent } from "@/lib/ingest/types";
@@ -76,5 +76,19 @@ describe("reglas de ignorar", () => {
   it("sin parser del banco todavía: queda para Gemini o como no reconocido", () => {
     expect(parseWithRules(ev("Compraste $45.000 en Éxito")).parsed).toBeNull();
     expect(parseWithRules(ev("Tu clave dinámica es 1234")).parsed?.kind).toBe("IGNORE");
+  });
+});
+
+describe("nombres de comercio desmedidos", () => {
+  it("se cortan a 60 caracteres sin partir palabras (ej. el lector de respaldo copió medio correo)", () => {
+    const junk = "Davivienda Cartera Creditos " + "otros servicios ".repeat(60);
+    const out = cleanMerchant(junk)!;
+    expect(out.length).toBeLessThanOrEqual(MAX_MERCHANT);
+    expect(out.startsWith("Davivienda Cartera Creditos")).toBe(true);
+    expect(out.endsWith(" ")).toBe(false);
+  });
+
+  it("un nombre normal no cambia", () => {
+    expect(cleanMerchant("Banco De Bogotá - Crédito Hipotecario")).toBe("Banco De Bogotá - Crédito Hipotecario");
   });
 });
