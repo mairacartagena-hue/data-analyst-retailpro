@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card, SectionTitle } from "@/components/ui/card";
 import { ErrorText, Field, Input } from "@/components/ui/input";
 import { Sheet } from "@/components/ui/sheet";
+import { StatementImport } from "@/components/StatementImport";
 import type { Account } from "@/lib/types";
 import { ACCOUNT_KIND_LABEL } from "@/lib/types";
 import { accountStatement, gmfEstimate, monthRange, shiftMonth, suggestedCloseMonth, type GmfMode } from "@/lib/finance/reconcile";
@@ -199,6 +200,8 @@ function AccountClose({ account, month }: { account: Account; month: string }) {
             <dt className="font-semibold">{isCard ? "Deuda según la app" : "Saldo según la app"}</dt><dd className="num text-right font-semibold">{formatCop(appValue)}</dd>
           </dl>
           {st.pending > 0 && <p className="text-xs text-warning">{st.pending} movimiento{st.pending === 1 ? "" : "s"} de esta cuenta siguen por revisar.</p>}
+
+          <StatementImport account={account} month={month} onBalance={(v) => setBank(String(v))} />
 
           <Field label={isCard ? `Deuda según tu extracto al ${Number(range.end.slice(8))} de ${monthName(Number(month.slice(5)) - 1, true)}` : `Saldo según tu banco al ${Number(range.end.slice(8))} de ${monthName(Number(month.slice(5)) - 1, true)}`}>
             <AmountInput value={bank} onChange={setBank} />

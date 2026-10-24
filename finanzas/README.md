@@ -10,16 +10,17 @@ PWA privada de finanzas personales y en pareja (Android y escritorio). Todo en p
 |---|---|
 | Fase 1 — Núcleo financiero | Hecha |
 | Fase 2 — Ingesta automática | Hecha; llegan correos de Bancolombia por Gmail |
-| Cierre del mes, Informes, pestañas Inicio · Movimientos · + · Presupuesto · Informes · Más | Hecho |
+| Cierre del mes (con importación del extracto en CSV), Informes, pestañas Inicio · Movimientos · + · Presupuesto · Informes · Más | Hecho |
+| Comentarios en los movimientos (migración 0020) | Hecho |
 | Fase 3 — Voz, OCR, Telegram, offline con cola | Pendiente |
-| Organización hogar / personal, subcategorías, pago de deuda / reembolso / ajuste, presupuestos con nombre, vencimientos y metas de ahorro (migraciones 0017 y 0018) | Hecho; **aplicar 0017 y 0018 antes de publicar** |
+| Organización hogar / personal, subcategorías, pago de deuda / reembolso / ajuste, presupuestos con nombre, vencimientos y metas de ahorro (migraciones 0017 y 0018) | Hecho (migraciones 0017 a 0019 aplicadas) |
 | Fase 4 — Créditos con saldo (capital e intereses), Web Push, IA | Pendiente |
 
 **Pendiente por probar o configurar:**
 - [ ] Que la pareja se una al hogar y probar el cruce, la liquidación, Realtime en dos celulares y la privacidad (pasos 1, 5 y 6 de “Cómo probar la Fase 1”).
 - [ ] Revisar la cola “Por revisar” y los avisos no reconocidos (Ajustes → Captura automática → Reintentar).
 - [ ] Hacer el primer Cierre del mes.
-- [ ] Configurar MacroDroid (SMS y notificaciones) en cada celular; por ahora solo llegan correos.
+- [x] MacroDroid con las 2 macros (notificaciones y SMS). Falta conectar el celular de la pareja cuando se una.
 - [ ] Conseguir ejemplos reales de Nequi y Banco de Bogotá (Google Wallet ya está).
 - [ ] Crear el resto de categorías y las categorías de ingresos.
 - [x] ~~Leaked password protection~~: solo existe en planes de pago de Supabase; no aplica (se usa el plan gratuito).
@@ -88,6 +89,12 @@ Ajustes → **Cierre del mes** (`app/(app)/cierre`), con recordatorio en el inic
 - Diferencia sin explicar → gasto en la categoría “No identificado” (o ingreso no identificado si sobra plata).
 - **4x1000 estimado:** 0,4 % de las salidas por encima del tope exento: cuenta exenta 350 UVT/mes, depósito de bajo monto 65 UVT/mes (Concepto DIAN 362 de 2024). UVT 2026 = $52.374 (Resolución DIAN 000238 de 2025), editable en Ajustes → Periodos.
 - **¿Qué hace falta?:** obligaciones del hogar sin pagar, movimientos por revisar, avisos no reconocidos y cuentas sin conciliar.
+- **Importar el extracto (CSV)** (`components/StatementImport.tsx`, `lib/finance/statement.ts`): en cada cuenta, “Importar extracto (CSV) y conciliar”. El archivo se lee en el celular y no se sube. Reconoce separador `;` `,` o tabulación, encabezados con o sin título, columna de valor con signo o débitos/créditos separados, y fechas día/mes/año o año-mes-día. Si no reconoce las columnas se pueden elegir a mano.
+  - **Faltan en la app:** línea del extracto sin movimiento con el mismo valor (hasta 3 días de diferencia). Los del banco (4x1000, intereses, cuotas) se registran todos con un botón; los demás abren el formulario ya llenado.
+  - **Posibles duplicados:** más movimientos en la app que líneas en el extracto con ese valor y fecha; se puede borrar el que sobra.
+  - **En la app y no en el extracto:** solo aviso.
+  - **4x1000:** compara lo que cobró el banco con el estimado (0,4 % sobre las salidas por encima del tope exento). **Intereses** a favor y cobrados, y **cuotas/comisiones/seguros/IVA** se detectan por la descripción.
+  - Si el extracto trae saldo, ofrece usar el saldo final como saldo del banco.
 - Cada cuenta guarda la **fecha de su saldo inicial** (`opening_at`): lo que ocurrió antes ya estaba incluido en ese saldo y no se vuelve a restar.
 
 ## Hogar y personal (migraciones 0017, 0018 y 0019)

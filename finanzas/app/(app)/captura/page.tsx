@@ -50,7 +50,7 @@ function Step({ n, children }: { n: number; children: React.ReactNode }) {
 }
 
 export default function CapturaPage() {
-  const { supabase, me, categories, memberById } = useFinance();
+  const { supabase, me, categories, memberById, reload } = useFinance();
   const [origin, setOrigin] = useState("");
   const [token, setToken] = useState<{ token_hint: string; created_at: string; last_used_at: string | null } | null>(null);
   const [newToken, setNewToken] = useState<string | null>(null);
@@ -58,22 +58,30 @@ export default function CapturaPage() {
   const [memory, setMemory] = useState<MerchantMemory[]>([]);
   const [open, setOpen] = useState<string | null>("android");
   const [error, setError] = useState<string | null>(null);
+  const [failedIds, setFailedIds] = useState<string[]>([]);
+  const [retrying, setRetrying] = useState<{ done: number; total: number } | null>(null);
+  const [retrySummary, setRetrySummary] = useState<string | null>(null);
 
   useEffect(() => setOrigin(window.location.origin), []);
   const webhook = `${origin}/api/webhook/android-ingest`;
 
   const load = useCallback(async () => {
-    const [t, l, m] = await Promise.all([
+    const [t, l, m, f] = await Promise.all([
       supabase.from("ingest_tokens").select("token_hint, created_at, last_used_at").eq("user_id", me.user_id).maybeSingle(),
       supabase.from("ingest_logs").select("id, channel, source, raw_text, parser, result, reason, transaction_id, received_at")
         .eq("user_id", me.user_id).order("received_at", { ascending: false }).limit(40),
       supabase.from("merchant_memory").select("id, identifier_type, identifier, category_id, responsible_user_id, tag, auto_apply, hits")
         .eq("user_id", me.user_id).order("hits", { ascending: false }),
+      // Todos los avisos que no se pudieron leer (no solo los 40 que se ven abajo) y aún tienen su texto
+      supabase.from("ingest_logs").select("id").eq("user_id", me.user_id)
+        .in("result", ["UNRECOGNIZED", "ERROR", "DISCARDED"]).not("raw_text", "is", null)
+        .order("received_at", { ascending: false }).limit(300),
     ]);
     if (t.error || l.error || m.error) setError(errMsg(t.error || l.error || m.error));
     setToken(t.data ?? null);
     setLogs((l.data ?? []) as IngestLog[]);
     setMemory((m.data ?? []) as MerchantMemory[]);
+    setFailedIds(((f.data ?? []) as { id: string }[]).map((x) => x.id));
   }, [supabase, me.user_id]);
 
   useEffect(() => { void load(); }, [load]);
@@ -84,6 +92,42 @@ export default function CapturaPage() {
     if (error) return setError(errMsg(error));
     setNewToken(data as string);
     void load();
+  }
+
+  /** Un solo botón: vuelve a leer, uno por uno, todos los avisos que no se pudieron reconocer. */
+  async function retryAll() {
+    const ids = failedIds;
+    if (ids.length === 0 || retrying) return;
+    setRetrySummary(null);
+    setRetrying({ done: 0, total: ids.length });
+    const tally = { ACCEPTED: 0, MERGED: 0, IGNORED: 0, DUPLICATE: 0, stillFailed: 0, errors: 0 };
+    for (let i = 0; i < ids.length; i++) {
+      try {
+        const res = await fetch("/api/ingest/retry", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ log_id: ids[i] }) });
+        const data = (await res.json()) as { ok: boolean; result?: string };
+        if (!data.ok) tally.errors++;
+        else if (data.result === "ACCEPTED") tally.ACCEPTED++;
+        else if (data.result === "MERGED") tally.MERGED++;
+        else if (data.result === "IGNORED") tally.IGNORED++;
+        else if (data.result === "DUPLICATE") tally.DUPLICATE++;
+        else tally.stillFailed++;
+      } catch {
+        tally.errors++;
+      }
+      setRetrying({ done: i + 1, total: ids.length });
+    }
+    setRetrying(null);
+    const parts = [
+      tally.ACCEPTED && `${tally.ACCEPTED} quedaron en Por revisar`,
+      tally.MERGED && `${tally.MERGED} se unieron con movimientos que ya estaban`,
+      tally.IGNORED && `${tally.IGNORED} no eran movimientos`,
+      tally.DUPLICATE && `${tally.DUPLICATE} ya estaban procesados`,
+      tally.stillFailed && `${tally.stillFailed} siguen sin reconocerse (regístralos a mano abajo)`,
+      tally.errors && `${tally.errors} fallaron por conexión: vuelve a intentar`,
+    ].filter(Boolean);
+    setRetrySummary(parts.length ? `Listo: ${parts.join("; ")}.` : "No había nada que reintentar.");
+    await load();
+    void reload();
   }
 
   async function toggleAuto(m: MerchantMemory, v: boolean) {
@@ -180,11 +224,27 @@ export default function CapturaPage() {
       </div>
 
       <SectionTitle>Últimos eventos</SectionTitle>
+      {(failedIds.length > 0 || retrying || retrySummary) && (
+        <Card className="mb-3 space-y-2">
+          {failedIds.length > 0 && (
+            <>
+              <p className="text-sm">
+                {failedIds.length} aviso{failedIds.length === 1 ? "" : "s"} sin reconocer. Se vuelven a leer con las reglas actuales (y Gemini si hace falta).
+              </p>
+              <Button className="w-full" onClick={retryAll} disabled={!!retrying}>
+                <RefreshCw size={16} className={retrying ? "animate-spin" : ""} />
+                {retrying ? `Reintentando ${retrying.done} de ${retrying.total}…` : `Reintentar los ${failedIds.length} pendientes`}
+              </Button>
+            </>
+          )}
+          {retrySummary && <p className="text-sm text-olive">{retrySummary}</p>}
+        </Card>
+      )}
       {logs.length === 0 ? (
         <p className="px-1 text-sm text-muted">Aún no ha llegado nada. Cuando conectes MacroDroid o Gmail verás aquí cada aviso y qué se hizo con él.</p>
       ) : (
         <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface">
-          {logs.map((l) => <LogRow key={l.id} log={l} onChanged={load} />)}
+          {logs.map((l) => <LogRow key={l.id} log={l} />)}
         </div>
       )}
 
@@ -216,34 +276,11 @@ export default function CapturaPage() {
   );
 }
 
-function LogRow({ log, onChanged }: { log: IngestLog; onChanged: () => void }) {
+function LogRow({ log }: { log: IngestLog }) {
   const { openPayment } = useShell();
-  const { reload } = useFinance();
   const [show, setShow] = useState(log.result === "UNRECOGNIZED" || log.result === "ERROR");
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
   const r = RESULT_LABEL[log.result];
   const failed = log.result === "UNRECOGNIZED" || log.result === "ERROR" || log.result === "DISCARDED";
-
-  async function retry() {
-    setBusy(true);
-    setMsg(null);
-    try {
-      const res = await fetch("/api/ingest/retry", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ log_id: log.id }) });
-      const data = (await res.json()) as { ok: boolean; error?: string; result?: string; reason?: string | null };
-      if (!data.ok) setMsg(data.error ?? "No se pudo reintentar");
-      else if (data.result === "ACCEPTED") setMsg("Listo: quedó en Por revisar.");
-      else if (data.result === "MERGED") setMsg("Ya estaba registrado; se unió con ese movimiento.");
-      else if (data.result === "IGNORED") setMsg("No es un movimiento; se ignoró.");
-      else setMsg(data.reason ?? "Sigue sin reconocerse. Regístralo a mano.");
-      onChanged();
-      void reload();
-    } catch {
-      setMsg("Sin conexión. Intenta de nuevo.");
-    } finally {
-      setBusy(false);
-    }
-  }
 
   function manual() {
     const text = (log.raw_text ?? "").replace(/\s+/g, " ");
@@ -268,14 +305,8 @@ function LogRow({ log, onChanged }: { log: IngestLog; onChanged: () => void }) {
           <p className="text-muted">{CHANNEL_LABEL[log.channel] ?? log.channel}{log.parser ? ` · leído con ${log.parser === "gemini" ? "Gemini" : log.parser}` : ""}{log.reason ? ` · ${log.reason}` : ""}</p>
           {log.raw_text ? <Code>{log.raw_text}</Code> : <p className="text-xs text-muted">Texto original ya borrado.</p>}
           {failed && (
-            <div className="flex gap-2">
-              <Button size="sm" variant="outline" className="flex-1" onClick={retry} disabled={busy || !log.raw_text}>
-                <RefreshCw size={15} className={busy ? "animate-spin" : ""} /> Reintentar
-              </Button>
-              <Button size="sm" className="flex-1" onClick={manual}><Plus size={15} /> Registrar</Button>
-            </div>
+            <Button size="sm" variant="outline" className="w-full" onClick={manual}><Plus size={15} /> Registrar a mano</Button>
           )}
-          {msg && <p className="text-xs">{msg}</p>}
         </div>
       )}
     </div>

@@ -14,6 +14,7 @@ import { SwitchRow } from "@/components/ui/switch";
 import { AmountInput } from "@/components/AmountInput";
 import { CategorySheet } from "@/components/CategorySheet";
 import { CategoryOptions, CategoryPicker } from "@/components/CategoryPicker";
+import { TransactionComments } from "@/components/TransactionComments";
 import { MemberBadge } from "@/components/MemberBadge";
 import { formatCop, parseCop } from "@/lib/finance/money";
 import { formatDay, periodFor, todayBogota } from "@/lib/finance/periods";
@@ -598,6 +599,7 @@ export function TransactionSheet({
               {busy ? "Guardando..." : isPendingReview ? "Confirmar" : "Guardar"}
             </Button>
           </div>
+          {editing && <TransactionComments txId={editing.id} />}
         </div>
       )}
       <CategorySheet open={newCategory !== null} onOpenChange={(v) => !v && setNewCategory(null)} category={null}
@@ -664,6 +666,7 @@ function TransactionDetail({ open, onOpenChange, tx }: { open: boolean; onOpenCh
             ? "Las liquidaciones no se editan."
             : "Es un movimiento personal de tu pareja: solo quien lo registró puede editarlo. Los del hogar los pueden ajustar los dos."}
         </p>
+        <TransactionComments txId={tx.id} />
       </div>
     </Sheet>
   );
