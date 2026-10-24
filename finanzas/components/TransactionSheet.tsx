@@ -42,9 +42,15 @@ function newKey() {
   return Math.random().toString(36).slice(2);
 }
 
+/** Valores iniciales para registrar el pago de una categoría desde su barra. */
+export interface TxPreset {
+  categoryId: string;
+  amount: number;
+}
+
 export function TransactionSheet({
-  open, onOpenChange, editing,
-}: { open: boolean; onOpenChange: (v: boolean) => void; editing: Transaction | null }) {
+  open, onOpenChange, editing, preset = null,
+}: { open: boolean; onOpenChange: (v: boolean) => void; editing: Transaction | null; preset?: TxPreset | null }) {
   const state = useFinance();
   const router = useRouter();
   const { me, partner, accounts, categories, labels, supabase, reload } = state;
@@ -96,19 +102,20 @@ export function TransactionSheet({
     }
     let last = "";
     try { last = localStorage.getItem(LAST_ACCOUNT_KEY) ?? ""; } catch {}
+    const presetCategory = preset ? usable.find((c) => c.id === preset.categoryId) ?? null : null;
     setKind("EXPENSE");
-    setAmount("");
-    setDescription("");
+    setAmount(preset && preset.amount > 0 ? String(preset.amount) : "");
+    setDescription(presetCategory ? presetCategory.name : "");
     setDate(todayBogota());
     setAccountId(myAccounts.some((a) => a.id === last) ? last : (myAccounts[0]?.id ?? ""));
     setToAccountId("");
-    setCategoryId("");
-    setResponsibleId(me.user_id);
+    setCategoryId(presetCategory?.id ?? "");
+    setResponsibleId(presetCategory ? (categoryResponsible(presetCategory, me, partner) ?? me.user_id) : me.user_id);
     setSplitMode(false);
     setSplits([]);
     setIsShared(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, editing]);
+  }, [open, editing, preset]);
 
   const total = parseCop(amount) ?? 0;
   const selectedCategory = usable.find((c) => c.id === categoryId) ?? null;
@@ -243,7 +250,7 @@ export function TransactionSheet({
   const crossing = kind === "EXPENSE" && !splitMode && responsibleId !== me.user_id;
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} title={editing ? "Editar movimiento" : "Registrar"}>
+    <Sheet open={open} onOpenChange={onOpenChange} title={editing ? "Editar movimiento" : preset ? "Registrar pago" : "Registrar"}>
       {myAccounts.length === 0 ? (
         <div className="space-y-3 py-6 text-center">
           <p className="text-[15px]">Primero agrega una cuenta (ahorros, Nequi, efectivo o tarjeta) en la pestaña Cuentas.</p>
@@ -278,7 +285,7 @@ export function TransactionSheet({
             ]} />
           )}
 
-          <AmountInput large value={amount} onChange={setAmount} autoFocus={!editing} />
+          <AmountInput large value={amount} onChange={setAmount} autoFocus={!editing && !preset} />
 
           <div className="grid grid-cols-[1fr_auto] gap-3">
             <Input value={description} onChange={(e) => setDescription(e.target.value)}

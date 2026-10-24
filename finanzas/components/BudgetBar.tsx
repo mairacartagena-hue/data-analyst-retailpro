@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "motion/react";
-import { AlertTriangle, Lock, Users } from "lucide-react";
+import { AlertTriangle, Check, Lock, Pencil, Plus, Users } from "lucide-react";
 import type { Category, Member } from "@/lib/types";
 import type { CategoryStatus } from "@/lib/finance/budget";
 import { formatCop, formatCopShort } from "@/lib/finance/money";
@@ -10,12 +10,16 @@ import { cn } from "@/lib/utils";
 
 /** Barra de progreso de una categoría: quién es responsable, cuánto lleva cada uno y alerta de tope. */
 export function BudgetBar({
-  category, status, memberById, onClick,
+  category, status, memberById, onClick, onPay, meId,
 }: {
   category: Category;
   status: CategoryStatus | undefined;
   memberById: (id: string | null | undefined) => Member | null;
+  /** Abre la edición de la categoría. */
   onClick?: () => void;
+  /** Abre el registro de un pago con lo que falta como monto sugerido. */
+  onPay?: (amount: number) => void;
+  meId?: string;
 }) {
   const available = status?.totalAvailable ?? 0;
   const spent = status?.totalSpent ?? 0;
@@ -24,9 +28,14 @@ export function BudgetBar({
   const spenders = Object.entries(status?.spentByUser ?? {}).filter(([, v]) => v > 0);
   const scale = Math.max(available, spent, 1);
   const left = available - spent;
+  // Monto sugerido para pagar: lo que me falta de mi parte, o lo que falta de la categoría
+  const mine = allocations.find((a) => a.userId === meId);
+  const suggested = Math.max(0, mine ? mine.remaining : left);
+  const covered = available > 0 && left <= 0;
 
   return (
-    <button onClick={onClick} className="w-full rounded-2xl border border-border bg-surface p-3.5 text-left transition-colors hover:bg-surface-2">
+    <div className="w-full rounded-2xl border border-border bg-surface">
+    <button onClick={onClick} className="w-full rounded-t-2xl p-3.5 pb-2.5 text-left transition-colors hover:bg-surface-2" aria-label={`Editar ${category.name}`}>
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           <span className="text-lg">{category.icon || "•"}</span>
@@ -70,5 +79,19 @@ export function BudgetBar({
         </div>
       )}
     </button>
+    {onPay && (
+      <div className="flex items-center justify-between gap-2 border-t border-border px-3.5 py-2">
+        {covered ? (
+          <span className="flex items-center gap-1 text-sm font-medium text-olive"><Check size={15} /> Cubierto este periodo</span>
+        ) : (
+          <span className="flex items-center gap-1 text-xs text-muted"><Pencil size={12} /> Toca arriba para editar</span>
+        )}
+        <button onClick={() => onPay(covered ? 0 : suggested)}
+          className={cn("flex items-center gap-1 rounded-full px-3 py-1.5 text-sm font-semibold", covered ? "text-muted hover:bg-surface-2" : "bg-olive-soft text-text")}>
+          <Plus size={15} /> {covered ? "Otro gasto" : "Registrar pago"}
+        </button>
+      </div>
+    )}
+    </div>
   );
 }
