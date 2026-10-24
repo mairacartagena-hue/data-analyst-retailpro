@@ -24,6 +24,8 @@ export function AccountSheet({ open, onOpenChange, account }: { open: boolean; o
   const [institution, setInstitution] = useState("");
   const [last4, setLast4] = useState("");
   const [aliases, setAliases] = useState("");
+  const [gmfMode, setGmfMode] = useState<"TAXED" | "EXEMPT_350" | "LOW_AMOUNT_65">("TAXED");
+  const [openingDate, setOpeningDate] = useState("");
   const [visibility, setVisibility] = useState<Visibility>("PRIVATE");
   const [reveal, setReveal] = useState(false);
   const [opening, setOpening] = useState("");
@@ -41,6 +43,8 @@ export function AccountSheet({ open, onOpenChange, account }: { open: boolean; o
     setInstitution(account?.institution ?? "");
     setLast4(account?.last4 ?? "");
     setAliases((account?.alias_last4 ?? []).join(", "));
+    setGmfMode(account?.gmf_mode ?? "TAXED");
+    setOpeningDate(account?.opening_at ? new Date(Date.parse(account.opening_at) - 5 * 3_600_000).toISOString().slice(0, 10) : "");
     setVisibility(account?.visibility ?? "PRIVATE");
     setReveal(account?.reveal_in_shared ?? false);
     const ob = account?.opening_balance ?? 0;
@@ -66,6 +70,9 @@ export function AccountSheet({ open, onOpenChange, account }: { open: boolean; o
       institution: institution.trim() || null,
       last4: last4 || null,
       alias_last4: aliasList.filter((a) => a !== last4),
+      gmf_mode: kind === "DEPOSIT" || kind === "WALLET" ? gmfMode : "TAXED",
+      // Fecha del saldo: los movimientos desde ese día (hora Colombia) cuentan; los anteriores ya estaban incluidos
+      ...(openingDate ? { opening_at: new Date(`${openingDate}T00:00:00-05:00`).toISOString() } : {}),
       visibility,
       reveal_in_shared: visibility === "PRIVATE" ? reveal : false,
       // En tarjetas el saldo inicial es la deuda actual (se guarda negativa)
@@ -125,6 +132,21 @@ export function AccountSheet({ open, onOpenChange, account }: { open: boolean; o
         <Field label={isCard ? "Deuda actual de la tarjeta" : "Saldo actual"} hint={account ? "Es el saldo con el que empezó la cuenta en la app; los movimientos se suman aparte." : "El saldo de hoy. Desde aquí la app suma y resta los movimientos."}>
           <AmountInput value={opening} onChange={setOpening} />
         </Field>
+        {account && (
+          <Field label="Fecha de ese saldo" htmlFor="opening-date"
+            hint="Los movimientos desde esta fecha suman o restan. Los de antes ya estaban incluidos en el saldo que escribiste.">
+            <Input id="opening-date" type="date" value={openingDate} onChange={(e) => setOpeningDate(e.target.value)} />
+          </Field>
+        )}
+        {(kind === "DEPOSIT" || kind === "WALLET") && (
+          <Field label="4x1000 (GMF)">
+            <Select value={gmfMode} onChange={(e) => setGmfMode(e.target.value as typeof gmfMode)}>
+              <option value="TAXED">Me cobran 4x1000</option>
+              <option value="EXEMPT_350">Exenta (hasta 350 UVT al mes)</option>
+              <option value="LOW_AMOUNT_65">Depósito de bajo monto, como Nequi (hasta 65 UVT al mes)</option>
+            </Select>
+          </Field>
+        )}
         {isCard && (
           <div className="grid grid-cols-3 gap-3">
             <Field label="Cupo"><AmountInput value={limit} onChange={setLimit} /></Field>

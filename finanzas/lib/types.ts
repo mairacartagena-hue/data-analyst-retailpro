@@ -28,6 +28,19 @@ export interface PeriodSettingsRow {
   monthly_start_day: number;
   biweekly_first_day: number;
   biweekly_second_day: number;
+  uvt_value?: number;
+}
+
+export interface Reconciliation {
+  id: string;
+  account_id: string;
+  month: string;
+  statement_balance: number;
+  app_balance: number;
+  difference: number;
+  status: "RECONCILED" | "DIFFERENCE";
+  note: string | null;
+  updated_at: string;
 }
 
 export interface CustomPeriodRow {
@@ -50,6 +63,9 @@ export interface Account {
   visibility: Visibility;
   reveal_in_shared: boolean;
   opening_balance: number;
+  /** Momento del saldo inicial; los movimientos anteriores no lo afectan. */
+  opening_at?: string;
+  gmf_mode?: "TAXED" | "EXEMPT_350" | "LOW_AMOUNT_65";
   credit_limit: number | null;
   statement_day: number | null;
   due_day: number | null;

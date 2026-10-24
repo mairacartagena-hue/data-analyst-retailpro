@@ -11,6 +11,7 @@ import { PeriodSwitcher, SwipePeriods } from "@/components/PeriodSwitcher";
 import { BudgetBar } from "@/components/BudgetBar";
 import { MemberBadge } from "@/components/MemberBadge";
 import { PendingReview } from "@/components/PendingReview";
+import { CloseReminder } from "@/components/CloseReminder";
 import { Card, SectionTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
@@ -70,6 +71,7 @@ export default function HomePage() {
       ]} />
 
       <SwipePeriods>
+        <CloseReminder />
         <PendingReview />
 
         <SafeToSpendCard safe={safe} />

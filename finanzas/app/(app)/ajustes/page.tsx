@@ -3,7 +3,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowRightLeft, ChevronRight, Download, LogOut, RefreshCw, Share2, Zap } from "lucide-react";
+import { ArrowRightLeft, ChevronRight, ClipboardCheck, Download, LogOut, RefreshCw, Share2, Zap } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { MemberBadge } from "@/components/MemberBadge";
 import { Button } from "@/components/ui/button";
@@ -17,7 +17,7 @@ const COLORS = ["#6b7a3a", "#a0703f", "#8c5a46", "#4f6d6a", "#7b5c8a", "#b5654a"
 type Theme = "system" | "light" | "dark";
 
 export default function AjustesPage() {
-  const { me, partner, household, settings, supabase, reload } = useFinance();
+  const { me, partner, household, settings, supabase, reload, uvt } = useFinance();
   const router = useRouter();
 
   const [name, setName] = useState(me.display_name);
@@ -30,6 +30,7 @@ export default function AjustesPage() {
   const [firstDay, setFirstDay] = useState(String(settings.biweeklyFirstDay));
   const [secondDay, setSecondDay] = useState(String(settings.biweeklySecondDay));
   const [periodMsg, setPeriodMsg] = useState<string | null>(null);
+  const [uvtText, setUvtText] = useState(String(uvt));
 
   const [theme, setTheme] = useState<Theme>("system");
   const [error, setError] = useState<string | null>(null);
@@ -64,6 +65,7 @@ export default function AjustesPage() {
     if (cycle === "BIWEEKLY" && a >= b) return setError("El segundo corte debe ser después del primero.");
     const { error } = await supabase.from("period_settings").update({
       cycle, monthly_start_day: clamp(monthlyDay, 1), biweekly_first_day: a, biweekly_second_day: b,
+      uvt_value: Math.max(1, Number(uvtText.replace(/\D/g, "")) || 52374),
     }).eq("household_id", household.id);
     if (error) return setError(errMsg(error));
     setPeriodMsg("Guardado");
@@ -144,6 +146,10 @@ export default function AjustesPage() {
             </div>
           </>
         )}
+        <Link href="/cierre" className="flex items-center justify-between rounded-2xl bg-surface-2 px-3 py-3 text-sm font-medium">
+          <span className="flex items-center gap-2"><ClipboardCheck size={16} /> Cierre del mes (conciliar cuentas)</span>
+          <ChevronRight size={16} />
+        </Link>
         <Link href="/captura" className="flex items-center justify-between rounded-2xl bg-surface-2 px-3 py-3 text-sm font-medium">
           <span className="flex items-center gap-2"><Zap size={16} /> Captura automática (notificaciones, SMS y correos)</span>
           <ChevronRight size={16} />
@@ -168,6 +174,9 @@ export default function AjustesPage() {
           </div>
         )}
         <p className="text-xs text-muted">Aplica a los dos. Los presupuestos se repiten en cada periodo.</p>
+        <Field label="Valor de la UVT del año" htmlFor="uvt" hint="Se usa para el tope exento del 4x1000. 2026: $52.374 (Resolución DIAN 000238 de 2025). Actualízalo cada enero.">
+          <Input id="uvt" inputMode="numeric" value={uvtText} onChange={(e) => setUvtText(e.target.value.replace(/\D/g, ""))} />
+        </Field>
         <div className="flex items-center gap-3">
           <Button onClick={savePeriods}>Guardar periodos</Button>
           {periodMsg && <span className="text-sm text-olive">{periodMsg}</span>}

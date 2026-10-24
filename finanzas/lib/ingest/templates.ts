@@ -24,12 +24,18 @@ function instalar() {
   procesar();
 }
 
-function procesar() {
+// Se ejecuta solo cada 5 minutos: revisa los correos de los últimos 3 días.
+function procesar() { enviar(3); }
+
+// Ejecútala a mano una vez para enviar los correos de los últimos 30 días (ej. al agregar un banco nuevo al filtro).
+function reenviar30Dias() { enviar(30); }
+
+function enviar(dias) {
   const props = PropertiesService.getScriptProperties();
-  const enviados = JSON.parse(props.getProperty('enviados') || '[]'); // ids ya enviados (últimos 500)
+  const enviados = JSON.parse(props.getProperty('enviados') || '[]'); // ids ya enviados (últimos 400; el servidor también descarta repetidos)
   const procesado = GmailApp.getUserLabelByName(PROCESADO) || GmailApp.createLabel(PROCESADO);
-  const consulta = 'label:' + ETIQUETA.replace(/[\\s/]/g, '-') + ' newer_than:3d';
-  const hilos = GmailApp.search(consulta, 0, 50);
+  const consulta = 'label:' + ETIQUETA.replace(/[\\s/]/g, '-') + ' newer_than:' + dias + 'd';
+  const hilos = GmailApp.search(consulta, 0, dias > 3 ? 200 : 50);
   hilos.forEach(hilo => {
     let todosOk = true;
     hilo.getMessages().forEach(m => {
@@ -54,7 +60,7 @@ function procesar() {
     });
     if (todosOk) hilo.addLabel(procesado);
   });
-  props.setProperty('enviados', JSON.stringify(enviados.slice(-500)));
+  props.setProperty('enviados', JSON.stringify(enviados.slice(-400)));
 }
 `;
 }

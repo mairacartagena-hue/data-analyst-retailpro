@@ -5,7 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabase } from "@/lib/supabase/client";
 import type {
   Account, AccountLabel, Category, CategoryBudgetRow, CustomPeriodRow, Household, LedgerRow, ManualAsset, Member,
-  PeriodSettingsRow, Split, Transaction,
+  PeriodSettingsRow, Reconciliation, Split, Transaction,
 } from "@/lib/types";
 import type { SpendingRow } from "@/lib/finance/budget";
 import { toPeriodSettings, type Snapshot } from "@/lib/finance/derive";
@@ -13,6 +13,8 @@ import { periodFor, todayBogota, type Period } from "@/lib/finance/periods";
 
 export interface FinanceState extends Snapshot {
   household: Household;
+  uvt: number;
+  reconciliations: Reconciliation[];
   labels: AccountLabel[];
   customPeriods: CustomPeriodRow[];
   period: Period;
@@ -53,7 +55,7 @@ async function loadAll(sb: SupabaseClient, userId: string): Promise<Loaded> {
   const me = meRow as Member;
   const hh = me.household_id;
 
-  const [household, members, settings, customPeriods, accounts, labels, balances, categories, budgets, txs, splits, ledger, assets, spending] =
+  const [household, members, settings, customPeriods, accounts, labels, balances, categories, budgets, txs, splits, ledger, assets, spending, recs] =
     await Promise.all([
       sb.from("households").select("id, name, invite_code").eq("id", hh).single(),
       sb.from("household_members").select("*").eq("household_id", hh),
@@ -75,9 +77,11 @@ async function loadAll(sb: SupabaseClient, userId: string): Promise<Loaded> {
       fetchAll<{ category_id: string; responsible_user_id: string; occurred_on: string; total: number }>((f, t) =>
         sb.rpc("category_daily_spending", { p_from: "2000-01-01", p_to: "2100-12-31" }).range(f, t),
       ),
+      sb.from("account_reconciliations").select("id, account_id, month, statement_balance, app_balance, difference, status, note, updated_at")
+        .eq("owner_user_id", userId).order("month", { ascending: false }),
     ]);
 
-  for (const r of [household, members, settings, customPeriods, accounts, labels, balances, categories, budgets, assets]) {
+  for (const r of [household, members, settings, customPeriods, accounts, labels, balances, categories, budgets, assets, recs]) {
     if (r.error) throw r.error;
   }
 
@@ -97,6 +101,13 @@ async function loadAll(sb: SupabaseClient, userId: string): Promise<Loaded> {
     me,
     partner: memberRows.find((m) => m.user_id !== userId) ?? null,
     settings: toPeriodSettings(settings.data as PeriodSettingsRow | null),
+    uvt: Number((settings.data as PeriodSettingsRow | null)?.uvt_value ?? 52374),
+    reconciliations: ((recs.data ?? []) as Reconciliation[]).map((r) => ({
+      ...r,
+      statement_balance: Number(r.statement_balance),
+      app_balance: Number(r.app_balance),
+      difference: Number(r.difference),
+    })),
     customPeriods: (customPeriods.data ?? []) as CustomPeriodRow[],
     accounts: ((accounts.data ?? []) as Account[]).map((a) => ({
       ...a,
@@ -125,6 +136,7 @@ async function loadAll(sb: SupabaseClient, userId: string): Promise<Loaded> {
 }
 
 const REALTIME_TABLES = [
+  "account_reconciliations",
   "accounts", "categories", "category_budgets", "transactions", "transaction_splits",
   "cross_ledger", "household_members", "period_settings", "manual_assets",
 ];
