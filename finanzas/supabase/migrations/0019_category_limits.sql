@@ -8,6 +8,9 @@
 --  · límite con progreso compartido, de montos fijos u obligación del hogar → presupuesto del hogar
 --  · límite 100 % de una persona sin progreso compartido → presupuesto personal de esa persona
 --  · categoría personal con límite → presupuesto personal de su dueño
+--  · Un presupuesto personal (de categoría o con nombre) se puede compartir con la pareja
+--    (shared_with_partner): ella ve el límite y cuánto lleva su dueño, sin ver los movimientos
+--    (los totales salen de shared_personal_spending()). Solo su dueño lo edita.
 -- Se puede correr más de una vez.
 
 -- ---------------------------------------------------------------
@@ -24,6 +27,8 @@ create table if not exists public.category_limits (
   responsibility text check (responsibility in ('MEMBER_A_100', 'MEMBER_B_100', 'FIXED_AMOUNTS')),
   is_household_obligation boolean not null default false,
   rollover_enabled boolean not null default false,
+  -- Personal: compartirlo con la pareja (ve el límite y el avance, no los movimientos)
+  shared_with_partner boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   check (
@@ -31,6 +36,11 @@ create table if not exists public.category_limits (
     or (scope = 'HOUSEHOLD' and owner_user_id is null and responsibility is not null)
   )
 );
+alter table public.category_limits add column if not exists shared_with_partner boolean not null default false;
+alter table public.budget_plans add column if not exists shared_with_partner boolean not null default false;
+update public.category_limits set shared_with_partner = false where scope = 'HOUSEHOLD' and shared_with_partner;
+update public.budget_plans set shared_with_partner = false where scope = 'HOUSEHOLD' and shared_with_partner;
+
 create unique index if not exists category_limits_household_uq on public.category_limits (category_id) where scope = 'HOUSEHOLD';
 create unique index if not exists category_limits_personal_uq on public.category_limits (category_id, owner_user_id) where scope = 'PERSONAL';
 create index if not exists category_limits_household_idx on public.category_limits (household_id);
@@ -88,7 +98,19 @@ update public.categories
 -- ---------------------------------------------------------------
 -- Permisos
 -- ---------------------------------------------------------------
+-- Ver: del hogar, propio o personal compartido. Editar: del hogar o propio.
 create or replace function public.can_see_limit(p_limit_id uuid)
+returns boolean
+language sql stable security definer set search_path = public
+as $$
+  select exists (
+    select 1 from category_limits l
+    join household_members m on m.household_id = l.household_id and m.user_id = auth.uid()
+    where l.id = p_limit_id and (l.scope = 'HOUSEHOLD' or l.owner_user_id = auth.uid() or l.shared_with_partner)
+  )
+$$;
+
+create or replace function public.can_edit_limit(p_limit_id uuid)
 returns boolean
 language sql stable security definer set search_path = public
 as $$
@@ -97,6 +119,62 @@ as $$
     join household_members m on m.household_id = l.household_id and m.user_id = auth.uid()
     where l.id = p_limit_id and (l.scope = 'HOUSEHOLD' or l.owner_user_id = auth.uid())
   )
+$$;
+
+create or replace function public.can_see_plan(p_plan_id uuid)
+returns boolean
+language sql stable security definer set search_path = public
+as $$
+  select exists (
+    select 1 from budget_plans b
+    join household_members m on m.household_id = b.household_id and m.user_id = auth.uid()
+    where b.id = p_plan_id and (b.scope = 'HOUSEHOLD' or b.owner_user_id = auth.uid() or b.shared_with_partner)
+  )
+$$;
+
+create or replace function public.can_edit_plan(p_plan_id uuid)
+returns boolean
+language sql stable security definer set search_path = public
+as $$
+  select exists (
+    select 1 from budget_plans b
+    join household_members m on m.household_id = b.household_id and m.user_id = auth.uid()
+    where b.id = p_plan_id and (b.scope = 'HOUSEHOLD' or b.owner_user_id = auth.uid())
+  )
+$$;
+
+-- Lo que lleva gastado la pareja en sus presupuestos personales compartidos conmigo:
+-- totales por categoría y día de los movimientos personales a su cargo (sin detalle de los movimientos),
+-- solo en las categorías (y subcategorías) de esos presupuestos.
+create or replace function public.shared_personal_spending()
+returns table (owner_user_id uuid, category_id uuid, occurred_on date, total bigint)
+language sql stable security definer set search_path = public
+as $$
+  with shared as (
+    select l.owner_user_id, l.category_id from category_limits l
+     where l.household_id = my_household_id() and l.scope = 'PERSONAL' and l.shared_with_partner
+       and l.owner_user_id <> auth.uid()
+    union
+    select b.owner_user_id, pc.category_id from budget_plans b
+      join budget_plan_categories pc on pc.plan_id = b.id
+     where b.household_id = my_household_id() and b.scope = 'PERSONAL' and b.shared_with_partner
+       and b.owner_user_id <> auth.uid()
+  ),
+  cats as (
+    select s.owner_user_id, c.id as category_id from shared s
+      join categories c on c.id = s.category_id or c.parent_id = s.category_id
+  )
+  -- Solo lo que la persona no puede abrir (lo que sí ve ya lo suma la app): así cada parte cuenta una vez
+  select sp.responsible_user_id, sp.category_id, t.occurred_on,
+         sum(case when t.kind = 'REFUND' then -sp.amount else sp.amount end)::bigint
+    from transactions t
+    join transaction_splits sp on sp.transaction_id = t.id
+    join (select distinct * from cats) k on k.category_id = sp.category_id and k.owner_user_id = sp.responsible_user_id
+   where t.household_id = my_household_id()
+     and t.scope = 'PERSONAL'
+     and t.kind in ('EXPENSE', 'DEBT_PAYMENT', 'REFUND')
+     and not can_see_transaction(t.id)
+   group by sp.responsible_user_id, sp.category_id, t.occurred_on
 $$;
 
 -- Todas las categorías del hogar se ven
@@ -209,6 +287,7 @@ declare
   v_resp text := nullif(p->>'responsibility', '');
   v_obligation boolean := coalesce((p->>'is_household_obligation')::boolean, false);
   v_rollover boolean := coalesce((p->>'rollover_enabled')::boolean, false);
+  v_shared boolean := coalesce((p->>'shared_with_partner')::boolean, false);
   v_budget jsonb := p->'budget';
   v_old category_limits;
   v_a bigint;
@@ -221,6 +300,7 @@ begin
   if v_id is not null then
     select * into v_old from category_limits where id = v_id and household_id = v_hh for update;
     if not found or not can_see_limit(v_id) then raise exception 'Ese presupuesto no existe'; end if;
+    if not can_edit_limit(v_id) then raise exception 'Solo su dueño puede editar un presupuesto personal'; end if;
     v_cat := v_old.category_id;
     v_scope := v_old.scope; -- el ámbito de un presupuesto no cambia (se crea otro)
   end if;
@@ -232,6 +312,7 @@ begin
     if v_resp is null or v_resp not in ('MEMBER_A_100', 'MEMBER_B_100', 'FIXED_AMOUNTS') then
       raise exception 'Elige quién asume el presupuesto';
     end if;
+    v_shared := false;
   else
     v_resp := null;
     v_obligation := false;
@@ -244,12 +325,14 @@ begin
     if v_scope = 'PERSONAL' and exists (select 1 from category_limits where category_id = v_cat and scope = 'PERSONAL' and owner_user_id = v_uid) then
       raise exception 'Ya tienes un presupuesto personal en esa categoría';
     end if;
-    insert into category_limits (household_id, category_id, scope, owner_user_id, responsibility, is_household_obligation, rollover_enabled)
-    values (v_hh, v_cat, v_scope, case when v_scope = 'PERSONAL' then v_uid end, v_resp, v_obligation, v_rollover)
+    insert into category_limits (household_id, category_id, scope, owner_user_id, responsibility, is_household_obligation,
+                                 rollover_enabled, shared_with_partner)
+    values (v_hh, v_cat, v_scope, case when v_scope = 'PERSONAL' then v_uid end, v_resp, v_obligation, v_rollover, v_shared)
     returning id into v_id;
   else
     update category_limits
-       set responsibility = v_resp, is_household_obligation = v_obligation, rollover_enabled = v_rollover
+       set responsibility = v_resp, is_household_obligation = v_obligation, rollover_enabled = v_rollover,
+           shared_with_partner = v_shared
      where id = v_id;
   end if;
 
@@ -279,7 +362,7 @@ returns void
 language plpgsql security definer set search_path = public
 as $$
 begin
-  if not can_see_limit(p_id) then raise exception 'Ese presupuesto no existe'; end if;
+  if not can_edit_limit(p_id) then raise exception 'Ese presupuesto no existe'; end if;
   delete from category_limits where id = p_id;
 end;
 $$;
@@ -363,20 +446,90 @@ as $$
   group by s.category_id, s.responsible_user_id, t.occurred_on
 $$;
 
--- Presupuestos con nombre: cualquier categoría de gasto sirve, del hogar o personal
-do $$
-declare v_src text;
+-- Presupuestos con nombre: cualquier categoría de gasto sirve; un personal se puede compartir
+-- p = { id?, scope, name, icon, periodicity, amount, start_date, end_date, alert_pct, status,
+--       shared_with_partner, categories: [{ category_id, amount? }] }
+create or replace function public.save_budget_plan(p jsonb)
+returns uuid
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_hh uuid := my_household_id();
+  v_id uuid := nullif(p->>'id', '')::uuid;
+  v_scope text := coalesce(nullif(p->>'scope', ''), 'HOUSEHOLD');
+  v_shared boolean := coalesce((p->>'shared_with_partner')::boolean, false);
+  v_old budget_plans;
+  v_owner uuid := v_uid;
+  v_item jsonb;
+  v_cat_id uuid;
 begin
-  select pg_get_functiondef('public.save_budget_plan(jsonb)'::regprocedure) into v_src;
-  v_src := replace(v_src, $r$    if v_scope = 'HOUSEHOLD' and v_cat.responsibility = 'PRIVATE' then
-      raise exception 'La categoría "%" es personal: no puede ir en un presupuesto del hogar', v_cat.name;
-    end if;
-$r$, '');
-  if position('es personal' in v_src) > 0 then
-    raise exception 'save_budget_plan no tiene la forma esperada (¿falta la migración 0018?)';
+  if v_hh is null then raise exception 'No perteneces a un hogar'; end if;
+  if v_scope not in ('HOUSEHOLD', 'PERSONAL') then raise exception 'Ámbito no válido'; end if;
+  if jsonb_array_length(coalesce(p->'categories', '[]'::jsonb)) = 0 then
+    raise exception 'Elige al menos una categoría';
   end if;
-  execute v_src;
-end $$;
+
+  if v_id is not null then
+    select * into v_old from budget_plans where id = v_id and household_id = v_hh for update;
+    if not found or not can_see_plan(v_id) then raise exception 'Ese presupuesto no existe'; end if;
+    if not can_edit_plan(v_id) then raise exception 'Solo su dueño puede editar un presupuesto personal'; end if;
+    -- Solo su dueño puede volver personal un presupuesto del hogar (y sigue siendo de él)
+    v_owner := v_old.owner_user_id;
+    if v_scope = 'PERSONAL' and v_owner <> v_uid then
+      raise exception 'Solo quien creó el presupuesto puede volverlo personal';
+    end if;
+  end if;
+  if v_scope = 'HOUSEHOLD' then v_shared := false; end if;
+
+  if v_id is null then
+    insert into budget_plans (household_id, scope, owner_user_id, name, icon, periodicity, amount, start_date, end_date,
+                              alert_pct, status, shared_with_partner)
+    values (v_hh, v_scope, v_owner, trim(p->>'name'), nullif(p->>'icon', ''),
+            coalesce(nullif(p->>'periodicity', ''), 'PERIOD'), coalesce((p->>'amount')::bigint, 0),
+            coalesce(nullif(p->>'start_date', '')::date, today_bogota()), nullif(p->>'end_date', '')::date,
+            coalesce((p->>'alert_pct')::smallint, 85), coalesce(nullif(p->>'status', ''), 'ACTIVE'), v_shared)
+    returning id into v_id;
+  else
+    update budget_plans
+       set scope = v_scope,
+           name = trim(p->>'name'),
+           icon = nullif(p->>'icon', ''),
+           periodicity = coalesce(nullif(p->>'periodicity', ''), 'PERIOD'),
+           amount = coalesce((p->>'amount')::bigint, 0),
+           start_date = coalesce(nullif(p->>'start_date', '')::date, start_date),
+           end_date = nullif(p->>'end_date', '')::date,
+           alert_pct = coalesce((p->>'alert_pct')::smallint, 85),
+           status = coalesce(nullif(p->>'status', ''), 'ACTIVE'),
+           shared_with_partner = v_shared
+     where id = v_id;
+    delete from budget_plan_categories where plan_id = v_id;
+  end if;
+
+  for v_item in select * from jsonb_array_elements(p->'categories')
+  loop
+    v_cat_id := nullif(v_item->>'category_id', '')::uuid;
+    if not exists (select 1 from categories where id = v_cat_id and household_id = v_hh and kind = 'EXPENSE') then
+      raise exception 'Categoría no válida';
+    end if;
+    insert into budget_plan_categories (plan_id, category_id, household_id, amount)
+    values (v_id, v_cat_id, v_hh, nullif(v_item->>'amount', '')::bigint)
+    on conflict (plan_id, category_id) do update set amount = excluded.amount;
+  end loop;
+
+  return v_id;
+end;
+$$;
+
+create or replace function public.delete_budget_plan(p_id uuid)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if not can_edit_plan(p_id) then raise exception 'Ese presupuesto no existe'; end if;
+  delete from budget_plans where id = p_id;
+end;
+$$;
 
 -- Categorías sugeridas: todas del hogar (también las de ingresos)
 do $$
@@ -401,7 +554,8 @@ do $$
 declare f text;
 begin
   foreach f in array array[
-    'can_see_limit(uuid)', 'can_see_category(uuid)', 'save_category(jsonb)', 'archive_category(uuid, boolean)',
+    'can_see_limit(uuid)', 'can_edit_limit(uuid)', 'can_see_plan(uuid)', 'can_edit_plan(uuid)',
+    'shared_personal_spending()', 'delete_budget_plan(uuid)', 'can_see_category(uuid)', 'save_category(jsonb)', 'archive_category(uuid, boolean)',
     'save_category_limit(jsonb)', 'delete_category_limit(uuid)', 'save_transaction(jsonb)',
     'set_split_category(uuid, uuid)', 'category_daily_spending(date, date)', 'save_budget_plan(jsonb)',
     'add_suggested_categories()'

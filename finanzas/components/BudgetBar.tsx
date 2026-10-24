@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "motion/react";
-import { AlertTriangle, Check, Home, Lock, Pencil, Plus } from "lucide-react";
+import { AlertTriangle, Check, Home, Lock, Pencil, Plus, Users } from "lucide-react";
 import type { Category, CategoryLimit, Member } from "@/lib/types";
 import type { CategoryStatus } from "@/lib/finance/budget";
 import { formatCop, formatCopShort } from "@/lib/finance/money";
@@ -49,6 +49,7 @@ export function BudgetBar({
           {limit.scope === "PERSONAL"
             ? <Lock size={14} className="shrink-0 text-muted" aria-label="Presupuesto personal" />
             : <Home size={14} className="shrink-0 text-muted" aria-label="Presupuesto del hogar" />}
+          {limit.scope === "PERSONAL" && limit.shared_with_partner && <Users size={14} className="shrink-0 text-muted" aria-label="Compartido con la pareja" />}
           {level !== "ok" && (
             <AlertTriangle size={15} className={cn("shrink-0", level === "over" ? "text-danger" : "text-warning")}
               aria-label={level === "over" ? "Pasó el tope" : "Cerca del tope"} />

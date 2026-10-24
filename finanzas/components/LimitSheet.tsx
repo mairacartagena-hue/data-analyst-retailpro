@@ -48,6 +48,7 @@ export function LimitSheet({
   const [fixedB, setFixedB] = useState("");
   const [obligation, setObligation] = useState(false);
   const [rollover, setRollover] = useState(false);
+  const [shared, setShared] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -67,7 +68,9 @@ export function LimitSheet({
       setFixedB(v?.fixedAmountB != null ? String(v.fixedAmountB) : "");
       setObligation(limit.is_household_obligation);
       setRollover(limit.rollover_enabled);
+      setShared(limit.shared_with_partner);
     } else {
+      setShared(false);
       setCategory(categoryId ?? "");
       setScope("HOUSEHOLD");
       setResp("FIXED_AMOUNTS");
@@ -106,6 +109,7 @@ export function LimitSheet({
         responsibility: household ? resp : null,
         is_household_obligation: household && obligation,
         rollover_enabled: rollover,
+        shared_with_partner: !household && shared,
         budget: {
           valid_from: currentStart,
           amount: fixed ? fixedTotal : (parseCop(amount) ?? 0),
@@ -155,7 +159,7 @@ export function LimitSheet({
           </>
         )}
         {limit && (
-          <p className="text-sm font-medium text-muted">{household ? "Presupuesto del hogar: lo ven los dos." : "Presupuesto personal: solo tú lo ves."}</p>
+          <p className="text-sm font-medium text-muted">{household ? "Presupuesto del hogar: lo ven los dos." : shared && partner ? `Presupuesto personal, compartido con ${partner.display_name}.` : "Presupuesto personal: solo tú lo ves."}</p>
         )}
 
         {household && (
@@ -189,6 +193,11 @@ export function LimitSheet({
         {household && (
           <SwitchRow label="Obligación del hogar" hint="Lo que falte por pagar se aparta del Saldo Seguro de quien lo asume."
             checked={obligation} onCheckedChange={setObligation} />
+        )}
+        {!household && partner && (
+          <SwitchRow label={`Compartir con ${partner.display_name}`}
+            hint="Verá el límite y cuánto llevas, pero no tus movimientos. Solo tú lo editas."
+            checked={shared} onCheckedChange={setShared} />
         )}
         <SwitchRow label="Pasar el saldo al siguiente periodo" hint="Rollover: el sobrante suma y el sobregiro resta en el siguiente periodo."
           checked={rollover} onCheckedChange={setRollover} />

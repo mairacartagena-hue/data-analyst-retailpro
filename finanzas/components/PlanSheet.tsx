@@ -8,6 +8,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { ErrorText, Field, Input, Select } from "@/components/ui/input";
 import { Segmented } from "@/components/ui/segmented";
+import { SwitchRow } from "@/components/ui/switch";
 import { AmountInput } from "@/components/AmountInput";
 import { CategoryOptions } from "@/components/CategoryPicker";
 import { formatCop, parseCop } from "@/lib/finance/money";
@@ -22,7 +23,7 @@ interface Line {
 
 /** Crear o editar un presupuesto con nombre (del hogar o personal). */
 export function PlanSheet({ open, onOpenChange, plan }: { open: boolean; onOpenChange: (v: boolean) => void; plan: BudgetPlan | null }) {
-  const { categories, planCategories, settings, supabase, reload, me } = useFinance();
+  const { categories, planCategories, settings, supabase, reload, me, partner } = useFinance();
   const [scope, setScope] = useState<Space>("HOUSEHOLD");
   const [name, setName] = useState("");
   const [icon, setIcon] = useState("");
@@ -32,6 +33,7 @@ export function PlanSheet({ open, onOpenChange, plan }: { open: boolean; onOpenC
   const [end, setEnd] = useState("");
   const [alert, setAlert] = useState("85");
   const [status, setStatus] = useState<BudgetPlan["status"]>("ACTIVE");
+  const [shared, setShared] = useState(false);
   const [lines, setLines] = useState<Line[]>([]);
   const [pick, setPick] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -51,6 +53,7 @@ export function PlanSheet({ open, onOpenChange, plan }: { open: boolean; onOpenC
       setEnd(plan.end_date ?? "");
       setAlert(String(plan.alert_pct));
       setStatus(plan.status);
+      setShared(plan.shared_with_partner);
       setLines(planCategories.filter((c) => c.plan_id === plan.id).map((c) => ({ categoryId: c.category_id, amount: c.amount != null ? String(c.amount) : "" })));
     } else {
       setScope("HOUSEHOLD");
@@ -62,6 +65,7 @@ export function PlanSheet({ open, onOpenChange, plan }: { open: boolean; onOpenC
       setEnd("");
       setAlert("85");
       setStatus("ACTIVE");
+      setShared(false);
       setLines([]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -99,6 +103,7 @@ export function PlanSheet({ open, onOpenChange, plan }: { open: boolean; onOpenC
         end_date: end || null,
         alert_pct: pct,
         status,
+        shared_with_partner: scope === "PERSONAL" && shared,
         categories: lines.map((l) => ({ category_id: l.categoryId, amount: l.amount ? parseCop(l.amount) : null })),
       },
     });
@@ -136,6 +141,12 @@ export function PlanSheet({ open, onOpenChange, plan }: { open: boolean; onOpenC
               : "Solo tú lo ves. Suma tus gastos personales en estas categorías."}
           </p>
         </Field>
+
+        {scope === "PERSONAL" && partner && (
+          <SwitchRow label={`Compartir con ${partner.display_name}`}
+            hint="Verá el límite y cuánto llevas, pero no tus movimientos. Solo tú lo editas."
+            checked={shared} onCheckedChange={setShared} />
+        )}
 
         <div className="grid grid-cols-[72px_1fr] gap-3">
           <Field label="Ícono" htmlFor="plan-icon">

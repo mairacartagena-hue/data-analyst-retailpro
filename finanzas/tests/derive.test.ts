@@ -19,7 +19,7 @@ const cat = (id: string, responsibility: Category["responsibility"], extra: Part
 });
 
 const lim = (id: string, category_id: string, scope: CategoryLimit["scope"], extra: Partial<CategoryLimit> = {}): CategoryLimit => ({
-  id, category_id, scope, owner_user_id: null, responsibility: null, is_household_obligation: false, rollover_enabled: false, ...extra,
+  id, category_id, scope, owner_user_id: null, responsibility: null, is_household_obligation: false, rollover_enabled: false, shared_with_partner: false, ...extra,
 });
 
 const snapshot: Snapshot = {

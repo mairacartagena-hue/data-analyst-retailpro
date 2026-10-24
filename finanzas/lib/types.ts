@@ -126,6 +126,8 @@ export interface CategoryLimit {
   responsibility: Exclude<Responsibility, "PRIVATE"> | null;
   is_household_obligation: boolean;
   rollover_enabled: boolean;
+  /** Personal: su dueño lo comparte con la pareja (ve el límite y el avance, no los movimientos). */
+  shared_with_partner: boolean;
 }
 
 export interface CategoryBudgetRow {
@@ -280,6 +282,8 @@ export interface BudgetPlan {
   end_date: string | null;
   alert_pct: number;
   status: "ACTIVE" | "PAUSED" | "CLOSED";
+  /** Personal: su dueño lo comparte con la pareja (ve el límite y el avance, no los movimientos). */
+  shared_with_partner: boolean;
 }
 
 export interface BudgetPlanCategory {

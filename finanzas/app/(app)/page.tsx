@@ -58,7 +58,8 @@ export default function HomePage() {
     return (
       <BudgetBar key={l.id} category={category} limit={l} status={statuses.get(l.id)} memberById={memberById} meId={me.user_id}
         label={categoryPath(state.categories, category.id)} icon={categoryLabel(state.categories, category.id).icon}
-        onPay={(amount) => openPayment({ categoryId: category.id, amount, scope: l.scope, responsibleId: limitResponsible(l, me, partner) ?? me.user_id })}
+        onPay={l.scope === "PERSONAL" && l.owner_user_id !== me.user_id ? undefined
+          : (amount) => openPayment({ categoryId: category.id, amount, scope: l.scope, responsibleId: limitResponsible(l, me, partner) ?? me.user_id })}
         onClick={() => setDetail(l)} />
     );
   };

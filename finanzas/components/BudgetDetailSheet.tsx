@@ -31,6 +31,7 @@ export function BudgetDetailSheet({ limit, status, onClose, onEdit }: {
   const { openTransaction, openPayment } = useShell();
   const category: Category | null = limit ? categories.find((c) => c.id === limit.category_id) ?? null : null;
   if (!limit || !category) return null;
+  const partners = limit.scope === "PERSONAL" && limit.owner_user_id !== me.user_id;
 
   // La categoría con sus subcategorías; del hogar: movimientos del hogar · personal: los personales de su dueño
   const ids = withDescendants(categories, [category.id]);
@@ -53,7 +54,7 @@ export function BudgetDetailSheet({ limit, status, onClose, onEdit }: {
       description={`${formatCop(spent)} de ${formatCop(available)} · ${left >= 0 ? `quedan ${formatCop(left)}` : `pasó ${formatCop(-left)}`}`}>
       <div className="space-y-4 pb-2">
         <p className="rounded-2xl bg-surface-2 px-3 py-2.5 text-sm">
-          Cuenta aquí un pago {limit.scope === "HOUSEHOLD" ? "del hogar" : "personal tuyo"} en <strong>{category.name}</strong>
+          Cuenta aquí un pago {limit.scope === "HOUSEHOLD" ? "del hogar" : partners ? `personal de ${memberById(limit.owner_user_id)?.display_name ?? "tu pareja"}` : "personal tuyo"} en <strong>{category.name}</strong>
           {" "}(o sus subcategorías): lo registras a mano, lo confirmas en “Por revisar” o llega solo si el comercio tiene “Aplicar siempre”.
         </p>
 
@@ -83,6 +84,9 @@ export function BudgetDetailSheet({ limit, status, onClose, onEdit }: {
         )}
 
         <div className="flex gap-3">
+          {partners ? (
+            <p className="text-sm text-muted">Presupuesto personal que tu pareja comparte contigo: ves el avance, no sus movimientos.</p>
+          ) : (<>
           <Button variant="secondary" onClick={() => { onClose(); onEdit(limit); }}><Pencil size={16} /> Editar</Button>
           <Button className="flex-1" onClick={() => {
             onClose();
@@ -93,6 +97,7 @@ export function BudgetDetailSheet({ limit, status, onClose, onEdit }: {
           }}>
             <Plus size={16} /> Registrar pago
           </Button>
+          </>)}
         </div>
       </div>
     </Sheet>

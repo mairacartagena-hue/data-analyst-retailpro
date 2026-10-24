@@ -25,7 +25,7 @@ const oct = periodFor(DEFAULT_PERIOD_SETTINGS, "2026-10-10");
 // Las categorías solo dicen en qué se gastó; los presupuestos dicen si es del hogar o personal y quién lo asume
 const categories = [cat("vivienda"), cat("hipoteca", { parent_id: "vivienda" }), cat("remodelacion", { parent_id: "vivienda" }), cat("restaurantes"), cat("ropa")];
 const lim = (id: string, category_id: string, scope: CategoryLimit["scope"], extra: Partial<CategoryLimit> = {}): CategoryLimit => ({
-  id, category_id, scope, owner_user_id: null, responsibility: null, is_household_obligation: false, rollover_enabled: false, ...extra,
+  id, category_id, scope, owner_user_id: null, responsibility: null, is_household_obligation: false, rollover_enabled: false, shared_with_partner: false, ...extra,
 });
 const limits = [
   lim("vivienda", "vivienda", "HOUSEHOLD", { responsibility: "FIXED_AMOUNTS" }),

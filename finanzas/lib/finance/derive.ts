@@ -205,6 +205,7 @@ export function limitsForScope(s: Snapshot, scope: Scope): CategoryLimit[] {
   const visible = s.limits.filter((l) => active.has(l.category_id) && s.budgets.some((b) => b.limit_id === l.id));
   if (scope === "global") return visible;
   if (scope === "household") return visible.filter((l) => l.scope === "HOUSEHOLD");
+  // Mis finanzas: lo que me toca (los personales de la pareja, aunque los comparta, van en la vista global)
   return visible.filter((l) => {
     if (l.scope === "PERSONAL") return l.owner_user_id === me;
     if (l.responsibility === "FIXED_AMOUNTS") return true;

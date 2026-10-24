@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, ChevronDown, Home, Lock, Pause, Plus } from "lucide-react";
+import { AlertTriangle, ChevronDown, Home, Lock, Pause, Plus, Users } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { PeriodSwitcher, SwipePeriods } from "@/components/PeriodSwitcher";
 import { BudgetBar } from "@/components/BudgetBar";
@@ -19,7 +19,7 @@ import type { BudgetPlan, CategoryLimit, ScheduledPayment } from "@/lib/types";
 import { limitResponsible, statusesFor } from "@/lib/finance/derive";
 import { formatCop, formatCopShort } from "@/lib/finance/money";
 import { committedTotal, occurrencesOfSpace } from "@/lib/finance/commitments";
-import { planAppliesTo, planMetrics, type PlanMetrics } from "@/lib/finance/plans";
+import { planAppliesTo, planMetrics, sharedAsTransactions, type PlanMetrics } from "@/lib/finance/plans";
 import { categoryPath, categoryTree } from "@/lib/finance/spaces";
 import { formatDay } from "@/lib/finance/periods";
 import { cn } from "@/lib/utils";
@@ -61,7 +61,8 @@ export default function PresupuestosPage() {
   const groups: { title: string; items: CategoryLimit[] }[] = [
     { title: "Obligaciones del hogar", items: shown.filter((l) => l.is_household_obligation) },
     { title: "Del hogar", items: shown.filter((l) => l.scope === "HOUSEHOLD" && !l.is_household_obligation) },
-    { title: "Personales", items: shown.filter((l) => l.scope === "PERSONAL") },
+    { title: "Personales", items: shown.filter((l) => l.scope === "PERSONAL" && l.owner_user_id === me.user_id) },
+    { title: partner ? `Compartidos por ${partner.display_name}` : "Compartidos", items: shown.filter((l) => l.scope === "PERSONAL" && l.owner_user_id !== me.user_id) },
   ];
 
   // Lo que cada uno tenía a su cargo en los presupuestos del hogar y cuánto ha ejecutado
@@ -85,12 +86,18 @@ export default function PresupuestosPage() {
 
   const visiblePlans = plans.filter((p) => planAppliesTo(p, period));
   const closedPlans = plans.filter((p) => !planAppliesTo(p, period));
-  const metrics = useMemo(() => new Map(plans.map((p) => [p.id, planMetrics(p, planCategories, categories, transactions, upcoming.occurrences, period, upcoming.today)])),
-    [plans, planCategories, categories, transactions, upcoming, period]);
+  // Un presupuesto personal que comparte la pareja se mide con sus totales compartidos (no veo sus movimientos)
+  const metrics = useMemo(() => {
+    const withShared = [...transactions, ...sharedAsTransactions(state.sharedSpending)];
+    return new Map(plans.map((p) => [p.id, planMetrics(p, planCategories, categories,
+      p.owner_user_id === me.user_id || p.scope === "HOUSEHOLD" ? transactions : withShared, upcoming.occurrences, period, upcoming.today)]));
+  }, [plans, planCategories, categories, transactions, state.sharedSpending, upcoming, period, me.user_id]);
   const householdCommitted = committedTotal(occurrencesOfSpace(upcoming.occurrences, "HOUSEHOLD"));
   const myCommitted = committedTotal(occurrencesOfSpace(upcoming.occurrences, "PERSONAL", me.user_id));
 
   const editLimit = (l: CategoryLimit | null) => { setLimit(l); setLimitOpen(true); };
+  /** Presupuesto personal de la pareja que ella comparte conmigo: solo se mira. */
+  const isPartners = (l: CategoryLimit) => l.scope === "PERSONAL" && l.owner_user_id !== me.user_id;
   const editPlan = (p: BudgetPlan | null) => { setPlan(p); setPlanOpen(true); };
   const editCommitment = (p: ScheduledPayment | null) => { setCommitment(p); setCommitmentOpen(true); };
 
@@ -112,7 +119,8 @@ export default function PresupuestosPage() {
           </Card>
         ) : (
           <div className="space-y-2.5">
-            {visiblePlans.map((p) => <PlanCard key={p.id} plan={p} m={metrics.get(p.id)!} onEdit={() => editPlan(p)} />)}
+            {visiblePlans.map((p) => <PlanCard key={p.id} plan={p} m={metrics.get(p.id)!}
+              onEdit={p.scope === "PERSONAL" && p.owner_user_id !== me.user_id ? undefined : () => editPlan(p)} />)}
           </div>
         )}
         {closedPlans.length > 0 && (
@@ -123,7 +131,7 @@ export default function PresupuestosPage() {
         {showClosed && (
           <div className="mt-2 space-y-2">
             {closedPlans.map((p) => (
-              <button key={p.id} onClick={() => editPlan(p)} className="flex w-full items-center gap-2 rounded-2xl border border-dashed border-border p-3 text-left text-muted">
+              <button key={p.id} onClick={() => (p.scope === "HOUSEHOLD" || p.owner_user_id === me.user_id) && editPlan(p)} className="flex w-full items-center gap-2 rounded-2xl border border-dashed border-border p-3 text-left text-muted">
                 <span>{p.icon || "•"}</span>{p.name}
                 <span className="ml-auto text-xs">{p.status === "CLOSED" ? "Cerrado" : `${formatDay(p.start_date)}${p.end_date ? ` – ${formatDay(p.end_date)}` : ""}`}</span>
               </button>
@@ -191,8 +199,8 @@ export default function PresupuestosPage() {
                 return (
                   <div key={l.id} className={cn(c.parent_id && "ml-4")}>
                     <BudgetBar category={c} limit={l} status={statuses.get(l.id)} memberById={memberById} meId={me.user_id}
-                      label={categoryPath(categories, c.id)} icon={categoryLabel(categories, c.id).icon}
-                      onPay={(amount) => openPayment({ categoryId: c.id, amount, scope: l.scope, responsibleId: limitResponsible(l, me, partner) ?? me.user_id })}
+                      label={categoryPath(categories, c.id) + (isPartners(l) ? ` (de ${partner?.display_name ?? "tu pareja"})` : "")} icon={categoryLabel(categories, c.id).icon}
+                      onPay={isPartners(l) ? undefined : (amount) => openPayment({ categoryId: c.id, amount, scope: l.scope, responsibleId: limitResponsible(l, me, partner) ?? me.user_id })}
                       onClick={() => setDetail(l)} />
                   </div>
                 );
@@ -203,7 +211,7 @@ export default function PresupuestosPage() {
       </SwipePeriods>
 
       <LimitSheet open={limitOpen} onOpenChange={setLimitOpen} limit={limit} />
-      <BudgetDetailSheet limit={detail} status={detail ? statuses.get(detail.id) : undefined} onClose={() => setDetail(null)} onEdit={(l) => editLimit(l)} />
+      <BudgetDetailSheet limit={detail} status={detail ? statuses.get(detail.id) : undefined} onClose={() => setDetail(null)} onEdit={(l) => !isPartners(l) && editLimit(l)} />
       <PlanSheet open={planOpen} onOpenChange={setPlanOpen} plan={plan} />
       <CommitmentSheet open={commitmentOpen} onOpenChange={setCommitmentOpen} payment={commitment} />
     </main>
@@ -211,10 +219,11 @@ export default function PresupuestosPage() {
 }
 
 /** Tarjeta de un presupuesto: gastado, comprometido, disponible y proyección; al tocarla muestra sus categorías. */
-function PlanCard({ plan, m, onEdit }: { plan: BudgetPlan; m: PlanMetrics; onEdit: () => void }) {
-  const { categories } = useFinance();
+function PlanCard({ plan, m, onEdit }: { plan: BudgetPlan; m: PlanMetrics; onEdit?: () => void }) {
+  const { categories, me, memberById } = useFinance();
   const [open, setOpen] = useState(false);
   const scale = Math.max(plan.amount, m.spent + m.committed, 1);
+  const owner = plan.owner_user_id !== me.user_id ? memberById(plan.owner_user_id) : null;
   const paused = plan.status === "PAUSED";
 
   return (
@@ -223,7 +232,8 @@ function PlanCard({ plan, m, onEdit }: { plan: BudgetPlan; m: PlanMetrics; onEdi
         <div className="flex items-center justify-between gap-2">
           <span className="flex min-w-0 items-center gap-2">
             <span className="text-lg">{plan.icon || "•"}</span>
-            <span className="truncate font-semibold">{plan.name}</span>
+            <span className="truncate font-semibold">{plan.name}{plan.scope === "PERSONAL" && owner ? ` (de ${owner.display_name})` : ""}</span>
+            {plan.scope === "PERSONAL" && plan.shared_with_partner && !owner && <Users size={14} className="shrink-0 text-muted" aria-label="Compartido con tu pareja" />}
             {plan.scope === "HOUSEHOLD" ? <Home size={14} className="shrink-0 text-muted" aria-label="Del hogar" /> : <Lock size={14} className="shrink-0 text-muted" aria-label="Personal" />}
             {paused && <Pause size={14} className="shrink-0 text-muted" aria-label="En pausa" />}
             {m.level !== "ok" && <AlertTriangle size={15} className={cn("shrink-0", m.level === "over" ? "text-danger" : "text-warning")} aria-label="Alerta" />}
@@ -264,7 +274,9 @@ function PlanCard({ plan, m, onEdit }: { plan: BudgetPlan; m: PlanMetrics; onEdi
             </p>
           )}
           <p className="text-xs text-muted">Alerta al {plan.alert_pct} %. Cada parte de un movimiento cuenta una sola vez.</p>
-          <Button size="sm" variant="secondary" onClick={onEdit}>Editar</Button>
+          {onEdit
+            ? <Button size="sm" variant="secondary" onClick={onEdit}>Editar</Button>
+            : <p className="text-xs text-muted">Compartido por tu pareja: ves el avance, no sus movimientos.</p>}
         </div>
       )}
     </div>

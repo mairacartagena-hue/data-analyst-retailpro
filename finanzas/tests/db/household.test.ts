@@ -211,6 +211,37 @@ describe("hogar y personal", () => {
     await expect(rpc(db, BREI, "save_transaction", { kind: "EXPENSE", amount: 1, account_id: h.breiAcc, scheduled_payment_id: mySp, scheduled_for: "2026-10-20", splits: [{ amount: 1 }] })).rejects.toThrow(/no existe/);
   });
 
+  it("un presupuesto personal compartido: la pareja ve el límite y el total, no los movimientos ni puede editarlo", async () => {
+    const gym = await rpc<string>(db, MAY, "save_category", { name: "Gimnasio" });
+    const lim = await rpc<string>(db, MAY, "save_category_limit", { category_id: gym, scope: "PERSONAL", shared_with_partner: true, budget: { valid_from: "2026-10-01", amount: 200_000 } });
+    const t1 = await rpc<string>(db, MAY, "save_transaction", { kind: "EXPENSE", scope: "PERSONAL", amount: 120_000, account_id: h.mayAcc, occurred_on: "2026-10-03", splits: [{ amount: 120_000, category_id: gym }] });
+    // Un gasto personal de Brei que asignó a May en esa categoría: Brei ya lo ve, no debe venir otra vez en el total
+    await rpc(db, BREI, "save_transaction", { kind: "EXPENSE", scope: "PERSONAL", amount: 5_000, account_id: h.breiAcc, occurred_on: "2026-10-04", creates_debt: false, splits: [{ amount: 5_000, category_id: gym, responsible_user_id: MAY }] });
+    expect(ids(await as<{ id: string }>(db, BREI, `select id from category_limits where id = $1`, [lim]))).toEqual([lim]);
+    expect((await as<{ amount: number }>(db, BREI, `select amount::int from category_budgets where limit_id = $1`, [lim]))[0].amount).toBe(200_000);
+    expect(await as(db, BREI, `select id from transactions where id = $1`, [t1])).toHaveLength(0);
+    const shared = await as<{ owner_user_id: string; total: number }>(db, BREI, `select owner_user_id, total::int from public.shared_personal_spending()`);
+    expect(shared).toEqual([{ owner_user_id: MAY, total: 120_000 }]);
+    // May no recibe sus propios totales por esta vía
+    expect(await as(db, MAY, `select * from public.shared_personal_spending()`)).toHaveLength(0);
+    await expect(rpc(db, BREI, "save_category_limit", { id: lim, budget: { valid_from: "2026-10-01", amount: 1 } })).rejects.toThrow(/Solo su dueño/);
+    await expect(as(db, BREI, `select public.delete_category_limit($1)`, [lim])).rejects.toThrow(/no existe/);
+    // Si deja de compartirlo, Brei ya no lo ve ni recibe totales
+    await rpc(db, MAY, "save_category_limit", { id: lim, shared_with_partner: false });
+    expect(await as(db, BREI, `select id from category_limits where id = $1`, [lim])).toHaveLength(0);
+    expect(await as(db, BREI, `select * from public.shared_personal_spending()`)).toHaveLength(0);
+  });
+
+  it("un presupuesto con nombre personal compartido: la pareja lo ve y no lo edita", async () => {
+    const plan = await rpc<string>(db, MAY, "save_budget_plan", { scope: "PERSONAL", shared_with_partner: true, name: "Mis gustos", amount: 300_000, categories: [{ category_id: ropa }] });
+    expect(ids(await as<{ id: string }>(db, BREI, `select id from budget_plans where id = $1`, [plan]))).toEqual([plan]);
+    expect(await as(db, BREI, `select * from budget_plan_categories where plan_id = $1`, [plan])).toHaveLength(1);
+    expect((await as<{ total: number }>(db, BREI, `select sum(total)::int total from public.shared_personal_spending() where category_id = $1`, [ropa]))[0].total).toBe(150_000);
+    await expect(rpc(db, BREI, "save_budget_plan", { id: plan, scope: "PERSONAL", name: "x", amount: 1, categories: [{ category_id: ropa }] })).rejects.toThrow(/Solo su dueño/);
+    await expect(as(db, BREI, `select public.delete_budget_plan($1)`, [plan])).rejects.toThrow(/no existe/);
+    await as(db, MAY, `select public.delete_budget_plan($1)`, [plan]);
+  });
+
   it("presupuestos: los del hogar los ven los dos; los personales (y sus límites) solo su dueño", async () => {
     const hhPlan = await rpc<string>(db, BREI, "save_budget_plan", { scope: "HOUSEHOLD", name: "Comida", amount: 1_500_000, categories: [{ category_id: await catId("Alimentación") }] });
     const myPlan = await rpc<string>(db, MAY, "save_budget_plan", { scope: "PERSONAL", name: "Mis gustos", amount: 400_000, categories: [{ category_id: ropa, amount: 200_000 }] });
