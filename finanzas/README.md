@@ -69,11 +69,11 @@ Ajustes → **Cierre del mes** (`app/(app)/cierre`), con recordatorio en el inic
 
 ## Organización de la app
 
-Pestañas: **Inicio · Movimientos · + · Presupuesto · Informes · Más**. “Más” agrupa Cuentas y cruce, Cierre del mes, Etiquetas, Captura automática y Ajustes.
+Pestañas: **Inicio · Movimientos · + · Presupuesto · Informes · Más**. “Más” agrupa Cuentas y cruce, Cierre del mes, Captura automática y Ajustes.
 
 - **Presupuesto:** al tocar una barra se ven los pagos que la forman y cómo llegó cada uno (correo, SMS, notificación o a mano).
-- **Movimientos:** filtros por etiqueta, categoría y cuenta (también por enlace: `?etiqueta=`, `?categoria=`, `?cuenta=`).
-- **Etiquetas:** renombrar, unificar (renombrar a una existente) y quitar; `#suscripcion` es una etiqueta más, con sugerencias de posibles suscripciones.
+- **Movimientos:** filtros por categoría y cuenta (también por enlace: `?categoria=`, `?cuenta=`).
+- **Sin etiquetas visibles:** la app trabaja solo con categorías. Por dentro se conservan marcas técnicas (ej. `#gmf` para no sumar dos veces el 4x1000 y `#suscripcion` para reconocer cobros de suscripción); los cobros de suscripción sugieren la categoría “Suscripciones” en “Por revisar”.
 - **Informes:** gastos por categoría, por persona (hogar/personal) y tendencia de 6 meses, con vista de tabla y descarga CSV para Excel (separador “;”).
 - **Categorías de ingresos** (`categories.kind = INCOME`): personales y sin presupuesto; se crean desde el formulario con “+ Nueva”.
 

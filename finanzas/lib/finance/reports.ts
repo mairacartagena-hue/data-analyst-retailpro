@@ -122,7 +122,7 @@ export function toCsv(
   txs: Transaction[],
   ctx: { categories: Category[]; labels: AccountLabel[]; memberById: (id: string | null | undefined) => Member | null },
 ): string {
-  const header = ["Fecha", "Tipo", "Descripción", "Comercio", "Monto", "Categoría", "Responsable", "Pagó", "Cuenta", "Etiquetas", "Estado"];
+  const header = ["Fecha", "Tipo", "Descripción", "Comercio", "Monto", "Categoría", "Responsable", "Pagó", "Cuenta", "Estado"];
   const rows: string[][] = [header];
   const sorted = [...txs].sort((a, b) => a.occurred_on.localeCompare(b.occurred_on));
   for (const t of sorted) {
@@ -133,7 +133,6 @@ export function toCsv(
       merchant: t.merchant ?? "",
       payer: ctx.memberById(t.payer_user_id)?.display_name ?? "",
       account: t.kind === "TRANSFER" ? `${accountLabel(ctx.labels, t.account_id)} → ${accountLabel(ctx.labels, t.to_account_id)}` : accountLabel(ctx.labels, t.account_id),
-      tags: t.tags.join(" "),
       status: t.status === "PENDING_REVIEW" ? "Por revisar" : "Confirmado",
     };
     const parts = t.kind === "EXPENSE" && t.splits.length > 0
@@ -144,7 +143,7 @@ export function toCsv(
           resp: base.payer,
         }];
     for (const p of parts) {
-      rows.push([base.date, base.kind, base.desc, base.merchant, String(t.kind === "INCOME" ? p.amount : -p.amount), p.cat, p.resp, base.payer, base.account, base.tags, base.status]);
+      rows.push([base.date, base.kind, base.desc, base.merchant, String(t.kind === "INCOME" ? p.amount : -p.amount), p.cat, p.resp, base.payer, base.account, base.status]);
     }
   }
   return "﻿" + rows.map((r) => r.map(cell).join(";")).join("\r\n");

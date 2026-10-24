@@ -10,9 +10,12 @@ import { Card } from "@/components/ui/card";
 import type { Transaction } from "@/lib/types";
 import { CHANNEL_LABEL } from "@/lib/types";
 import { formatCop } from "@/lib/finance/money";
-import { formatDay } from "@/lib/finance/periods";
+
 import { accountLabel, categoryLabel, categoryResponsible } from "@/lib/finance/labels";
 import { findManualTwin } from "@/lib/ingest/match";
+import { fold } from "@/lib/ingest/normalize";
+import { SUBSCRIPTION_TAG } from "@/lib/finance/subscriptions";
+import { formatDay, periodFor, todayBogota } from "@/lib/finance/periods";
 import { errMsg } from "@/lib/utils";
 
 /** Cola de pendientes del inicio: movimientos que llegaron solos y esperan revisión. */
@@ -36,13 +39,18 @@ export function PendingReview() {
 }
 
 function PendingCard({ tx }: { tx: Transaction }) {
-  const { me, partner, categories, labels, supabase, reload, memberById, transactions } = useFinance();
+  const { me, partner, categories, labels, supabase, reload, memberById, transactions, settings } = useFinance();
   const { openTransaction } = useShell();
   const [always, setAlways] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const suggested = tx.suggested_category_id ? categories.find((c) => c.id === tx.suggested_category_id) ?? null : null;
+  // Cobro de suscripción (servicio conocido o que se repite cada mes): sugerir la categoría "Suscripciones"
+  const isSubscription = tx.tags.includes(SUBSCRIPTION_TAG);
+  const subsCategory = categories.find((c) => !c.archived && c.kind !== "INCOME" && fold(c.name) === "suscripciones"
+    && (c.responsibility !== "PRIVATE" || c.owner_user_id === me.user_id)) ?? null;
+  const suggested = (tx.suggested_category_id ? categories.find((c) => c.id === tx.suggested_category_id) ?? null : null)
+    ?? (isSubscription ? subsCategory : null);
   const suggestedResp = tx.suggested_responsible_user_id
     ?? (suggested ? categoryResponsible(suggested, me, partner) : null)
     ?? me.user_id;
@@ -67,8 +75,26 @@ function PendingCard({ tx }: { tx: Transaction }) {
     tx.movement_type === "CARD_PAYMENT" ? "Pago de tarjeta" :
     tx.movement_type === "TRANSFER_OUT" ? "Transferencia a" : "Pago a";
 
-  async function confirm() {
-    if (!suggested) return;
+  async function createSubscriptionsAndConfirm() {
+    setBusy(true);
+    setError(null);
+    const { data: catId, error: catError } = await supabase.rpc("save_category", {
+      p: {
+        name: "Suscripciones", icon: "🔁", responsibility: me.slot === "A" ? "MEMBER_A_100" : "MEMBER_B_100",
+        is_household_obligation: false, is_shared_progress: false, rollover_enabled: false,
+        budget: { valid_from: periodFor(settings, todayBogota()).start, amount: 0 },
+      },
+    });
+    if (catError) {
+      setBusy(false);
+      return setError(errMsg(catError));
+    }
+    await confirm(catId as string);
+  }
+
+  async function confirm(categoryOverride?: string) {
+    const categoryId = categoryOverride ?? suggested?.id;
+    if (!categoryId) return;
     setBusy(true);
     setError(null);
     const { error } = await supabase.rpc("save_transaction", {
@@ -81,7 +107,7 @@ function PendingCard({ tx }: { tx: Transaction }) {
         merchant: tx.merchant,
         account_id: tx.account_id,
         tags: tx.tags,
-        splits: [{ amount: tx.amount, category_id: suggested.id, responsible_user_id: suggestedResp }],
+        splits: [{ amount: tx.amount, category_id: categoryId, responsible_user_id: categoryOverride ? me.user_id : suggestedResp }],
       },
     });
     if (!error) await supabase.rpc("remember_merchant", { p_transaction_id: tx.id, p_auto_apply: always });
@@ -126,6 +152,10 @@ function PendingCard({ tx }: { tx: Transaction }) {
         </p>
       )}
 
+      {isSubscription && !suggested && tx.kind === "EXPENSE" && tx.account_id && (
+        <p className="rounded-xl bg-olive-soft px-3 py-2 text-sm">Parece una suscripción.</p>
+      )}
+
       {canConfirm && (
         <label className="flex items-center gap-2 text-xs text-muted">
           <input type="checkbox" checked={always} onChange={(e) => setAlways(e.target.checked)} className="h-4 w-4 accent-[var(--olive)]" />
@@ -135,7 +165,10 @@ function PendingCard({ tx }: { tx: Transaction }) {
       {error && <p className="text-sm text-danger">{error}</p>}
 
       <div className="flex gap-2">
-        {canConfirm && <Button size="sm" className="flex-1" onClick={confirm} disabled={busy}>Confirmar</Button>}
+        {canConfirm && <Button size="sm" className="flex-1" onClick={() => confirm()} disabled={busy}>Confirmar</Button>}
+        {isSubscription && !suggested && tx.kind === "EXPENSE" && tx.account_id && (
+          <Button size="sm" className="flex-1" onClick={createSubscriptionsAndConfirm} disabled={busy}>Crear “Suscripciones” y asignar</Button>
+        )}
         <Button size="sm" variant={canConfirm ? "outline" : "primary"} className="flex-1" onClick={() => openTransaction(tx)}>
           {canConfirm ? "Cambiar" : "Revisar"}
         </Button>

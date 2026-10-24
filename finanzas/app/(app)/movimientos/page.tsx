@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowDownLeft, ArrowRightLeft, ArrowUpRight, Handshake, Lock, Repeat } from "lucide-react";
+import { ArrowDownLeft, ArrowRightLeft, ArrowUpRight, Handshake, Lock } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { useShell } from "@/components/AppShell";
 import { PeriodSwitcher, SwipePeriods } from "@/components/PeriodSwitcher";
@@ -14,8 +14,7 @@ import { formatCop } from "@/lib/finance/money";
 import { formatDay, isWithin } from "@/lib/finance/periods";
 import { accountLabel, categoryLabel } from "@/lib/finance/labels";
 import { cn } from "@/lib/utils";
-import { SUBSCRIPTION_TAG } from "@/lib/finance/subscriptions";
-import { matchesFilter, tagStats } from "@/lib/finance/reports";
+import { matchesFilter } from "@/lib/finance/reports";
 
 type Filter = "all" | "mine" | "cross" | "pending";
 
@@ -23,18 +22,15 @@ export default function MovimientosPage() {
   const { transactions, period, me, categories, labels } = useFinance();
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
-  const [tag, setTag] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [accountId, setAccountId] = useState("");
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
     if (q.get("filtro") === "pendientes") setFilter("pending");
-    setTag(q.get("etiqueta") ?? "");
     setCategoryId(q.get("categoria") ?? "");
     setAccountId(q.get("cuenta") ?? "");
   }, []);
-  const allTags = useMemo(() => tagStats(transactions, me.user_id).map((s) => s.tag), [transactions, me.user_id]);
-  const activeFilters = [tag, categoryId, accountId].filter(Boolean).length;
+  const activeFilters = [categoryId, accountId].filter(Boolean).length;
 
   const list = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -43,14 +39,14 @@ export default function MovimientosPage() {
       if (filter === "mine" && t.payer_user_id !== me.user_id) return false;
       if (filter === "cross" && !(t.kind === "SETTLEMENT" || t.splits.some((s) => s.responsible_user_id !== t.payer_user_id))) return false;
       if (filter === "pending" && t.status !== "PENDING_REVIEW") return false;
-      if (!matchesFilter(t, { tag: tag || undefined, categoryId: categoryId || undefined, accountId: accountId || undefined })) return false;
+      if (!matchesFilter(t, { categoryId: categoryId || undefined, accountId: accountId || undefined })) return false;
       if (q) {
         const text = [t.description, t.merchant, ...t.splits.map((s) => categoryLabel(categories, s.category_id).name)].join(" ").toLowerCase();
         if (!text.includes(q)) return false;
       }
       return true;
     });
-  }, [transactions, period, filter, me.user_id, query, categories, tag, categoryId, accountId]);
+  }, [transactions, period, filter, me.user_id, query, categories, categoryId, accountId]);
 
   const groups = useMemo(() => {
     const map = new Map<string, Transaction[]>();
@@ -72,11 +68,7 @@ export default function MovimientosPage() {
         { value: "pending", label: "Pendientes" },
       ]} />
       <Input className="mt-3" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar por concepto o categoría" aria-label="Buscar" />
-      <div className="mt-3 grid grid-cols-3 gap-2">
-        <Select value={tag} onChange={(e) => setTag(e.target.value)} aria-label="Filtrar por etiqueta" className={cn("h-10 px-3 text-sm", tag && "border-olive bg-olive-soft")}>
-          <option value="">Etiqueta</option>
-          {allTags.map((t) => <option key={t} value={t}>{t}</option>)}
-        </Select>
+      <div className="mt-3 grid grid-cols-2 gap-2">
         <Select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} aria-label="Filtrar por categoría" className={cn("h-10 px-3 text-sm", categoryId && "border-olive bg-olive-soft")}>
           <option value="">Categoría</option>
           {categories.filter((c) => !c.archived).map((c) => <option key={c.id} value={c.id}>{c.icon ? `${c.icon} ` : ""}{c.name}</option>)}
@@ -87,7 +79,7 @@ export default function MovimientosPage() {
         </Select>
       </div>
       {activeFilters > 0 && (
-        <button className="mt-2 px-1 text-xs text-olive underline" onClick={() => { setTag(""); setCategoryId(""); setAccountId(""); window.history.replaceState(null, "", "/movimientos"); }}>
+        <button className="mt-2 px-1 text-xs text-olive underline" onClick={() => { setCategoryId(""); setAccountId(""); window.history.replaceState(null, "", "/movimientos"); }}>
           Quitar filtros
         </button>
       )}
@@ -151,15 +143,6 @@ function TxRow({ tx }: { tx: Transaction }) {
           {subtitle}
           {tx.kind === "EXPENSE" && !labels.some((l) => l.id === tx.account_id) && <Lock size={11} aria-label="Cuenta privada" />}
         </span>
-        {tx.tags.length > 0 && (
-          <span className="mt-1 flex flex-wrap gap-1">
-            {tx.tags.map((tg) => (
-              <span key={tg} className={cn("inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px]", tg === SUBSCRIPTION_TAG ? "bg-olive-soft" : "bg-surface-2 text-muted")}>
-                {tg === SUBSCRIPTION_TAG && <Repeat size={10} />}{tg}
-              </span>
-            ))}
-          </span>
-        )}
         {crossed.length > 0 && tx.kind === "EXPENSE" && (
           <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-wood-soft px-2 py-0.5 text-[11px]">
             <ArrowUpRight size={11} />

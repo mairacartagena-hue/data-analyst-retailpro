@@ -69,7 +69,7 @@ describe("CSV", () => {
   it("separador punto y coma, una fila por parte y gastos en negativo", () => {
     const csv = toCsv(data.slice(0, 1), { categories: cats, labels: [], memberById: (id) => members.find((m) => m.user_id === id) ?? null });
     const lines = csv.replace("﻿", "").split("\r\n");
-    expect(lines[0]).toBe("Fecha;Tipo;Descripción;Comercio;Monto;Categoría;Responsable;Pagó;Cuenta;Etiquetas;Estado");
+    expect(lines[0]).toBe("Fecha;Tipo;Descripción;Comercio;Monto;Categoría;Responsable;Pagó;Cuenta;Estado");
     expect(lines).toHaveLength(3);
     expect(lines[1]).toContain(";-165000;Mercado;Maira;Maira;");
     expect(lines[2]).toContain(";-35000;Sin categoría;Beto;Maira;");
