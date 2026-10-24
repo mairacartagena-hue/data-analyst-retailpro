@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { SectionHeader } from "./ui";
 import { pantryDaysLeft, pantryLow } from "@/lib/logic";
 import { useHousehold } from "./HouseholdProvider";
 
@@ -39,12 +40,14 @@ export function PantrySoonCard() {
   if (!productos.length) return null;
   return (
     <section>
-      <div className="flex items-baseline justify-between">
-        <h2 className="seccion">Se termina pronto</h2>
-        <Link href="/compras" className="text-sm font-semibold text-accion">
-          Ver compras
-        </Link>
-      </div>
+      <SectionHeader
+        title="Se termina pronto"
+        action={
+          <Link href="/compras" className="text-sm font-semibold text-accion">
+            Ver compras
+          </Link>
+        }
+      />
       <PantryCards />
     </section>
   );

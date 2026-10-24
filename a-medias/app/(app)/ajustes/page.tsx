@@ -7,7 +7,7 @@ import { ArrowLeft, Check, Copy, LogOut, RefreshCw, Share2 } from "lucide-react"
 import { useHousehold } from "@/components/HouseholdProvider";
 import { InstallButton } from "@/components/InstallButton";
 import { PushButton } from "@/components/PushButton";
-import { ErrorText, PageHeader, errMsg } from "@/components/ui";
+import { ErrorText, PageHeader, SectionHeader, errMsg } from "@/components/ui";
 import { ExportarDatos } from "@/components/ExportarDatos";
 import { CambiarClave } from "@/components/CambiarClave";
 import { Loading } from "@/components/Loading";
@@ -93,14 +93,14 @@ export default function AjustesPage() {
         <input id="hogar" className="input" value={nombreHogar} onChange={(e) => setNombreHogar(e.target.value)} onBlur={guardarHogar} />
       </section>
 
-      <h2 className="seccion">Personas</h2>
+      <SectionHeader title="Personas" />
       <div className="space-y-3">
         {members.map((m) => (
           <MemberEditor key={m.id} member={m} esYo={m.id === me?.id} onChange={(row) => optimistic("members", row)} onError={setError} />
         ))}
       </div>
 
-      <h2 className="seccion">Invitar</h2>
+      <SectionHeader title="Invitar" />
       <section className="card space-y-3">
         {members.length >= 2 ? (
           <p className="text-sm text-sec">El hogar ya tiene dos personas.</p>
@@ -124,22 +124,22 @@ export default function AjustesPage() {
         </button>
       </section>
 
-      <h2 className="seccion">Contraseña</h2>
+      <SectionHeader title="Contraseña" />
       <section className="card">
         <CambiarClave />
       </section>
 
-      <h2 className="seccion">Notificaciones</h2>
+      <SectionHeader title="Notificaciones" />
       <section className="card">
         <PushButton />
       </section>
 
-      <h2 className="seccion">App</h2>
+      <SectionHeader title="App" />
       <section className="card">
         <InstallButton className="w-full" />
       </section>
 
-      <h2 className="seccion">Respaldo</h2>
+      <SectionHeader title="Respaldo" />
       <section className="card">
         <ExportarDatos />
       </section>

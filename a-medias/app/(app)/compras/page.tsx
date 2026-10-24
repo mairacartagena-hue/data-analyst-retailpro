@@ -5,7 +5,7 @@ import { Pencil, Plus, Trash2 } from "lucide-react";
 import { useHousehold } from "@/components/HouseholdProvider";
 import { ImportarCompras } from "@/components/ImportarCompras";
 import { PantryCards, diasTexto, usePantrySoon } from "@/components/PantrySoon";
-import { Avatar, Checkbox, Empty, ErrorText, JUNTOS, PageHeader, Pills, Sheet, errMsg } from "@/components/ui";
+import { Avatar, Checkbox, Empty, ErrorText, JUNTOS, PageHeader, Pills, SectionHeader, Sheet, errMsg } from "@/components/ui";
 import { Loading } from "@/components/Loading";
 import { getSupabase } from "@/lib/supabase/client";
 import { todayStr } from "@/lib/dates";
@@ -228,19 +228,21 @@ export default function ComprasPage() {
 
           {activa === "Mercado" && pronto.length > 0 && (
             <section>
-              <h2 className="seccion">Se termina pronto</h2>
+              <SectionHeader title="Se termina pronto" />
               <PantryCards />
             </section>
           )}
 
           {activa === "Mascotas" && (
             <section>
-              <div className="flex items-baseline justify-between">
-                <h2 className="seccion">Despensa de mascotas</h2>
-                <button className="btn btn-secondary btn-sm" onClick={() => setProducto("nuevo")}>
-                  <Plus size={14} /> Producto
-                </button>
-              </div>
+              <SectionHeader
+                title="Despensa de mascotas"
+                action={
+                  <button className="btn btn-secondary btn-sm" onClick={() => setProducto("nuevo")}>
+                    <Plus size={14} /> Producto
+                  </button>
+                }
+              />
               <p className="-mt-1 mb-3 text-xs text-sec">
                 Cuando a un producto le queda el 20% o menos, se agrega solo a Mascotas con la etiqueta AUTO.
               </p>
@@ -286,7 +288,7 @@ export default function ComprasPage() {
               )}
             </section>
           )}
-          {activa === "Mascotas" && <h2 className="seccion">Comida natural</h2>}
+          {activa === "Mascotas" && <SectionHeader title="Comida natural" />}
           <form onSubmit={agregar} className="card mt-5 space-y-2 p-3!">
             <div className="flex gap-2">
               <input
@@ -333,7 +335,7 @@ export default function ComprasPage() {
 
           {categorias.map((c) => (
             <section key={c}>
-              <h2 className="seccion text-[17px]!">{c}</h2>
+              <SectionHeader title={c} small />
               <ul className="card p-0!">
                 {pendientes
                   .filter((i) => i.categoria === c)
@@ -346,12 +348,15 @@ export default function ComprasPage() {
 
           {comprados.length > 0 && (
             <section>
-              <div className="flex items-baseline justify-between">
-                <h2 className="seccion text-[17px]!">Comprado</h2>
-                <button className="text-sm font-semibold text-accion" onClick={borrarComprados}>
-                  Limpiar
-                </button>
-              </div>
+              <SectionHeader
+                title="Comprado"
+                small
+                action={
+                  <button className="text-sm font-semibold text-accion" onClick={borrarComprados}>
+                    Limpiar
+                  </button>
+                }
+              />
               <ul className="card p-0!">
                 {comprados.map((i) => (
                   <ItemRow key={i.id} item={i} onToggle={() => toggle(i)} onDelete={() => borrar(i)} pedidoPor={memberById(i.pedido_por)} />
@@ -362,12 +367,14 @@ export default function ComprasPage() {
 
           {activa === "Mercado" && (
             <section>
-              <div className="flex items-baseline justify-between">
-                <h2 className="seccion">Despensa</h2>
-                <button className="btn btn-secondary btn-sm" onClick={() => setProducto("nuevo")}>
-                  <Plus size={14} /> Producto
-                </button>
-              </div>
+              <SectionHeader
+                title="Despensa"
+                action={
+                  <button className="btn btn-secondary btn-sm" onClick={() => setProducto("nuevo")}>
+                    <Plus size={14} /> Producto
+                  </button>
+                }
+              />
               <p className="-mt-1 mb-3 text-xs text-sec">
                 Cuando a un producto le queda el 20% o menos, se agrega solo a Mercado con la etiqueta AUTO.
               </p>
