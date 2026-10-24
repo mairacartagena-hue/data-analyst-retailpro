@@ -5,7 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabase } from "@/lib/supabase/client";
 import type {
   Account, AccountLabel, BudgetPlan, CategoryLimit, BudgetPlanCategory, Category, CategoryBudgetRow, CustomPeriodRow, Household, LedgerRow,
-  ManualAsset, Member, PeriodSettingsRow, Reconciliation, SavingsContribution, SavingsGoal, ScheduledPayment, Split, Transaction,
+  ManualAsset, Member, PeriodSettingsRow, Reconciliation, SavingsContribution, SavingsGoal, ScheduledPayment, Split, Tag, Transaction,
 } from "@/lib/types";
 import { toPeriodSettings, type Snapshot } from "@/lib/finance/derive";
 import type { SpendingRow } from "@/lib/finance/budget";
@@ -13,6 +13,9 @@ import { spendingRows } from "@/lib/finance/spaces";
 import { periodFor, todayBogota, type Period } from "@/lib/finance/periods";
 
 export interface FinanceState extends Snapshot {
+  /** Etiquetas del hogar y, por movimiento, los ids de las que tiene. */
+  tags: Tag[];
+  txTags: Record<string, string[]>;
   household: Household;
   /** Totales (sin detalle) de lo que la pareja lleva en sus presupuestos personales compartidos conmigo. */
   sharedSpending: SpendingRow[];
@@ -64,7 +67,7 @@ async function loadAll(sb: SupabaseClient, userId: string): Promise<Loaded> {
   const hh = me.household_id;
 
   const [household, members, settings, customPeriods, accounts, labels, balances, categories, budgets, txs, splits, ledger, assets, recs,
-    plans, planCategories, commitments, goals, contributions, limits, shared] =
+    plans, planCategories, commitments, goals, contributions, limits, shared, tagRows, txTagRows] =
     await Promise.all([
       sb.from("households").select("id, name, invite_code").eq("id", hh).single(),
       sb.from("household_members").select("*").eq("household_id", hh),
@@ -95,12 +98,18 @@ async function loadAll(sb: SupabaseClient, userId: string): Promise<Loaded> {
       ),
       sb.from("category_limits").select("id, category_id, scope, owner_user_id, responsibility, is_household_obligation, rollover_enabled, shared_with_partner").eq("household_id", hh),
       sb.rpc("shared_personal_spending"),
+      sb.from("tags").select("id, household_id, name, color").eq("household_id", hh).order("name"),
+      fetchAll<{ transaction_id: string; tag_id: string }>((f, t) =>
+        sb.from("transaction_tags").select("transaction_id, tag_id").eq("household_id", hh).range(f, t),
+      ),
     ]);
 
   for (const r of [household, members, settings, customPeriods, accounts, labels, balances, categories, budgets, assets, recs,
-    plans, planCategories, commitments, goals, limits, shared]) {
+    plans, planCategories, commitments, goals, limits, shared, tagRows]) {
     if (r.error) throw r.error;
   }
+  const txTags: Record<string, string[]> = {};
+  for (const r of txTagRows) (txTags[r.transaction_id] ??= []).push(r.tag_id);
 
   const splitsByTx = new Map<string, Split[]>();
   for (const s of splits) {
@@ -117,6 +126,8 @@ async function loadAll(sb: SupabaseClient, userId: string): Promise<Loaded> {
   for (const b of (balances.data ?? []) as { account_id: string; balance: number }[]) balanceMap[b.account_id] = Number(b.balance);
 
   return {
+    tags: (tagRows.data ?? []) as Tag[],
+    txTags,
     household: household.data as Household,
     me,
     partner: memberRows.find((m) => m.user_id !== userId) ?? null,
@@ -168,6 +179,7 @@ const REALTIME_TABLES = [
   "accounts", "categories", "category_budgets", "transactions", "transaction_splits",
   "cross_ledger", "household_members", "period_settings", "manual_assets",
   "category_limits", "budget_plans", "budget_plan_categories", "scheduled_payments", "savings_goals", "savings_contributions",
+  "tags", "transaction_tags",
 ];
 
 export function FinanceProvider({ userId, children }: { userId: string; children: React.ReactNode }) {

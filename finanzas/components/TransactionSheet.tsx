@@ -15,6 +15,8 @@ import { AmountInput } from "@/components/AmountInput";
 import { CategorySheet } from "@/components/CategorySheet";
 import { CategoryOptions, CategoryPicker } from "@/components/CategoryPicker";
 import { TransactionComments } from "@/components/TransactionComments";
+import { TagPicker } from "@/components/TagPicker";
+import { diffTags } from "@/lib/finance/tags";
 import { MemberBadge } from "@/components/MemberBadge";
 import { formatCop, parseCop } from "@/lib/finance/money";
 import { formatDay, periodFor, todayBogota } from "@/lib/finance/periods";
@@ -124,6 +126,7 @@ export function TransactionSheet({
   const [splitMode, setSplitMode] = useState(false);
   const [splits, setSplits] = useState<SplitRow[]>([]);
   const [createsDebt, setCreatesDebt] = useState(true);
+  const [tagIds, setTagIds] = useState<string[]>([]);
   const [incomeCategoryId, setIncomeCategoryId] = useState("");
   const [scheduled, setScheduled] = useState<{ id: string; for: string } | null>(null);
   const [newCategory, setNewCategory] = useState<"EXPENSE" | "INCOME" | null>(null);
@@ -139,6 +142,7 @@ export function TransactionSheet({
     setError(null);
     setFixedPrompt(null);
     setBusy(false);
+    setTagIds(editing ? state.txTags[editing.id] ?? [] : []);
     if (editing) {
       setKind(editing.kind === "SETTLEMENT" ? "EXPENSE" : editing.kind);
       setScope(editing.scope ?? "PERSONAL");
@@ -324,6 +328,12 @@ export function TransactionSheet({
     });
     if (!error && isPendingReview && kind === "EXPENSE" && !splitMode && remember && (editing?.merchant_norm || (editing?.splits.length ?? 0) > 0)) {
       await supabase.rpc("remember_merchant", { p_transaction_id: editing!.id, p_auto_apply: autoApply });
+    }
+    if (!error && savedId) {
+      // Etiquetas: se agregan o quitan solo las que cambiaron
+      const { add, remove } = diffTags(editing ? state.txTags[editing.id] ?? [] : [], tagIds);
+      if (remove.length > 0) await supabase.from("transaction_tags").delete().eq("transaction_id", savedId as string).in("tag_id", remove);
+      if (add.length > 0) await supabase.from("transaction_tags").insert(add.map((tag_id) => ({ transaction_id: savedId as string, tag_id, household_id: state.household.id })));
     }
     if (!error && preset?.logId && savedId) {
       await supabase.from("ingest_logs").update({ result: "ACCEPTED", reason: "Registrado a mano", transaction_id: savedId }).eq("id", preset.logId);
@@ -587,6 +597,10 @@ export function TransactionSheet({
             </div>
           )}
 
+          <Field label="Etiquetas (opcional)">
+            <TagPicker value={tagIds} onChange={setTagIds} />
+          </Field>
+
           <ErrorText>{error}</ErrorText>
 
           <div className="flex gap-3 pt-1">
@@ -618,7 +632,8 @@ export function TransactionSheet({
 
 /** Vista de solo lectura (movimientos personales de la pareja en los que participo, o liquidaciones). */
 function TransactionDetail({ open, onOpenChange, tx }: { open: boolean; onOpenChange: (v: boolean) => void; tx: Transaction }) {
-  const { me, categories, labels, supabase, reload, memberById } = useFinance();
+  const state = useFinance();
+  const { me, categories, labels, supabase, reload, memberById } = state;
   const [error, setError] = useState<string | null>(null);
   const payer = memberById(tx.payer_user_id);
   const hiddenAmount = hasSplits(tx.kind) ? tx.amount - tx.splits.reduce((a, s) => a + s.amount, 0) : 0;
@@ -666,6 +681,13 @@ function TransactionDetail({ open, onOpenChange, tx }: { open: boolean; onOpenCh
             ? "Las liquidaciones no se editan."
             : "Es un movimiento personal de tu pareja: solo quien lo registró puede editarlo. Los del hogar los pueden ajustar los dos."}
         </p>
+        {(state.txTags[tx.id] ?? []).length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {(state.txTags[tx.id] ?? []).map((id) => state.tags.find((t) => t.id === id)).filter((t): t is NonNullable<typeof t> => !!t).map((t) => (
+              <span key={t.id} className="rounded-full bg-surface-2 px-2.5 py-1 text-xs">{t.name}</span>
+            ))}
+          </div>
+        )}
         <TransactionComments txId={tx.id} />
       </div>
     </Sheet>

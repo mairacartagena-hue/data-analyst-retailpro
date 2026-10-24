@@ -2,19 +2,23 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Check, ChevronDown, Copy, KeyRound, Mail, MessageSquareText, Plus, RefreshCw, Smartphone, Trash2 } from "lucide-react";
+import { ArrowLeft, Check, ChevronDown, Copy, KeyRound, Mail, MessageSquareText, Pencil, Plus, RefreshCw, Smartphone, Trash2 } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { useShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Card, SectionTitle } from "@/components/ui/card";
 import { ErrorText } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { MemorySheet, memoryTitle } from "@/components/MemorySheet";
 import type { IngestLog, MerchantMemory } from "@/lib/types";
 import { CHANNEL_LABEL } from "@/lib/types";
 import { categoryLabel } from "@/lib/finance/labels";
 import { appsScript, notificationBody, smsBody } from "@/lib/ingest/templates";
 import { findAmount } from "@/lib/ingest/normalize";
 import { cn, errMsg } from "@/lib/utils";
+
+/** Avisos que no llegaron a ser un movimiento: los cuenta el Cierre del mes y los lista esta pantalla. */
+const FAILED_RESULTS = ["UNRECOGNIZED", "ERROR", "DISCARDED"];
 
 const RESULT_LABEL: Record<IngestLog["result"], { text: string; className: string }> = {
   ACCEPTED: { text: "Registrado", className: "bg-olive-soft text-text" },
@@ -58,7 +62,8 @@ export default function CapturaPage() {
   const [memory, setMemory] = useState<MerchantMemory[]>([]);
   const [open, setOpen] = useState<string | null>("android");
   const [error, setError] = useState<string | null>(null);
-  const [failedIds, setFailedIds] = useState<string[]>([]);
+  const [failed, setFailed] = useState<IngestLog[]>([]);
+  const [editingMemory, setEditingMemory] = useState<MerchantMemory | null>(null);
   const [retrying, setRetrying] = useState<{ done: number; total: number } | null>(null);
   const [retrySummary, setRetrySummary] = useState<string | null>(null);
 
@@ -70,21 +75,24 @@ export default function CapturaPage() {
       supabase.from("ingest_tokens").select("token_hint, created_at, last_used_at").eq("user_id", me.user_id).maybeSingle(),
       supabase.from("ingest_logs").select("id, channel, source, raw_text, parser, result, reason, transaction_id, received_at")
         .eq("user_id", me.user_id).order("received_at", { ascending: false }).limit(40),
-      supabase.from("merchant_memory").select("id, identifier_type, identifier, category_id, responsible_user_id, tag, auto_apply, hits")
+      supabase.from("merchant_memory").select("id, identifier_type, identifier, category_id, responsible_user_id, tag, auto_apply, hits, label, scope, creates_debt, movement_kind")
         .eq("user_id", me.user_id).order("hits", { ascending: false }),
-      // Todos los avisos que no se pudieron leer (no solo los 40 que se ven abajo) y aún tienen su texto
-      supabase.from("ingest_logs").select("id").eq("user_id", me.user_id)
-        .in("result", ["UNRECOGNIZED", "ERROR", "DISCARDED"]).not("raw_text", "is", null)
-        .order("received_at", { ascending: false }).limit(300),
+      // Todos los avisos que no se pudieron leer (no solo los más recientes): los mismos que cuenta el Cierre del mes
+      supabase.from("ingest_logs").select("id, channel, source, raw_text, parser, result, reason, transaction_id, received_at").eq("user_id", me.user_id)
+        .in("result", FAILED_RESULTS).order("received_at", { ascending: false }).limit(300),
     ]);
     if (t.error || l.error || m.error) setError(errMsg(t.error || l.error || m.error));
     setToken(t.data ?? null);
     setLogs((l.data ?? []) as IngestLog[]);
     setMemory((m.data ?? []) as MerchantMemory[]);
-    setFailedIds(((f.data ?? []) as { id: string }[]).map((x) => x.id));
+    setFailed((f.data ?? []) as IngestLog[]);
   }, [supabase, me.user_id]);
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (window.location.hash === "#sin-reconocer" && failed.length > 0) document.getElementById("sin-reconocer")?.scrollIntoView({ behavior: "smooth" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [failed.length > 0]);
 
   async function generate() {
     if (token && !confirm("El token anterior deja de funcionar y tendrás que pegar el nuevo en MacroDroid y en el Apps Script. ¿Continuar?")) return;
@@ -96,7 +104,7 @@ export default function CapturaPage() {
 
   /** Un solo botón: vuelve a leer, uno por uno, todos los avisos que no se pudieron reconocer. */
   async function retryAll() {
-    const ids = failedIds;
+    const ids = failed.filter((l) => l.raw_text).map((l) => l.id);
     if (ids.length === 0 || retrying) return;
     setRetrySummary(null);
     setRetrying({ done: 0, total: ids.length });
@@ -223,28 +231,42 @@ export default function CapturaPage() {
         ))}
       </div>
 
+      <section id="sin-reconocer" className="scroll-mt-4">
+        <SectionTitle>Avisos sin reconocer{failed.length > 0 ? ` (${failed.length})` : ""}</SectionTitle>
+        {failed.length === 0 && !retrySummary ? (
+          <p className="px-1 text-sm text-muted">No hay avisos pendientes. Todo lo que llegó se reconoció o se ignoró.</p>
+        ) : (
+          <>
+            <Card className="mb-3 space-y-2">
+              {failed.length > 0 && (
+                <>
+                  <p className="text-sm">
+                    Se vuelven a leer con las reglas actuales (y Gemini si hace falta). Los que sigan sin reconocerse se registran a mano.
+                    {failed.some((l) => !l.raw_text) ? ` ${failed.filter((l) => !l.raw_text).length} ya no tienen su texto (pasaron 30 días) y solo se pueden registrar a mano.` : ""}
+                  </p>
+                  <Button className="w-full" onClick={retryAll} disabled={!!retrying || !failed.some((l) => l.raw_text)}>
+                    <RefreshCw size={16} className={retrying ? "animate-spin" : ""} />
+                    {retrying ? `Reintentando ${retrying.done} de ${retrying.total}…` : `Reintentar los ${failed.filter((l) => l.raw_text).length} pendientes`}
+                  </Button>
+                </>
+              )}
+              {retrySummary && <p className="text-sm text-olive">{retrySummary}</p>}
+            </Card>
+            {failed.length > 0 && (
+              <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface">
+                {failed.map((l) => <LogRow key={l.id} log={l} />)}
+              </div>
+            )}
+          </>
+        )}
+      </section>
+
       <SectionTitle>Últimos eventos</SectionTitle>
-      {(failedIds.length > 0 || retrying || retrySummary) && (
-        <Card className="mb-3 space-y-2">
-          {failedIds.length > 0 && (
-            <>
-              <p className="text-sm">
-                {failedIds.length} aviso{failedIds.length === 1 ? "" : "s"} sin reconocer. Se vuelven a leer con las reglas actuales (y Gemini si hace falta).
-              </p>
-              <Button className="w-full" onClick={retryAll} disabled={!!retrying}>
-                <RefreshCw size={16} className={retrying ? "animate-spin" : ""} />
-                {retrying ? `Reintentando ${retrying.done} de ${retrying.total}…` : `Reintentar los ${failedIds.length} pendientes`}
-              </Button>
-            </>
-          )}
-          {retrySummary && <p className="text-sm text-olive">{retrySummary}</p>}
-        </Card>
-      )}
-      {logs.length === 0 ? (
-        <p className="px-1 text-sm text-muted">Aún no ha llegado nada. Cuando conectes MacroDroid o Gmail verás aquí cada aviso y qué se hizo con él.</p>
+      {logs.filter((l) => !FAILED_RESULTS.includes(l.result)).length === 0 ? (
+        <p className="px-1 text-sm text-muted">Aún no ha llegado nada reconocido. Cuando conectes MacroDroid o Gmail verás aquí cada aviso y qué se hizo con él.</p>
       ) : (
         <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface">
-          {logs.map((l) => <LogRow key={l.id} log={l} />)}
+          {logs.filter((l) => !FAILED_RESULTS.includes(l.result)).map((l) => <LogRow key={l.id} log={l} />)}
         </div>
       )}
 
@@ -258,10 +280,13 @@ export default function CapturaPage() {
             const resp = memberById(m.responsible_user_id);
             return (
               <div key={m.id} className="flex items-center gap-3 px-3.5 py-3">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-medium">{m.identifier}</p>
-                  <p className="truncate text-xs text-muted">{cat.icon} {cat.name} · {resp ? (resp.user_id === me.user_id ? "tú" : resp.display_name) : ""} · {m.hits} uso{m.hits === 1 ? "" : "s"}</p>
-                </div>
+                <button className="min-w-0 flex-1 text-left" onClick={() => setEditingMemory(m)} aria-label={`Editar ${memoryTitle(m)}`}>
+                  <p className="flex items-center gap-1.5 truncate font-medium">{memoryTitle(m)} <Pencil size={12} className="shrink-0 text-muted" /></p>
+                  <p className="truncate text-xs text-muted">
+                    {m.movement_kind === "REFUND" ? "Reembolso de " : ""}{cat.icon} {cat.name} · {resp ? (resp.user_id === me.user_id ? "tú" : resp.display_name) : ""} · {m.scope === "HOUSEHOLD" ? "hogar" : "personal"} · {m.hits} uso{m.hits === 1 ? "" : "s"}
+                    {m.label ? ` · ${m.identifier}` : ""}
+                  </p>
+                </button>
                 <label className="flex items-center gap-1.5 text-xs text-muted">
                   Siempre <Switch checked={m.auto_apply} onCheckedChange={(v) => toggleAuto(m, v)} aria-label="Aplicar siempre" />
                 </label>
@@ -271,14 +296,15 @@ export default function CapturaPage() {
           })}
         </div>
       )}
-      <p className="mt-2 px-1 text-xs text-muted">El texto original de cada aviso se borra solo a los 30 días.</p>
+      <p className="mt-2 px-1 text-xs text-muted">Toca un nombre para cambiar dónde se guarda. El texto original de cada aviso se borra solo a los 30 días.</p>
+      <MemorySheet memory={editingMemory} onClose={() => setEditingMemory(null)} onChanged={load} />
     </main>
   );
 }
 
 function LogRow({ log }: { log: IngestLog }) {
   const { openPayment } = useShell();
-  const [show, setShow] = useState(log.result === "UNRECOGNIZED" || log.result === "ERROR");
+  const [show, setShow] = useState(FAILED_RESULTS.includes(log.result));
   const r = RESULT_LABEL[log.result];
   const failed = log.result === "UNRECOGNIZED" || log.result === "ERROR" || log.result === "DISCARDED";
 

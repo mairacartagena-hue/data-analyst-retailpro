@@ -208,6 +208,20 @@ export interface MerchantMemory {
   tag: string | null;
   auto_apply: boolean;
   hits: number;
+  /** Nombre que la persona le puso (ej. "Heladería", "Hermano"). */
+  label: string | null;
+  scope: "HOUSEHOLD" | "PERSONAL" | null;
+  creates_debt: boolean;
+  /** REFUND: los ingresos de este origen entran como reembolso de la categoría. */
+  movement_kind: "REFUND" | null;
+}
+
+/** Etiqueta del hogar para filtrar e informar (se pueden crear, renombrar y borrar). */
+export interface Tag {
+  id: string;
+  household_id: string;
+  name: string;
+  color: string | null;
 }
 
 export const CHANNEL_LABEL: Record<string, string> = {

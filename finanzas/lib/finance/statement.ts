@@ -5,7 +5,7 @@
 // (+ entra plata, − sale plata). En una tarjeta de crédito una compra sale (−): sube la deuda.
 
 import type { Account, Transaction } from "@/lib/types";
-import { fold, parseAmountCo } from "@/lib/ingest/normalize";
+import { fold } from "@/lib/ingest/normalize";
 import { addDays } from "./periods";
 import { effectOn, gmfEstimate, type GmfMode, type MonthRange } from "./reconcile";
 
@@ -21,6 +21,10 @@ export interface StatementLine {
   amount: number; // efecto sobre el saldo: + entra, − sale
   balance: number | null;
   kind: LineKind;
+  /** Valor con centavos (los intereses diarios son de centavos y se suman por mes). */
+  exact?: number;
+  /** Cuántos movimientos del extracto resume esta línea (intereses y 4x1000 se agrupan por mes). */
+  count?: number;
 }
 
 /** Índices de columna (0 = primera). null = el extracto no la trae. */
@@ -41,6 +45,8 @@ export interface ParseOptions {
   /** Tarjetas: el extracto muestra las compras como positivas (lo más común). */
   purchasesPositive?: boolean;
   isCard?: boolean;
+  /** Año para fechas escritas solo como día/mes ("1/07"); si el archivo trae el periodo (DESDE/HASTA) se usa ese. */
+  yearHint?: number;
 }
 
 export interface ParsedStatement {
@@ -51,6 +57,10 @@ export interface ParsedStatement {
   dateOrder: "DMY" | "MDY";
   skipped: number; // filas que no eran movimientos (totales, encabezados repetidos, vacías)
   warnings: string[];
+  /** Periodo que declara el archivo (DESDE / HASTA), si lo trae. */
+  period: { start: string; end: string } | null;
+  /** Las líneas sin agrupar y en el orden del archivo (para el saldo final). */
+  raw: StatementLine[];
 }
 
 const BOM = /^﻿/;
@@ -145,15 +155,61 @@ function detectDateOrder(cells: string[]): "DMY" | "MDY" {
   return secondOver12 ? "MDY" : "DMY";
 }
 
-/** Monto con signo: "-1.234,56", "(1.234)", "1,234.56-", "1.234 DB", "$ 50.000". Devuelve pesos enteros. */
-export function parseSignedAmount(raw: string): number | null {
+/**
+ * Monto con signo y centavos: "-1.234,56", "(1.234)", "1,234.56-", "1.234 DB", "$ 50.000", ".49".
+ * Un separador seguido de 1 o 2 dígitos al final son centavos; los demás separadores son de miles.
+ */
+export function parseExactAmount(raw: string): number | null {
   const s = raw.trim();
   if (!s || !/\d/.test(s)) return null;
   const negative = /^\(.*\)$/.test(s) || /^[-−–]/.test(s) || /[-−–]\s*$/.test(s) || /\b(db|deb|d[eé]bito)\b/i.test(s);
-  if (/^[^\d]*0+(?:[.,]0+)?[^\d]*$/.test(s)) return 0;
-  const magnitude = parseAmountCo(s.replace(/[-−–()]/g, ""));
-  if (magnitude === null) return null;
-  return negative ? -magnitude : magnitude;
+  const num = s.replace(/[^\d.,]/g, "");
+  const cents = /[.,](\d{1,2})$/.exec(num);
+  const intDigits = (cents ? num.slice(0, -cents[0].length) : num).replace(/[.,]/g, "");
+  if (!intDigits && !cents) return null;
+  const magnitude = Number(intDigits || "0") + (cents ? Number(cents[1].padEnd(2, "0")) / 100 : 0);
+  if (!Number.isFinite(magnitude)) return null;
+  return negative && magnitude !== 0 ? -magnitude : magnitude;
+}
+
+/** Monto con signo en pesos enteros (los centavos se redondean). */
+export function parseSignedAmount(raw: string): number | null {
+  const v = parseExactAmount(raw);
+  if (v === null) return null;
+  const r = Math.round(Math.abs(v));
+  return v < 0 && r !== 0 ? -r : r;
+}
+
+/** Periodo que declara el extracto: las fechas completas (AAAA/MM/DD) que aparecen antes de los movimientos. */
+function declaredPeriod(rows: string[][]): { start: string; end: string } | null {
+  const found: string[] = [];
+  for (const r of rows.slice(0, 80)) {
+    for (const c of r) {
+      const m = /^(\d{4})[-/.](\d{2})[-/.](\d{2})$/.exec(c.trim());
+      if (m) {
+        const d = iso(+m[1], +m[2], +m[3]);
+        if (d) found.push(d);
+      }
+    }
+  }
+  if (found.length < 2) return null;
+  found.sort();
+  return { start: found[0], end: found[found.length - 1] };
+}
+
+/** Fecha escrita solo como día/mes ("1/07"): el año sale del periodo del extracto o del año indicado. */
+function parseDayMonth(raw: string, period: { start: string; end: string } | null, yearHint?: number): string | null {
+  const m = /^(\d{1,2})[-/.](\d{1,2})$/.exec(raw.trim());
+  if (!m) return null;
+  const years = period ? [...new Set([+period.start.slice(0, 4), +period.end.slice(0, 4)])] : yearHint ? [yearHint] : [];
+  let fallback: string | null = null;
+  for (const y of years) {
+    const d = iso(y, +m[2], +m[1]);
+    if (!d) continue;
+    fallback = d;
+    if (!period || (d >= period.start && d <= period.end)) return d;
+  }
+  return fallback;
 }
 
 const ROLE_PATTERNS: Record<keyof ColumnMap, RegExp> = {
@@ -214,21 +270,51 @@ export function classifyLine(description: string, amount: number): LineKind {
 }
 
 export function parseStatement(text: string, opts: ParseOptions = {}): ParsedStatement {
-  const rows = splitCsv(text);
+  return parseStatementRows(splitCsv(text), opts);
+}
+
+/** Intereses y 4x1000 vienen en muchas líneas pequeñas (a veces una por día): se resumen en una por mes. */
+const GROUPED: LineKind[] = ["GMF", "INTEREST_IN", "INTEREST_OUT"];
+
+export function groupMonthly(lines: StatementLine[]): StatementLine[] {
+  const groups = new Map<string, StatementLine[]>();
+  const rest: StatementLine[] = [];
+  for (const l of lines) {
+    if (!GROUPED.includes(l.kind)) { rest.push(l); continue; }
+    const key = `${l.kind}|${l.date.slice(0, 7)}`;
+    groups.set(key, [...(groups.get(key) ?? []), l]);
+  }
+  for (const [key, ls] of groups) {
+    const total = ls.reduce((a, l) => a + (l.exact ?? l.amount), 0);
+    const amount = Math.round(total);
+    if (amount === 0) continue;
+    const first = ls[0];
+    const date = ls.reduce((d, l) => (l.date > d ? l.date : d), first.date);
+    rest.push({
+      id: `G:${key}`, date, amount, exact: total, balance: null, kind: first.kind, count: ls.length,
+      description: ls.length > 1 ? `${first.description} (${ls.length} movimientos del mes)` : first.description,
+    });
+  }
+  return rest.sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id, "en", { numeric: true }));
+}
+
+export function parseStatementRows(rows: string[][], opts: ParseOptions = {}): ParsedStatement {
   const warnings: string[] = [];
-  const empty: ParsedStatement = { lines: [], map: { date: null, description: null, amount: null, debit: null, credit: null, balance: null }, headers: [], headerRow: -1, dateOrder: "DMY", skipped: 0, warnings };
+  const period = declaredPeriod(rows);
+  const empty: ParsedStatement = { lines: [], map: { date: null, description: null, amount: null, debit: null, credit: null, balance: null }, headers: [], headerRow: -1, dateOrder: "DMY", skipped: 0, warnings, period, raw: [] };
   if (rows.length === 0) return { ...empty, warnings: ["El archivo está vacío."] };
 
   const header = findHeader(rows);
   const manual = opts.map && opts.map.date != null && (opts.map.amount != null || opts.map.debit != null || opts.map.credit != null);
   const blank: ColumnMap = { date: null, description: null, amount: null, debit: null, credit: null, balance: null };
   const base = header?.map ?? inferMap(rows) ?? (manual ? blank : null);
-  if (!base) return { ...empty, warnings: ["No pude reconocer las columnas. Revisa que sea el extracto en CSV (con fecha y valor) o elige las columnas a mano."] };
+  if (!base) return { ...empty, warnings: ["No pude reconocer las columnas. Revisa que sea el extracto (con fecha y valor) o elige las columnas a mano."] };
   const map: ColumnMap = { ...base, ...opts.map };
   const headerRow = header?.row ?? -1;
   const width = Math.max(...rows.map((r) => r.length));
   const headers = Array.from({ length: width }, (_, i) => (header ? rows[header.row][i] : "") || `Columna ${i + 1}`);
 
+  // Algunos bancos repiten el encabezado en cada página: se toma todo lo que viene después del primero
   const body = rows.slice(headerRow + 1);
   const dateOrder = detectDateOrder(body.map((r) => (map.date === null ? "" : r[map.date] ?? "")));
   const lines: StatementLine[] = [];
@@ -237,28 +323,34 @@ export function parseStatement(text: string, opts: ParseOptions = {}): ParsedSta
   const invert = (opts.flip ? -1 : 1) * (opts.isCard && opts.purchasesPositive !== false ? -1 : 1);
 
   body.forEach((r, i) => {
-    const date = map.date === null ? null : parseDate(r[map.date] ?? "", dateOrder);
+    const cell = map.date === null ? "" : r[map.date] ?? "";
+    const date = parseDate(cell, dateOrder) ?? parseDayMonth(cell, period, opts.yearHint);
     if (!date) { skipped++; return; }
     let amount: number | null = null;
+    let exact: number | null = null;
     if (map.debit !== null || map.credit !== null) {
-      const d = map.debit === null ? null : parseSignedAmount(r[map.debit] ?? "");
-      const c = map.credit === null ? null : parseSignedAmount(r[map.credit] ?? "");
+      const d = map.debit === null ? null : parseExactAmount(r[map.debit] ?? "");
+      const c = map.credit === null ? null : parseExactAmount(r[map.credit] ?? "");
       if (d === null && c === null) { skipped++; return; }
-      amount = Math.abs(c ?? 0) - Math.abs(d ?? 0);
-      if (opts.flip) amount = -amount;
+      exact = Math.abs(c ?? 0) - Math.abs(d ?? 0);
+      if (opts.flip) exact = -exact;
     } else if (map.amount !== null) {
-      const v = parseSignedAmount(r[map.amount] ?? "");
+      const v = parseExactAmount(r[map.amount] ?? "");
       if (v === null) { skipped++; return; }
-      amount = v * invert;
+      exact = v * invert;
     }
-    if (amount === null || amount === 0) { skipped++; return; }
+    if (exact === null || exact === 0) { skipped++; return; }
+    amount = Math.round(exact);
     const description = (map.description === null ? "" : r[map.description] ?? "").replace(/\s+/g, " ").trim();
+    const kind = classifyLine(description, exact);
+    // Menos de medio peso solo tiene sentido como parte de los intereses del mes
+    if (amount === 0 && !GROUPED.includes(kind)) { skipped++; return; }
     const balance = map.balance === null ? null : parseSignedAmount(r[map.balance] ?? "");
-    lines.push({ id: `L${headerRow + 2 + i}`, date, description, amount, balance, kind: classifyLine(description, amount) });
+    lines.push({ id: `L${headerRow + 2 + i}`, date, description, amount, exact, balance, kind });
   });
 
   if (lines.length === 0) warnings.push("No encontré movimientos con fecha y valor. Revisa las columnas.");
-  return { lines, map, headers, headerRow, dateOrder, skipped, warnings };
+  return { lines: groupMonthly(lines), map, headers, headerRow, dateOrder, skipped, warnings, period, raw: lines };
 }
 
 /** Saldo final del extracto, si trae columna de saldo: el de la línea más reciente. */
@@ -279,7 +371,8 @@ export interface AppEntry {
 }
 
 export interface StatementReconciliation {
-  matched: { line: StatementLine; entry: AppEntry }[];
+  /** `entry` es null cuando el cobro es tan pequeño que no hace falta registrarlo (menos de la tolerancia). */
+  matched: { line: StatementLine; entry: AppEntry | null; /** Coincide con una diferencia pequeña (comisión de cambio en compras internacionales). */ approx?: boolean }[];
   /** En el extracto y no en la app. */
   missing: StatementLine[];
   /** En la app y no en el extracto (del mes). */
@@ -292,10 +385,31 @@ export interface StatementReconciliation {
 
 const dayDiff = (a: string, b: string) => Math.abs(Date.parse(`${a}T00:00:00Z`) - Date.parse(`${b}T00:00:00Z`)) / 86_400_000;
 
+const entryText = (e: AppEntry) => `${e.tx.description ?? ""} ${e.tx.merchant ?? ""}`;
+
+const STOP = new Set(["compra", "compras", "intl", "internacional", "pago", "pse", "qr", "transf", "transferencia", "transferencias", "banco", "sas", "ltda", "com", "www", "the", "del", "las", "los", "con", "por"]);
+const words = (t: string) => fold(t).split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !STOP.has(w));
+
+/** ¿La descripción del extracto (a menudo cortada) y el movimiento de la app hablan del mismo comercio? */
+function sameMerchant(statementText: string, appText: string): boolean {
+  const b = words(appText);
+  return words(statementText).some((a) => b.some((w) => (w.startsWith(a) || a.startsWith(w)) && Math.min(a.length, w.length) >= 3));
+}
+
+/** ¿Este movimiento de la app es de la misma clase que un cobro agrupado del extracto? */
+function isChargeEntry(kind: LineKind, e: AppEntry): boolean {
+  if (kind === "GMF") return e.amount < 0 && e.tx.tags.includes("#gmf");
+  if (kind === "INTEREST_IN") return e.amount > 0 && /interes|rendimiento/i.test(entryText(e));
+  if (kind === "INTEREST_OUT") return e.amount < 0 && !e.tx.tags.includes("#gmf") && /interes/i.test(entryText(e));
+  return false;
+}
+
 /**
- * Cruza línea por línea el extracto con la app: mismo monto (con signo) y fecha dentro de `tolerance` días
- * (el banco suele registrar un par de días después). Primero se emparejan las de la misma fecha,
- * luego 1 día de diferencia, etc., para que una línea no le robe su pareja a otra.
+ * Cruza el extracto con la app.
+ *  · Líneas normales: mismo monto (con signo) y fecha dentro de `tolerance` días (el banco suele registrar un par de
+ *    días después). Primero las de la misma fecha, luego 1 día de diferencia, etc., para que una línea no le robe su pareja a otra.
+ *  · Intereses y 4x1000 (agrupados por mes): se compara el total del mes contra lo registrado en la app,
+ *    con una tolerancia pequeña por redondeo; si falta algo, se propone solo la diferencia.
  */
 export function reconcileStatement(account: Account, txs: Transaction[], lines: StatementLine[], range: MonthRange, tolerance = 3): StatementReconciliation {
   const inRange = lines.filter((l) => l.date >= range.start && l.date <= range.end);
@@ -307,26 +421,65 @@ export function reconcileStatement(account: Account, txs: Transaction[], lines: 
     if (amount !== 0 && tx.occurred_on >= lo && tx.occurred_on <= hi) entries.push({ tx, amount, date: tx.occurred_on });
   }
   entries.sort((a, b) => a.date.localeCompare(b.date) || (a.tx.status === "CONFIRMED" ? -1 : 1));
+  const inMonth = (e: AppEntry) => e.date >= range.start && e.date <= range.end;
 
-  const lineTaken = new Map<string, AppEntry>();
   const entryTaken = new Set<AppEntry>();
-  for (let d = 0; d <= tolerance; d++) {
-    for (const line of inRange) {
-      if (lineTaken.has(line.id)) continue;
-      const hit = entries.find((e) => !entryTaken.has(e) && e.amount === line.amount && dayDiff(e.date, line.date) === d);
-      if (hit) {
-        lineTaken.set(line.id, hit);
-        entryTaken.add(hit);
+  const matched: StatementReconciliation["matched"] = [];
+  const missing: StatementLine[] = [];
+
+  // 1) Cobros agrupados: total del mes
+  for (const line of inRange.filter((l) => GROUPED.includes(l.kind))) {
+    const recorded = entries.filter((e) => inMonth(e) && !entryTaken.has(e) && isChargeEntry(line.kind, e));
+    const sum = recorded.reduce((a, e) => a + Math.abs(e.amount), 0);
+    const target = Math.abs(line.amount);
+    const tol = line.kind === "GMF" ? Math.max(50, target * 0.01) : Math.max(2, target * 0.01);
+    if (Math.abs(target - sum) <= tol) {
+      recorded.forEach((e) => entryTaken.add(e));
+      matched.push({ line, entry: recorded[0] ?? null });
+    } else if (sum < target) {
+      recorded.forEach((e) => entryTaken.add(e));
+      const rest = target - sum;
+      missing.push({ ...line, amount: Math.sign(line.amount) * rest, description: sum > 0 ? `${line.description} · falta registrar la diferencia` : line.description });
+    } // si la app tiene más que el banco, esos movimientos quedan como "solo en la app"
+  }
+
+  // 2) Líneas normales: primero monto exacto; luego con $1 de diferencia (el banco redondea los centavos)
+  const regular = inRange.filter((l) => !GROUPED.includes(l.kind));
+  const lineTaken = new Map<string, { entry: AppEntry; approx: boolean }>();
+  const take = (line: StatementLine, entry: AppEntry, approx: boolean) => {
+    lineTaken.set(line.id, { entry, approx });
+    entryTaken.add(entry);
+  };
+  for (const slack of [0, 1]) {
+    for (let d = 0; d <= tolerance; d++) {
+      for (const line of regular) {
+        if (lineTaken.has(line.id) || (slack === 1 && Math.abs(line.amount) < 1000)) continue;
+        const hit = entries.find((e) => !entryTaken.has(e) && Math.sign(e.amount) === Math.sign(line.amount) && Math.abs(e.amount - line.amount) === slack && dayDiff(e.date, line.date) === d);
+        if (hit) take(line, hit, false);
       }
     }
   }
+  // Compras internacionales y similares: el banco cobra comisión de cambio y el aviso trae otro valor.
+  // Se unen solo si el comercio coincide, la fecha es cercana y la diferencia es de hasta 5 %.
+  for (const line of regular) {
+    if (lineTaken.has(line.id)) continue;
+    const near = entries
+      .filter((e) => !entryTaken.has(e) && Math.sign(e.amount) === Math.sign(line.amount) && dayDiff(e.date, line.date) <= tolerance
+        && Math.abs(e.amount - line.amount) <= Math.max(1, Math.abs(line.amount) * 0.05) && sameMerchant(line.description, entryText(e)))
+      .sort((a, b) => dayDiff(a.date, line.date) - dayDiff(b.date, line.date) || Math.abs(a.amount - line.amount) - Math.abs(b.amount - line.amount));
+    if (near[0]) take(line, near[0], true);
+  }
+  for (const l of regular) {
+    if (lineTaken.has(l.id)) matched.push({ line: l, entry: lineTaken.get(l.id)!.entry, approx: lineTaken.get(l.id)!.approx || undefined });
+    else missing.push(l);
+  }
+  missing.sort((a, b) => a.date.localeCompare(b.date));
 
-  const matched = inRange.filter((l) => lineTaken.has(l.id)).map((line) => ({ line, entry: lineTaken.get(line.id)! }));
-  const missing = inRange.filter((l) => !lineTaken.has(l.id));
-  const extra = entries.filter((e) => !entryTaken.has(e) && e.date >= range.start && e.date <= range.end);
+  const extra = entries.filter((e) => !entryTaken.has(e) && inMonth(e));
+  const matchedEntries = matched.map((m) => m.entry).filter((e): e is AppEntry => e !== null);
   const duplicates: StatementReconciliation["duplicates"] = [];
   for (const entry of extra) {
-    const twin = matched.map((m) => m.entry).find((m) => m.amount === entry.amount && dayDiff(m.date, entry.date) <= tolerance);
+    const twin = matchedEntries.find((m) => m.amount === entry.amount && dayDiff(m.date, entry.date) <= tolerance);
     if (twin) duplicates.push({ entry, twin });
   }
   return { matched, missing, extra, duplicates, outOfRange: lines.length - inRange.length };

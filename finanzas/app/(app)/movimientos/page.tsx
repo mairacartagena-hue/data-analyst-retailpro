@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowDownLeft, ArrowRightLeft, ArrowUpRight, Handshake, Home, Lock, Scale, SlidersHorizontal, Undo2 } from "lucide-react";
+import { ArrowDownLeft, ArrowRightLeft, ArrowUpRight, Handshake, Home, Lock, Scale, SlidersHorizontal, Tag as TagIcon, Undo2 } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { useShell } from "@/components/AppShell";
 import { PeriodSwitcher, SwipePeriods } from "@/components/PeriodSwitcher";
 import { MemberBadge } from "@/components/MemberBadge";
+import { TagManager } from "@/components/TagManager";
 import { Card } from "@/components/ui/card";
 import { Input, Select } from "@/components/ui/input";
 import { Segmented } from "@/components/ui/segmented";
@@ -18,11 +19,12 @@ import { cn } from "@/lib/utils";
 import { matchesFilter } from "@/lib/finance/reports";
 import { CategoryOptions } from "@/components/CategoryPicker";
 import { categoryPath, consumptionSign, hasSplits, withDescendants } from "@/lib/finance/spaces";
+import { hasTag } from "@/lib/finance/tags";
 
 type Filter = "all" | "mine" | "cross" | "pending";
 
 export default function MovimientosPage() {
-  const { transactions, period, me, partner, categories, labels } = useFinance();
+  const { transactions, period, me, partner, categories, labels, tags, txTags } = useFinance();
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
   const [categoryId, setCategoryId] = useState("");
@@ -31,18 +33,22 @@ export default function MovimientosPage() {
   const [space, setSpace] = useState<Space | "">("");
   const [payerId, setPayerId] = useState("");
   const [responsibleId, setResponsibleId] = useState("");
+  const [tagId, setTagId] = useState("");
+  const [manageTags, setManageTags] = useState(false);
   const [moreFilters, setMoreFilters] = useState(false);
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
     if (q.get("filtro") === "pendientes") setFilter("pending");
     setCategoryId(q.get("categoria") ?? "");
     setAccountId(q.get("cuenta") ?? "");
+    setTagId(q.get("etiqueta") ?? "");
+    if (q.get("etiqueta")) setMoreFilters(true);
   }, []);
-  const activeFilters = [categoryId, accountId, kind, space, payerId, responsibleId].filter(Boolean).length;
+  const activeFilters = [categoryId, accountId, kind, space, payerId, responsibleId, tagId].filter(Boolean).length;
   const categoryIds = useMemo(() => (categoryId ? withDescendants(categories, [categoryId]) : undefined), [categories, categoryId]);
   const people = [me, partner].filter(Boolean).map((m) => ({ id: m!.user_id, name: m!.user_id === me.user_id ? "Yo" : m!.display_name }));
   function clearFilters() {
-    setCategoryId(""); setAccountId(""); setKind(""); setSpace(""); setPayerId(""); setResponsibleId("");
+    setCategoryId(""); setAccountId(""); setKind(""); setSpace(""); setPayerId(""); setResponsibleId(""); setTagId("");
     window.history.replaceState(null, "", "/movimientos");
   }
 
@@ -53,6 +59,7 @@ export default function MovimientosPage() {
       if (filter === "mine" && t.payer_user_id !== me.user_id) return false;
       if (filter === "cross" && !(t.kind === "SETTLEMENT" || t.splits.some((s) => s.responsible_user_id !== t.payer_user_id))) return false;
       if (filter === "pending" && t.status !== "PENDING_REVIEW") return false;
+      if (tagId && !hasTag(txTags, t.id, tagId)) return false;
       if (!matchesFilter(t, {
         categoryIds, accountId: accountId || undefined, kind: kind || undefined, scope: space || undefined,
         payerId: payerId || undefined, responsibleId: responsibleId || undefined,
@@ -63,7 +70,7 @@ export default function MovimientosPage() {
       }
       return true;
     });
-  }, [transactions, period, filter, me.user_id, query, categories, categoryIds, accountId, kind, space, payerId, responsibleId]);
+  }, [transactions, period, filter, me.user_id, query, categories, categoryIds, accountId, kind, space, payerId, responsibleId, tagId, txTags]);
 
   const groups = useMemo(() => {
     const map = new Map<string, Transaction[]>();
@@ -96,9 +103,14 @@ export default function MovimientosPage() {
           <option value="PERSONAL">Solo personal</option>
         </Select>
       </div>
-      <button className="mt-2 flex items-center gap-1 px-1 text-xs font-medium text-muted" onClick={() => setMoreFilters(!moreFilters)}>
-        <SlidersHorizontal size={13} /> {moreFilters ? "Menos filtros" : "Más filtros"}
-      </button>
+      <div className="mt-2 flex items-center justify-between">
+        <button className="flex items-center gap-1 px-1 text-xs font-medium text-muted" onClick={() => setMoreFilters(!moreFilters)}>
+          <SlidersHorizontal size={13} /> {moreFilters ? "Menos filtros" : "Más filtros"}
+        </button>
+        <button className="flex items-center gap-1 px-1 text-xs font-medium text-olive" onClick={() => setManageTags(true)}>
+          <TagIcon size={13} /> Etiquetas{tags.length > 0 ? ` (${tags.length})` : ""}
+        </button>
+      </div>
       {moreFilters && (
         <div className="mt-2 grid grid-cols-2 gap-2">
           <Select value={kind} onChange={(e) => setKind(e.target.value as TxKind | "")} aria-label="Filtrar por tipo" className={cn("h-10 px-3 text-sm", kind && "border-olive bg-olive-soft")}>
@@ -116,6 +128,10 @@ export default function MovimientosPage() {
           <Select value={responsibleId} onChange={(e) => setResponsibleId(e.target.value)} aria-label="Filtrar por responsable" className={cn("h-10 px-3 text-sm", responsibleId && "border-olive bg-olive-soft")}>
             <option value="">Responsable</option>
             {people.map((p) => <option key={p.id} value={p.id}>A cargo: {p.name}</option>)}
+          </Select>
+          <Select value={tagId} onChange={(e) => setTagId(e.target.value)} aria-label="Filtrar por etiqueta" className={cn("h-10 px-3 text-sm", tagId && "border-olive bg-olive-soft")}>
+            <option value="">Etiqueta</option>
+            {tags.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
           </Select>
         </div>
       )}
@@ -143,13 +159,15 @@ export default function MovimientosPage() {
           ))
         )}
       </SwipePeriods>
+      <TagManager open={manageTags} onOpenChange={setManageTags} />
     </main>
   );
 }
 
 function TxRow({ tx }: { tx: Transaction }) {
-  const { me, categories, labels, memberById } = useFinance();
+  const { me, categories, labels, memberById, tags, txTags } = useFinance();
   const { openTransaction } = useShell();
+  const rowTags = (txTags[tx.id] ?? []).map((id) => tags.find((t) => t.id === id)).filter((t): t is NonNullable<typeof t> => !!t);
   const payer = memberById(tx.payer_user_id);
   const crossed = tx.splits.filter((s) => s.responsible_user_id !== tx.payer_user_id);
   const firstCat = categoryLabel(categories, tx.splits[0]?.category_id ?? null);
@@ -198,6 +216,16 @@ function TxRow({ tx }: { tx: Transaction }) {
           {subtitle}
           {hasSplits(tx.kind) && !labels.some((l) => l.id === tx.account_id) && <span className="shrink-0">· cuenta privada</span>}
         </span>
+        {rowTags.length > 0 && (
+          <span className="mt-1 flex flex-wrap gap-1">
+            {rowTags.slice(0, 3).map((t) => (
+              <span key={t.id} className="inline-flex items-center gap-1 rounded-full bg-surface-2 px-2 py-0.5 text-[11px]">
+                <span className="h-1.5 w-1.5 rounded-full" style={{ background: t.color ?? "var(--muted)" }} />{t.name}
+              </span>
+            ))}
+            {rowTags.length > 3 && <span className="text-[11px] text-muted">+{rowTags.length - 3}</span>}
+          </span>
+        )}
         {crossed.length > 0 && hasSplits(tx.kind) && (
           <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-wood-soft px-2 py-0.5 text-[11px]">
             <ArrowUpRight size={11} />

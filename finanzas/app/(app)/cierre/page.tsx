@@ -73,7 +73,7 @@ export default function CierrePage() {
   const [unrecognized, setUnrecognized] = useState<number | null>(null);
   useEffect(() => {
     void state.supabase.from("ingest_logs").select("id", { count: "exact", head: true })
-      .eq("user_id", me.user_id).in("result", ["UNRECOGNIZED", "ERROR"])
+      .eq("user_id", me.user_id).in("result", ["UNRECOGNIZED", "ERROR", "DISCARDED"])
       .gte("received_at", `${range.start}T00:00:00-05:00`).lte("received_at", `${range.end}T23:59:59-05:00`)
       .then(({ count }) => setUnrecognized(count ?? 0));
   }, [state.supabase, me.user_id, range.start, range.end]);
@@ -110,7 +110,7 @@ export default function CierrePage() {
             )}
             {!!unrecognized && (
               <p className="flex items-start gap-2"><AlertCircle size={16} className="mt-0.5 shrink-0 text-warning" />
-                <span>{unrecognized} aviso{unrecognized === 1 ? "" : "s"} sin reconocer. <Link href="/captura" className="font-semibold text-olive underline">Ver</Link></span></p>
+                <span>{unrecognized} aviso{unrecognized === 1 ? "" : "s"} sin reconocer. <Link href="/captura#sin-reconocer" className="font-semibold text-olive underline">Ver y reintentar</Link></span></p>
             )}
             {mine.length - done.length > 0 && (
               <p className="flex items-start gap-2"><AlertCircle size={16} className="mt-0.5 shrink-0 text-warning" />

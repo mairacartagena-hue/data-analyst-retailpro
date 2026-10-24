@@ -12,6 +12,7 @@ PWA privada de finanzas personales y en pareja (Android y escritorio). Todo en p
 | Fase 2 — Ingesta automática | Hecha; llegan correos de Bancolombia por Gmail |
 | Cierre del mes (con importación del extracto en CSV), Informes, pestañas Inicio · Movimientos · + · Presupuesto · Informes · Más | Hecho |
 | Comentarios en los movimientos (migración 0020) | Hecho |
+| Etiquetas del hogar, nombre y reglas de reembolso en la memoria de comercios, importación de extractos en Excel (migración 0021) | Hecho |
 | Fase 3 — Voz, OCR, Telegram, offline con cola | Pendiente |
 | Organización hogar / personal, subcategorías, pago de deuda / reembolso / ajuste, presupuestos con nombre, vencimientos y metas de ahorro (migraciones 0017 y 0018) | Hecho (migraciones 0017 a 0019 aplicadas) |
 | Fase 4 — Créditos con saldo (capital e intereses), Web Push, IA | Pendiente |
@@ -89,7 +90,9 @@ Ajustes → **Cierre del mes** (`app/(app)/cierre`), con recordatorio en el inic
 - Diferencia sin explicar → gasto en la categoría “No identificado” (o ingreso no identificado si sobra plata).
 - **4x1000 estimado:** 0,4 % de las salidas por encima del tope exento: cuenta exenta 350 UVT/mes, depósito de bajo monto 65 UVT/mes (Concepto DIAN 362 de 2024). UVT 2026 = $52.374 (Resolución DIAN 000238 de 2025), editable en Ajustes → Periodos.
 - **¿Qué hace falta?:** obligaciones del hogar sin pagar, movimientos por revisar, avisos no reconocidos y cuentas sin conciliar.
-- **Importar el extracto (CSV)** (`components/StatementImport.tsx`, `lib/finance/statement.ts`): en cada cuenta, “Importar extracto (CSV) y conciliar”. El archivo se lee en el celular y no se sube. Reconoce separador `;` `,` o tabulación, encabezados con o sin título, columna de valor con signo o débitos/créditos separados, y fechas día/mes/año o año-mes-día. Si no reconoce las columnas se pueden elegir a mano.
+- **Importar el extracto (Excel o CSV)** (`components/StatementImport.tsx`, `lib/finance/statement.ts`, `lib/finance/xlsx.ts`): en cada cuenta, “Importar extracto (Excel o CSV) y conciliar”. El archivo se lee en el celular y no se sube. Lee `.xlsx` con un lector propio (acepta el estilo de Excel y el de los archivos que generan los bancos) y CSV. Probado con un extracto real de ahorros de Bancolombia: fechas sin año (`1/07`, el año sale del periodo DESDE/HASTA), encabezados repetidos en cada página y los totales cuadran con los del banco. Reconoce separador `;` `,` o tabulación, encabezados con o sin título, columna de valor con signo o débitos/créditos separados, y fechas día/mes/año o año-mes-día. Si no reconoce las columnas se pueden elegir a mano.
+  - **Intereses y 4x1000** vienen en muchas líneas pequeñas (un abono casi todos los días): se suman por mes y se comparan contra lo registrado en la app (tolerancia de $2 en intereses y de 1 % o $50 en el 4x1000).
+  - **Compras internacionales:** el aviso trae un valor y el banco cobra comisión de cambio; se unen si el comercio coincide, la fecha es cercana y la diferencia es de hasta 5 %, y se marcan como aproximadas. Un peso de diferencia por centavos también concilia.
   - **Faltan en la app:** línea del extracto sin movimiento con el mismo valor (hasta 3 días de diferencia). Los del banco (4x1000, intereses, cuotas) se registran todos con un botón; los demás abren el formulario ya llenado.
   - **Posibles duplicados:** más movimientos en la app que líneas en el extracto con ese valor y fecha; se puede borrar el que sobra.
   - **En la app y no en el extracto:** solo aviso.
@@ -126,6 +129,9 @@ Pestañas: **Inicio · Movimientos · + · Presupuesto · Informes · Más**. �
 - **Movimientos:** filtros por categoría (incluye subcategorías), espacio, tipo, cuenta, quién pagó y responsable (también por enlace: `?categoria=`, `?cuenta=`).
 - **Sin etiquetas visibles:** la app trabaja solo con categorías. Por dentro se conservan marcas técnicas (ej. `#gmf` para no sumar dos veces el 4x1000 y `#suscripcion` para reconocer cobros de suscripción); los cobros de suscripción sugieren la categoría “Suscripciones” en “Por revisar”.
 - **Informes:** gastos por categoría, por persona (hogar/personal) y tendencia de 6 meses, con vista de tabla y descarga CSV para Excel (separador “;”).
+- **Etiquetas** (Movimientos → Etiquetas): se crean, renombran, cambian de color y borran desde ahí o al registrar un movimiento. Un movimiento puede tener varias. Sirven para filtrar en Movimientos (también por enlace `?etiqueta=`), para el informe “Gastos por etiqueta” y salen en el CSV. Las del hogar las ven y editan los dos; quien ve un movimiento ve sus etiquetas (lo personal no se filtra a la pareja). Son distintas de las marcas internas (`#gmf`, `#banco`…), que la app sigue usando sin mostrarlas.
+- **Memoria de comercios** (Más → Captura automática): al tocar un nombre se edita dónde se guardó (nombre, categoría, responsable, hogar o personal, deuda con la pareja, aplicar siempre). El **nombre** se usa en los avisos nuevos de esa llave, cuenta o comercio. Una **regla de reembolso** hace que los ingresos de un origen (ej. lo que envía Yolima cada mes) entren como reembolso de una categoría y resten del gasto.
+- **Avisos sin reconocer:** el Cierre del mes y Captura automática cuentan lo mismo; Captura los lista todos (no solo los últimos) y un solo botón reintenta todos.
 - **Categorías de ingresos** (`categories.kind = INCOME`): personales y sin presupuesto; se crean desde el formulario con “+ Nueva”.
 
 ## Seguridad

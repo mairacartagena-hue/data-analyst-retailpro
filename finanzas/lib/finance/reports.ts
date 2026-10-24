@@ -147,9 +147,9 @@ function cell(v: string | number): string {
  */
 export function toCsv(
   txs: Transaction[],
-  ctx: { categories: Category[]; labels: AccountLabel[]; memberById: (id: string | null | undefined) => Member | null },
+  ctx: { categories: Category[]; labels: AccountLabel[]; memberById: (id: string | null | undefined) => Member | null; /** Nombres de las etiquetas de un movimiento (si se da, se agrega la columna). */ tagsOf?: (txId: string) => string[] },
 ): string {
-  const header = ["Fecha", "Tipo", "Ámbito", "Descripción", "Comercio", "Monto", "Categoría", "Responsable", "Pagó", "Cuenta", "Estado"];
+  const header = ["Fecha", "Tipo", "Ámbito", "Descripción", "Comercio", "Monto", "Categoría", "Responsable", "Pagó", "Cuenta", "Estado", ...(ctx.tagsOf ? ["Etiquetas"] : [])];
   const rows: string[][] = [header];
   const sorted = [...txs].sort((a, b) => a.occurred_on.localeCompare(b.occurred_on));
   for (const t of sorted) {
@@ -162,6 +162,7 @@ export function toCsv(
       payer: ctx.memberById(t.payer_user_id)?.display_name ?? "",
       account: t.kind === "TRANSFER" ? `${accountLabel(ctx.labels, t.account_id)} → ${accountLabel(ctx.labels, t.to_account_id)}` : accountLabel(ctx.labels, t.account_id),
       status: t.status === "PENDING_REVIEW" ? "Por revisar" : "Confirmado",
+      tags: ctx.tagsOf ? ctx.tagsOf(t.id).join(", ") : null,
     };
     const sign = t.kind === "TRANSFER" || t.kind === "SETTLEMENT" ? -1 : accountSign(t);
     const catName = (id: string | null) => (id && ctx.categories.some((c) => c.id === id) ? categoryPath(ctx.categories, id) : categoryLabel(ctx.categories, id).name);
@@ -173,7 +174,7 @@ export function toCsv(
           resp: base.payer,
         }];
     for (const p of parts) {
-      rows.push([base.date, base.kind, base.space, base.desc, base.merchant, String(sign * p.amount), p.cat, p.resp, base.payer, base.account, base.status]);
+      rows.push([base.date, base.kind, base.space, base.desc, base.merchant, String(sign * p.amount), p.cat, p.resp, base.payer, base.account, base.status, ...(base.tags !== null ? [base.tags] : [])]);
     }
   }
   return "﻿" + rows.map((r) => r.map(cell).join(";")).join("\r\n");
