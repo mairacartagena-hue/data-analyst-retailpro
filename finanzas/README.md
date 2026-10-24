@@ -23,6 +23,8 @@ PWA privada de finanzas personales y en pareja (Android y escritorio). Todo en p
 
 Pendiente para fases siguientes: ingesta automática (Fase 2), voz/OCR/Telegram/offline con cola (Fase 3), metas de ahorro, recurrentes, Web Push, búsqueda avanzada, IA y CSV (Fase 4). Mientras no existan metas de ahorro, “Ahorros programados pendientes” vale 0 en el Saldo Seguro.
 
+**Créditos (decidido para la Fase 4):** por ahora se registran como pasivo manual en Cuentas → “Otros activos y pasivos” (tipo Crédito o Hipoteca). En la Fase 4 se construyen completos junto al calendario de vencimientos; en el Saldo Seguro se reservará solo la cuota del periodo hasta que se pague, no el saldo total.
+
 ## Decisiones de la Fase 1
 
 1. **Tarjeta de crédito:** la compra consume el presupuesto al comprar; pagar la tarjeta es una transferencia y no vuelve a consumir presupuesto.
