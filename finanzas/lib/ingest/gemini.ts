@@ -30,7 +30,8 @@ Devuelve JSON con:
   avisos de seguridad o transacciones rechazadas).
 - amount: monto en pesos colombianos como entero (sin centavos). En Colombia el punto separa miles: "$45.000" es 45000.
 - merchant: comercio, destinatario o remitente, sin códigos de pasarela (PAYU*, MP*, etc.). null si no aparece.
-- last4: últimos 4 dígitos de la tarjeta o cuenta si aparecen (ej. "****1234"). null si no.
+- last4: últimos 4 dígitos de tu tarjeta o cuenta solo si aparecen enmascarados (ej. "*1234", "****1234",
+  "terminada en 1234"). No uses referencias, CUS, comprobantes ni números de PSE. null si no.
 No inventes datos: si algo no aparece, usa null.`;
 
 export function geminiConfigured(): boolean {

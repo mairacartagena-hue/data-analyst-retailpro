@@ -26,6 +26,25 @@ export const bancolombiaParser: BankParser = {
     m = new RegExp(`pagaste\\s+${AMOUNT}\\s+a\\s+(.+?)\\s+desde tu producto\\s*\\*?(\\d{4})`, "i").exec(text);
     if (m) return { ...base, kind: "PURCHASE", amount: parseAmountCo(m[1]) ?? undefined, merchant: m[2], last4: m[3] };
 
+    // Transferiste $12,900.00 por Boton Bancolombia a Wompi SAS desde producto *2505. 22/10/2026 10:22:05
+    m = new RegExp(`transferiste\\s+${AMOUNT}\\s+por bot[oó]n bancolombia\\s+a\\s+(.+?)\\s+desde (?:tu )?producto\\s*\\*?(\\d{4})`, "i").exec(text);
+    if (m) return { ...base, kind: "PURCHASE", amount: parseAmountCo(m[1]) ?? undefined, merchant: m[2], last4: m[3] };
+
+    // MAYRA, transferiste $35,000.00 a la llave @3218164052 desde tu cuenta *2505 a NOMBRE el 21/10/26 a las 19:53.
+    m = new RegExp(`transferiste\\s+${AMOUNT}\\s+a la llave\\s+@?(\\S+)\\s+desde tu cuenta\\s*\\*?(\\d{4})\\s+a\\s+(.+?)\\s+el\\s+\\d`, "i").exec(text);
+    if (m) {
+      const key = m[2].replace(/[.,]$/, "");
+      const phone = /^3\d{9}$/.test(key) ? key : null;
+      return {
+        ...base,
+        kind: "TRANSFER_OUT",
+        amount: parseAmountCo(m[1]) ?? undefined,
+        merchant: m[4],
+        last4: m[3],
+        identifiers: phone ? [{ type: "PHONE", value: phone }] : [{ type: "ACCOUNT", value: key.toLowerCase() }],
+      };
+    }
+
     // Transferiste $800,000 desde tu cuenta *2505 a la cuenta *0123456789 el 23/10/2026 a las 11:26.
     m = new RegExp(`transferiste\\s+${AMOUNT}\\s+desde tu cuenta\\s*\\*?(\\d{4})\\s+a la cuenta\\s*\\*?([\\d*]+)`, "i").exec(text);
     if (m) {

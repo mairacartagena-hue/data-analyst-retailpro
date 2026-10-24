@@ -80,3 +80,16 @@ describe("Banco Caja Social (SMS reales)", () => {
     expect(r.parsed?.kind).toBe("IGNORE");
   });
 });
+
+describe("Bancolombia: formatos nuevos (correos reales)", () => {
+  it("pago con Botón Bancolombia a Wompi", () => {
+    const r = parseWithRules(mail("Alertas y Notificaciones", "Notificación Transaccional Bancolombia: Transferiste $12,900.00 por Boton Bancolombia a Wompi SAS desde producto *2505. 22/10/2026 10:22:05 ¿Dudas? 018000931987."));
+    expect(r.parsed).toMatchObject({ kind: "PURCHASE", amount: 12900, merchant: "Wompi", last4: "2505", occurredAt: "2026-10-22T15:22:05.000Z" });
+  });
+
+  it("transferencia a una llave (Bre-B) de otra persona", () => {
+    const r = parseWithRules(mail("Alertas y Notificaciones", "¡Listo! Todo salió bien con tus movimientos *Bancolombia: MAYRA, transferiste $35,000.00 a la llave @3218164052 desde tu cuenta *2505 a XXXX CABRERA el 21/10/26 a las 19:53. Con Bre-b es de una y gratis. Dudas al 018000912345.*"));
+    expect(r.parsed).toMatchObject({ kind: "TRANSFER_OUT", amount: 35000, merchant: "Xxxx Cabrera", last4: "2505", occurredAt: "2026-10-22T00:53:00.000Z" });
+    expect(r.parsed?.identifiers).toEqual([{ type: "PHONE", value: "3218164052" }]);
+  });
+});

@@ -30,6 +30,8 @@ describe("comercios", () => {
     expect(cleanMerchant("MERCADOPAGO*TIENDA XYZ BOGOTA CO")).toBe("Tienda Xyz");
     expect(cleanMerchant("GOOGLE *YouTube")).toBe("YouTube");
     expect(cleanMerchant("  ")).toBeNull();
+    expect(cleanMerchant("Wompi SAS")).toBe("Wompi");
+    expect(cleanMerchant("S.A.S")).toBe("S.A.S");
   });
 
   it("normaliza para comparar", () => {

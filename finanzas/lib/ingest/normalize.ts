@@ -49,17 +49,19 @@ export function findLast4(text: string): string | null {
   return m ? m[1] : null;
 }
 
-// Prefijos de pasarelas de pago y ruido que no forman parte del nombre del comercio
+// Prefijos de pasarelas de pago y ruido que no forman parte del nombre del comercio.
+// Las pasarelas solo se quitan cuando van como prefijo con "*" (ej. "PAYU*RAPPI"); "Wompi SAS" se deja como Wompi.
 const GATEWAY_PREFIXES = [
-  /^payu\s*\*?\s*/i, /^mercado\s?pago\s*\*?\s*/i, /^mp\s*\*\s*/i, /^dlo\s*\*\s*/i, /^dlocal\s*\*?\s*/i,
-  /^epayco\s*\*?\s*/i, /^wompi\s*\*?\s*/i, /^bold\s*\*\s*/i, /^sq\s*\*\s*/i, /^paypal\s*\*\s*/i,
+  /^payu\s*\*\s*/i, /^mercado\s?pago\s*\*\s*/i, /^mp\s*\*\s*/i, /^dlo\s*\*\s*/i, /^dlocal\s*\*\s*/i,
+  /^epayco\s*\*\s*/i, /^wompi\s*\*\s*/i, /^bold\s*\*\s*/i, /^sq\s*\*\s*/i, /^paypal\s*\*\s*/i,
   /^google\s*\*\s*/i, /^pse\s+/i, /^pos\s+/i, /^compra\s+(?:en|a)\s+/i, /^pago\s+(?:en|a)\s+/i,
 ];
 
 /** Nombre limpio para mostrar: sin pasarelas, códigos ni ciudad/país al final. */
 export function cleanMerchant(raw: string | null | undefined): string | null {
   if (!raw) return null;
-  let s = raw.replace(/\s+/g, " ").trim();
+  const original = raw.replace(/\s+/g, " ").trim();
+  let s = original;
   for (let i = 0; i < 3; i++) for (const re of GATEWAY_PREFIXES) s = s.replace(re, "");
   s = s
     // Ciudad + país al final, como en los datáfonos: "TIENDA XYZ BOGOTA CO"
@@ -70,6 +72,8 @@ export function cleanMerchant(raw: string | null | undefined): string | null {
     .replace(/\s\d{6,}$/, "")
     .replace(/\s+/g, " ")
     .trim();
+  // Si solo quedaba la razón social ("S.A.S"), se usa el texto original sin símbolos
+  if (!s || /^(?:s\.?\s?a\.?(?:\s?s\.?)?|ltda\.?)$/i.test(s)) s = original.replace(/[#*]+/g, " ").replace(/\s+/g, " ").trim();
   if (!s) return null;
   // Mayúscula inicial en cada palabra si venía todo en mayúsculas
   if (s === s.toUpperCase()) s = s.toLowerCase().replace(/\b\p{L}/gu, (c) => c.toUpperCase());
