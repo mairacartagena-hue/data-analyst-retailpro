@@ -4,12 +4,13 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
-import { ArrowRightLeft, ChevronDown, Inbox, Settings } from "lucide-react";
+import { ArrowRightLeft, ChevronDown, Settings } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { useShell } from "@/components/AppShell";
 import { PeriodSwitcher, SwipePeriods } from "@/components/PeriodSwitcher";
 import { BudgetBar } from "@/components/BudgetBar";
 import { MemberBadge } from "@/components/MemberBadge";
+import { PendingReview } from "@/components/PendingReview";
 import { Card, SectionTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
@@ -21,7 +22,7 @@ const SCOPE_KEY = "home-scope";
 
 export default function HomePage() {
   const state = useFinance();
-  const { me, partner, period, memberById, transactions } = state;
+  const { me, partner, period, memberById } = state;
   const { openSettle, openTransaction, openPayment } = useShell();
   const router = useRouter();
   const [scope, setScopeState] = useState<Scope>("me");
@@ -44,7 +45,6 @@ export default function HomePage() {
   const cats = categoriesForScope(state, scope);
   const obligations = cats.filter((c) => c.is_household_obligation);
   const others = cats.filter((c) => !c.is_household_obligation);
-  const pending = transactions.filter((t) => t.status === "PENDING_REVIEW" && t.payer_user_id === me.user_id);
 
   return (
     <main className="px-4 pt-[calc(12px+env(safe-area-inset-top))]">
@@ -70,12 +70,7 @@ export default function HomePage() {
       ]} />
 
       <SwipePeriods>
-        {pending.length > 0 && (
-          <Link href="/movimientos?filtro=pendientes" className="mt-4 flex items-center gap-3 rounded-2xl bg-warning-soft px-4 py-3 text-sm">
-            <Inbox size={18} className="text-warning" />
-            <span className="flex-1">Tienes {pending.length} movimiento{pending.length === 1 ? "" : "s"} por revisar</span>
-          </Link>
-        )}
+        <PendingReview />
 
         <SafeToSpendCard safe={safe} />
 
