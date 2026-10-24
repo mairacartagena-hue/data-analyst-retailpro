@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
 import { ArrowRightLeft, ChevronDown, Inbox, Settings } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
@@ -22,6 +23,7 @@ export default function HomePage() {
   const state = useFinance();
   const { me, partner, period, memberById, transactions } = state;
   const { openSettle, openTransaction } = useShell();
+  const router = useRouter();
   const [scope, setScopeState] = useState<Scope>("me");
   useEffect(() => {
     try {
@@ -109,14 +111,14 @@ export default function HomePage() {
             <div className="space-y-2.5">
               {obligations.map((c) => (
                 <BudgetBar key={c.id} category={c} status={statuses.get(c.id)} memberById={memberById}
-                  onClick={() => (window.location.href = `/presupuestos?categoria=${c.id}`)} />
+                  onClick={() => router.push(`/presupuestos?categoria=${c.id}`)} />
               ))}
             </div>
             {others.length > 0 && <SectionTitle>{scope === "me" ? "Mis categorías" : "Otras categorías"}</SectionTitle>}
             <div className="space-y-2.5">
               {others.map((c) => (
                 <BudgetBar key={c.id} category={c} status={statuses.get(c.id)} memberById={memberById}
-                  onClick={() => (window.location.href = `/presupuestos?categoria=${c.id}`)} />
+                  onClick={() => router.push(`/presupuestos?categoria=${c.id}`)} />
               ))}
             </div>
           </>

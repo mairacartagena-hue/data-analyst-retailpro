@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { ArrowRightLeft, Plus, Scissors, Trash2, X } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import type { Category, Transaction, TxKind } from "@/lib/types";
@@ -45,6 +46,7 @@ export function TransactionSheet({
   open, onOpenChange, editing,
 }: { open: boolean; onOpenChange: (v: boolean) => void; editing: Transaction | null }) {
   const state = useFinance();
+  const router = useRouter();
   const { me, partner, accounts, categories, labels, supabase, reload } = state;
 
   const myAccounts = accounts.filter((a) => a.owner_user_id === me.user_id && !a.archived);
@@ -245,7 +247,7 @@ export function TransactionSheet({
       {myAccounts.length === 0 ? (
         <div className="space-y-3 py-6 text-center">
           <p className="text-[15px]">Primero agrega una cuenta (ahorros, Nequi, efectivo o tarjeta) en la pestaña Cuentas.</p>
-          <Button onClick={() => { onOpenChange(false); window.location.href = "/cuentas"; }}>Ir a Cuentas</Button>
+          <Button onClick={() => { onOpenChange(false); router.push("/cuentas"); }}>Ir a Cuentas</Button>
         </div>
       ) : fixedPrompt ? (
         <div className="space-y-4 py-2">
