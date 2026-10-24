@@ -4,7 +4,27 @@ PWA privada de finanzas personales y en pareja (Android y escritorio). Todo en p
 
 **Stack:** Next.js 16 (App Router) + TypeScript 5.9 + Tailwind 4 + componentes estilo shadcn/ui (Radix) + Motion · Supabase (Postgres, Auth, RLS, Realtime) · Vercel Hobby. Todo gratuito.
 
-## Estado: Fase 1 — Núcleo financiero
+## Estado (24 de octubre de 2026)
+
+| Parte | Estado |
+|---|---|
+| Fase 1 — Núcleo financiero | Hecha |
+| Fase 2 — Ingesta automática | Hecha; llegan correos de Bancolombia por Gmail |
+| Cierre del mes, Informes, pestañas Inicio · Movimientos · + · Presupuesto · Informes · Más | Hecho |
+| Fase 3 — Voz, OCR, Telegram, offline con cola | Pendiente |
+| Fase 4 — Metas de ahorro, recurrentes, Web Push, búsqueda, IA, créditos | Pendiente |
+
+**Pendiente por probar o configurar:**
+- [ ] Que la pareja se una al hogar y probar el cruce, la liquidación, Realtime en dos celulares y la privacidad (pasos 1, 5 y 6 de “Cómo probar la Fase 1”).
+- [ ] Revisar la cola “Por revisar” y los avisos no reconocidos (Ajustes → Captura automática → Reintentar).
+- [ ] Hacer el primer Cierre del mes.
+- [ ] Configurar MacroDroid (SMS y notificaciones) en cada celular; por ahora solo llegan correos.
+- [ ] Conseguir ejemplos reales de Nequi, Banco de Bogotá y Google Wallet.
+- [ ] Crear el resto de categorías y las categorías de ingresos.
+- [x] ~~Leaked password protection~~: solo existe en planes de pago de Supabase; no aplica (se usa el plan gratuito).
+- [x] Vercel confirmado: Root Directory = `finanzas` y `GEMINI_API_KEY` configurada.
+
+## Fase 1 — Núcleo financiero
 
 | Incluido | Dónde |
 |---|---|
@@ -69,13 +89,23 @@ Ajustes → **Cierre del mes** (`app/(app)/cierre`), con recordatorio en el inic
 
 ## Organización de la app
 
-Pestañas: **Inicio · Movimientos · + · Presupuesto · Informes · Más**. “Más” agrupa Cuentas y cruce, Cierre del mes, Captura automática y Ajustes.
+Pestañas: **Inicio · Movimientos · + · Presupuesto · Informes · Más**. “Más” agrupa Cuentas y cruce, Categorías, Cierre del mes, Captura automática y Ajustes.
+
+- **Categorías** (Más → Categorías): un solo lugar para crear, editar y archivar las categorías de gastos e ingresos. Son las mismas que aparecen en Presupuesto y al registrar un pago; cada una muestra quién la asume, su monto del periodo y cuántos movimientos la usan.
 
 - **Presupuesto:** al tocar una barra se ven los pagos que la forman y cómo llegó cada uno (correo, SMS, notificación o a mano).
 - **Movimientos:** filtros por categoría y cuenta (también por enlace: `?categoria=`, `?cuenta=`).
 - **Sin etiquetas visibles:** la app trabaja solo con categorías. Por dentro se conservan marcas técnicas (ej. `#gmf` para no sumar dos veces el 4x1000 y `#suscripcion` para reconocer cobros de suscripción); los cobros de suscripción sugieren la categoría “Suscripciones” en “Por revisar”.
 - **Informes:** gastos por categoría, por persona (hogar/personal) y tendencia de 6 meses, con vista de tabla y descarga CSV para Excel (separador “;”).
 - **Categorías de ingresos** (`categories.kind = INCOME`): personales y sin presupuesto; se crean desde el formulario con “+ Nueva”.
+
+## Seguridad
+
+- RLS en todas las tablas; las funciones `SECURITY DEFINER` tienen `search_path` fijo y validan `auth.uid()`.
+- Sin sesión solo se puede llamar a `ingest_event()`, a propósito: el webhook la usa con la clave pública y la función valida el token personal.
+- `ingest_find_duplicate()` es interna (nadie la llama desde la API).
+- Desde la migración 0016, las funciones nuevas no quedan abiertas sin sesión por defecto: cada migración debe dar `grant execute … to authenticated` (o `anon`, si de verdad hace falta).
+- Al pegar migraciones por partes en el SQL Editor, revisar después **Advisors → Security** en Supabase: los `revoke`/`grant` de 0009, 0014a y 0015 no habían quedado aplicados (los corrige 0016).
 
 ## Decisiones de la Fase 1
 
@@ -92,7 +122,7 @@ Pestañas: **Inicio · Movimientos · + · Presupuesto · Informes · Más**. �
 ## Configuración
 
 ### 1. Base de datos (Supabase, proyecto `finanzas-pareja`)
-Las migraciones están en `supabase/migrations/` (0001 → 0015). Para aplicarlas a mano, pega cada archivo completo en **SQL Editor → Run**, en orden. Se pueden correr más de una vez.
+Las migraciones están en `supabase/migrations/` (0001 → 0016). Para aplicarlas a mano, pega cada archivo completo en **SQL Editor → Run**, en orden. Se pueden correr más de una vez.
 
 ### 2. Autenticación
 En Supabase → **Authentication → URL Configuration**:
