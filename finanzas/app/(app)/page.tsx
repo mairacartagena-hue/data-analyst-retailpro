@@ -22,7 +22,7 @@ const SCOPE_KEY = "home-scope";
 export default function HomePage() {
   const state = useFinance();
   const { me, partner, period, memberById, transactions } = state;
-  const { openSettle, openTransaction } = useShell();
+  const { openSettle, openTransaction, openPayment } = useShell();
   const router = useRouter();
   const [scope, setScopeState] = useState<Scope>("me");
   useEffect(() => {
@@ -110,14 +110,16 @@ export default function HomePage() {
             {obligations.length > 0 && <SectionTitle>Obligaciones del hogar</SectionTitle>}
             <div className="space-y-2.5">
               {obligations.map((c) => (
-                <BudgetBar key={c.id} category={c} status={statuses.get(c.id)} memberById={memberById}
+                <BudgetBar key={c.id} category={c} status={statuses.get(c.id)} memberById={memberById} meId={me.user_id}
+                  onPay={(amount) => openPayment({ categoryId: c.id, amount })}
                   onClick={() => router.push(`/presupuestos?categoria=${c.id}`)} />
               ))}
             </div>
             {others.length > 0 && <SectionTitle>{scope === "me" ? "Mis categorías" : "Otras categorías"}</SectionTitle>}
             <div className="space-y-2.5">
               {others.map((c) => (
-                <BudgetBar key={c.id} category={c} status={statuses.get(c.id)} memberById={memberById}
+                <BudgetBar key={c.id} category={c} status={statuses.get(c.id)} memberById={memberById} meId={me.user_id}
+                  onPay={(amount) => openPayment({ categoryId: c.id, amount })}
                   onClick={() => router.push(`/presupuestos?categoria=${c.id}`)} />
               ))}
             </div>
