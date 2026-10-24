@@ -7,30 +7,34 @@ import { useShell } from "@/components/AppShell";
 import { PeriodSwitcher, SwipePeriods } from "@/components/PeriodSwitcher";
 import { MemberBadge } from "@/components/MemberBadge";
 import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { Input, Select } from "@/components/ui/input";
 import { Segmented } from "@/components/ui/segmented";
 import type { Transaction } from "@/lib/types";
 import { formatCop } from "@/lib/finance/money";
 import { formatDay, isWithin } from "@/lib/finance/periods";
 import { accountLabel, categoryLabel } from "@/lib/finance/labels";
-import { cn, errMsg } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
-import { detectSubscriptions, SUBSCRIPTION_TAG } from "@/lib/finance/subscriptions";
+import { cn } from "@/lib/utils";
+import { SUBSCRIPTION_TAG } from "@/lib/finance/subscriptions";
+import { matchesFilter, tagStats } from "@/lib/finance/reports";
 
 type Filter = "all" | "mine" | "cross" | "pending";
 
 export default function MovimientosPage() {
-  const { transactions, period, me, categories } = useFinance();
+  const { transactions, period, me, categories, labels } = useFinance();
   const [filter, setFilter] = useState<Filter>("all");
-  useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("filtro") === "pendientes") setFilter("pending");
-  }, []);
   const [query, setQuery] = useState("");
-  const [showSubs, setShowSubs] = useState(false);
-  const subsCount = useMemo(() => {
-    const keys = new Set(transactions.filter((t) => t.tags.includes(SUBSCRIPTION_TAG) && t.payer_user_id === me.user_id).map((t) => t.merchant_norm ?? t.description));
-    return keys.size;
-  }, [transactions, me.user_id]);
+  const [tag, setTag] = useState("");
+  const [categoryId, setCategoryId] = useState("");
+  const [accountId, setAccountId] = useState("");
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    if (q.get("filtro") === "pendientes") setFilter("pending");
+    setTag(q.get("etiqueta") ?? "");
+    setCategoryId(q.get("categoria") ?? "");
+    setAccountId(q.get("cuenta") ?? "");
+  }, []);
+  const allTags = useMemo(() => tagStats(transactions, me.user_id).map((s) => s.tag), [transactions, me.user_id]);
+  const activeFilters = [tag, categoryId, accountId].filter(Boolean).length;
 
   const list = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -39,13 +43,14 @@ export default function MovimientosPage() {
       if (filter === "mine" && t.payer_user_id !== me.user_id) return false;
       if (filter === "cross" && !(t.kind === "SETTLEMENT" || t.splits.some((s) => s.responsible_user_id !== t.payer_user_id))) return false;
       if (filter === "pending" && t.status !== "PENDING_REVIEW") return false;
+      if (!matchesFilter(t, { tag: tag || undefined, categoryId: categoryId || undefined, accountId: accountId || undefined })) return false;
       if (q) {
         const text = [t.description, t.merchant, ...t.splits.map((s) => categoryLabel(categories, s.category_id).name)].join(" ").toLowerCase();
         if (!text.includes(q)) return false;
       }
       return true;
     });
-  }, [transactions, period, filter, me.user_id, query, categories]);
+  }, [transactions, period, filter, me.user_id, query, categories, tag, categoryId, accountId]);
 
   const groups = useMemo(() => {
     const map = new Map<string, Transaction[]>();
@@ -54,6 +59,7 @@ export default function MovimientosPage() {
   }, [list]);
 
   const totalExpense = list.filter((t) => t.kind === "EXPENSE").reduce((a, t) => a + t.amount, 0);
+  const totalIncome = list.filter((t) => t.kind === "INCOME").reduce((a, t) => a + t.amount, 0);
 
   return (
     <main className="px-4 pt-[calc(12px+env(safe-area-inset-top))]">
@@ -66,15 +72,30 @@ export default function MovimientosPage() {
         { value: "pending", label: "Pendientes" },
       ]} />
       <Input className="mt-3" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar por concepto o categoría" aria-label="Buscar" />
-      <button onClick={() => setShowSubs(!showSubs)} aria-pressed={showSubs}
-        className={cn("mt-3 flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm", showSubs ? "border-olive bg-olive-soft font-semibold" : "border-border bg-surface text-muted")}>
-        <Repeat size={15} /> Suscripciones{subsCount ? ` (${subsCount})` : ""}
-      </button>
-      {showSubs && <SubscriptionsPanel />}
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        <Select value={tag} onChange={(e) => setTag(e.target.value)} aria-label="Filtrar por etiqueta" className={cn("h-10 px-3 text-sm", tag && "border-olive bg-olive-soft")}>
+          <option value="">Etiqueta</option>
+          {allTags.map((t) => <option key={t} value={t}>{t}</option>)}
+        </Select>
+        <Select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} aria-label="Filtrar por categoría" className={cn("h-10 px-3 text-sm", categoryId && "border-olive bg-olive-soft")}>
+          <option value="">Categoría</option>
+          {categories.filter((c) => !c.archived).map((c) => <option key={c.id} value={c.id}>{c.icon ? `${c.icon} ` : ""}{c.name}</option>)}
+        </Select>
+        <Select value={accountId} onChange={(e) => setAccountId(e.target.value)} aria-label="Filtrar por cuenta" className={cn("h-10 px-3 text-sm", accountId && "border-olive bg-olive-soft")}>
+          <option value="">Cuenta</option>
+          {labels.map((l) => <option key={l.id} value={l.id}>{accountLabel(labels, l.id)}</option>)}
+        </Select>
+      </div>
+      {activeFilters > 0 && (
+        <button className="mt-2 px-1 text-xs text-olive underline" onClick={() => { setTag(""); setCategoryId(""); setAccountId(""); window.history.replaceState(null, "", "/movimientos"); }}>
+          Quitar filtros
+        </button>
+      )}
 
       <SwipePeriods>
         <p className="num mt-3 px-1 text-sm text-muted">
           {list.length} movimiento{list.length === 1 ? "" : "s"} · gastos {formatCop(totalExpense)}
+          {totalIncome > 0 ? ` · ingresos ${formatCop(totalIncome)}` : ""}
         </p>
         {groups.length === 0 ? (
           <Card className="mt-4 text-center text-[15px] text-muted">No hay movimientos en este periodo.</Card>
@@ -130,8 +151,14 @@ function TxRow({ tx }: { tx: Transaction }) {
           {subtitle}
           {tx.kind === "EXPENSE" && !labels.some((l) => l.id === tx.account_id) && <Lock size={11} aria-label="Cuenta privada" />}
         </span>
-        {tx.tags.includes(SUBSCRIPTION_TAG) && (
-          <span className="mr-1 mt-1 inline-flex items-center gap-1 rounded-full bg-olive-soft px-2 py-0.5 text-[11px]"><Repeat size={11} /> Suscripción</span>
+        {tx.tags.length > 0 && (
+          <span className="mt-1 flex flex-wrap gap-1">
+            {tx.tags.map((tg) => (
+              <span key={tg} className={cn("inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px]", tg === SUBSCRIPTION_TAG ? "bg-olive-soft" : "bg-surface-2 text-muted")}>
+                {tg === SUBSCRIPTION_TAG && <Repeat size={10} />}{tg}
+              </span>
+            ))}
+          </span>
         )}
         {crossed.length > 0 && tx.kind === "EXPENSE" && (
           <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-wood-soft px-2 py-0.5 text-[11px]">
@@ -148,69 +175,3 @@ function TxRow({ tx }: { tx: Transaction }) {
   );
 }
 
-/** Suscripciones etiquetadas (por comercio) y posibles suscripciones detectadas para confirmar. */
-function SubscriptionsPanel() {
-  const { transactions, me, supabase, reload } = useFinance();
-  const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const tagged = useMemo(() => {
-    const map = new Map<string, { name: string; last: Transaction; ids: string[] }>();
-    for (const t of transactions) {
-      if (t.payer_user_id !== me.user_id || !t.tags.includes(SUBSCRIPTION_TAG)) continue;
-      const k = t.merchant_norm ?? t.description ?? t.id;
-      const g = map.get(k);
-      if (!g) map.set(k, { name: t.merchant ?? t.description ?? "Suscripción", last: t, ids: [t.id] });
-      else {
-        g.ids.push(t.id);
-        if (t.occurred_on > g.last.occurred_on) g.last = t;
-      }
-    }
-    return [...map.entries()].sort((a, b) => b[1].last.amount - a[1].last.amount);
-  }, [transactions, me.user_id]);
-  const candidates = useMemo(() => detectSubscriptions(transactions, me.user_id), [transactions, me.user_id]);
-  const monthly = tagged.reduce((a, [, g]) => a + g.last.amount, 0);
-
-  async function setTag(key: string, ids: string[], add: boolean) {
-    setBusy(key);
-    setError(null);
-    const { error } = await supabase.rpc("tag_transactions", { p_ids: ids, p_tag: SUBSCRIPTION_TAG, p_add: add });
-    setBusy(null);
-    if (error) return setError(errMsg(error));
-    void reload();
-  }
-
-  return (
-    <Card className="mt-3 space-y-3">
-      <div>
-        <p className="text-sm text-muted">Tus suscripciones</p>
-        <p className="num font-display text-2xl">{formatCop(monthly)} <span className="text-sm text-muted">al mes, aprox.</span></p>
-      </div>
-      {tagged.length === 0 && <p className="text-sm text-muted">Aún no hay suscripciones etiquetadas.</p>}
-      {tagged.map(([k, g]) => (
-        <div key={k} className="flex items-center gap-3 text-sm">
-          <Repeat size={15} className="shrink-0 text-olive" />
-          <span className="min-w-0 flex-1 truncate">{g.name}<span className="block text-xs text-muted">Último cobro {formatDay(g.last.occurred_on)}</span></span>
-          <span className="num font-semibold">{formatCop(g.last.amount)}</span>
-          <button className="text-xs text-muted underline" disabled={busy === k} onClick={() => setTag(k, g.ids, false)}>Quitar</button>
-        </div>
-      ))}
-      {candidates.length > 0 && (
-        <div className="space-y-2 border-t border-border pt-3">
-          <p className="text-sm font-medium">Posibles suscripciones</p>
-          {candidates.map((c) => (
-            <div key={c.key} className="flex items-center gap-3 text-sm">
-              <span className="min-w-0 flex-1 truncate">{c.name}
-                <span className="block text-xs text-muted">{c.known ? "Servicio de suscripción" : `Se repite cada mes · ${c.count} cobros`}</span>
-              </span>
-              <span className="num">{formatCop(c.averageAmount)}</span>
-              <Button size="sm" variant="secondary" disabled={busy === c.key} onClick={() => setTag(c.key, c.transactionIds, true)}>Es suscripción</Button>
-            </div>
-          ))}
-        </div>
-      )}
-      {error && <p className="text-sm text-danger">{error}</p>}
-      <p className="text-xs text-muted">Las nuevas se etiquetan solas cuando llega el aviso: servicios conocidos (Netflix, Spotify, YouTube, Claude…) o cobros del mismo comercio que se repiten cada mes.</p>
-    </Card>
-  );
-}

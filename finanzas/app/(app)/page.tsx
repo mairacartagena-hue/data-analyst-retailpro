@@ -11,6 +11,8 @@ import { PeriodSwitcher, SwipePeriods } from "@/components/PeriodSwitcher";
 import { BudgetBar } from "@/components/BudgetBar";
 import { MemberBadge } from "@/components/MemberBadge";
 import { PendingReview } from "@/components/PendingReview";
+import { BudgetDetailSheet } from "@/components/BudgetDetailSheet";
+import type { Category } from "@/lib/types";
 import { CloseReminder } from "@/components/CloseReminder";
 import { Card, SectionTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -25,6 +27,7 @@ export default function HomePage() {
   const state = useFinance();
   const { me, partner, period, memberById } = state;
   const { openSettle, openTransaction, openPayment } = useShell();
+  const [detail, setDetail] = useState<Category | null>(null);
   const router = useRouter();
   const [scope, setScopeState] = useState<Scope>("me");
   useEffect(() => {
@@ -109,7 +112,7 @@ export default function HomePage() {
               {obligations.map((c) => (
                 <BudgetBar key={c.id} category={c} status={statuses.get(c.id)} memberById={memberById} meId={me.user_id}
                   onPay={(amount) => openPayment({ categoryId: c.id, amount })}
-                  onClick={() => router.push(`/presupuestos?categoria=${c.id}`)} />
+                  onClick={() => setDetail(c)} />
               ))}
             </div>
             {others.length > 0 && <SectionTitle>{scope === "me" ? "Mis categorías" : "Otras categorías"}</SectionTitle>}
@@ -117,7 +120,7 @@ export default function HomePage() {
               {others.map((c) => (
                 <BudgetBar key={c.id} category={c} status={statuses.get(c.id)} memberById={memberById} meId={me.user_id}
                   onPay={(amount) => openPayment({ categoryId: c.id, amount })}
-                  onClick={() => router.push(`/presupuestos?categoria=${c.id}`)} />
+                  onClick={() => setDetail(c)} />
               ))}
             </div>
           </>
@@ -144,6 +147,8 @@ export default function HomePage() {
 
         <Button variant="outline" className="mt-6 w-full" onClick={() => openTransaction(null)}>Registrar un movimiento</Button>
       </SwipePeriods>
+      <BudgetDetailSheet category={detail} status={detail ? statuses.get(detail.id) : undefined} onClose={() => setDetail(null)}
+        onEdit={(c) => router.push(`/presupuestos?categoria=${c.id}`)} />
     </main>
   );
 }

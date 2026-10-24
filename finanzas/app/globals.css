@@ -22,6 +22,10 @@
   --warning-soft: #f4e3c3;
   --household: #8a7a63;
   --shadow: 0 1px 2px rgb(60 45 25 / 0.06), 0 4px 16px rgb(60 45 25 / 0.06);
+  /* Series de gráficos (validadas contra daltonismo y contraste sobre --surface) */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --grid: #e9e1d3;
 }
 
 .dark {
@@ -42,6 +46,9 @@
   --warning-soft: #44351b;
   --household: #b8a68b;
   --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 4px 16px rgb(0 0 0 / 0.25);
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --grid: #3a332a;
 }
 
 @theme inline {
@@ -61,6 +68,8 @@
   --color-warning: var(--warning);
   --color-warning-soft: var(--warning-soft);
   --color-household: var(--household);
+  --color-series-1: var(--series-1);
+  --color-series-2: var(--series-2);
   --font-sans: var(--font-body), system-ui, sans-serif;
   --font-display: var(--font-display-face), Georgia, serif;
   --shadow-soft: var(--shadow);

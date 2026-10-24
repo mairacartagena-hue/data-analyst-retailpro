@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ClipboardCheck, Home, List, PieChart, Plus, Wallet } from "lucide-react";
+import { BarChart3, Home, List, Menu, PieChart, Plus } from "lucide-react";
 import type { Transaction } from "@/lib/types";
 import { TransactionSheet, type TxPreset } from "@/components/TransactionSheet";
 import { SettleSheet } from "@/components/SettleSheet";
@@ -24,12 +24,12 @@ export function useShell(): ShellApi {
   return v;
 }
 
-const NAV = [
+const NAV: { href: string; label: string; icon: typeof Home; also?: string[] }[] = [
   { href: "/", label: "Inicio", icon: Home },
   { href: "/movimientos", label: "Movimientos", icon: List },
   { href: "/presupuestos", label: "Presupuesto", icon: PieChart },
-  { href: "/cuentas", label: "Cuentas", icon: Wallet },
-  { href: "/cierre", label: "Cierre", icon: ClipboardCheck },
+  { href: "/informes", label: "Informes", icon: BarChart3 },
+  { href: "/mas", label: "Más", icon: Menu, also: ["/cuentas", "/cierre", "/etiquetas", "/captura", "/ajustes", "/cruce"] },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -55,7 +55,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const right = NAV.slice(2);
 
   const item = (n: (typeof NAV)[number]) => {
-    const active = n.href === "/" ? pathname === "/" : pathname.startsWith(n.href);
+    const active = n.href === "/" ? pathname === "/" : pathname.startsWith(n.href) || (n.also ?? []).some((a) => pathname.startsWith(a));
     const Icon = n.icon;
     return (
       <Link key={n.href} href={n.href} aria-current={active ? "page" : undefined}

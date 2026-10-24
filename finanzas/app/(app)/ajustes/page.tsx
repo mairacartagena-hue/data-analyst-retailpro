@@ -3,7 +3,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronRight, Download, LogOut, RefreshCw, Share2, Zap } from "lucide-react";
+import { ArrowLeft, Download, LogOut, RefreshCw, Share2 } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { MemberBadge } from "@/components/MemberBadge";
 import { Button } from "@/components/ui/button";
@@ -99,7 +99,10 @@ export default function AjustesPage() {
 
   return (
     <main className="px-4 pt-[calc(12px+env(safe-area-inset-top))]">
-      <h1 className="py-2 font-display text-3xl">Ajustes</h1>
+      <div className="flex items-center gap-2 py-2">
+        <Link href="/mas" aria-label="Volver" className="rounded-full p-2 text-muted hover:bg-surface-2"><ArrowLeft size={20} /></Link>
+        <h1 className="font-display text-3xl">Ajustes</h1>
+      </div>
       <ErrorText>{error}</ErrorText>
 
       <SectionTitle>Mi perfil</SectionTitle>
@@ -146,10 +149,6 @@ export default function AjustesPage() {
             </div>
           </>
         )}
-        <Link href="/captura" className="flex items-center justify-between rounded-2xl bg-surface-2 px-3 py-3 text-sm font-medium">
-          <span className="flex items-center gap-2"><Zap size={16} /> Captura automática (notificaciones, SMS y correos)</span>
-          <ChevronRight size={16} />
-        </Link>
       </Card>
 
       <SectionTitle>Periodos</SectionTitle>
