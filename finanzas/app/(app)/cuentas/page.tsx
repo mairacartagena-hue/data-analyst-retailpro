@@ -1,11 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CreditCard, Landmark, Lock, Plus, Smartphone, Wallet } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { AccountSheet, AssetSheet } from "@/components/AccountSheet";
 import { MemberBadge } from "@/components/MemberBadge";
 import { Button } from "@/components/ui/button";
+import { Segmented } from "@/components/ui/segmented";
+import { CruceView } from "@/components/views/CruceView";
 import { Card, SectionTitle } from "@/components/ui/card";
 import type { Account, ManualAsset } from "@/lib/types";
 import { ASSET_TYPE_LABEL, VISIBILITY_LABEL } from "@/lib/types";
@@ -20,6 +22,14 @@ export default function CuentasPage() {
   const [open, setOpen] = useState(false);
   const [asset, setAsset] = useState<ManualAsset | null>(null);
   const [assetOpen, setAssetOpen] = useState(false);
+  const [view, setView] = useState<"cuentas" | "cruce">("cuentas");
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("vista") === "cruce") setView("cruce");
+  }, []);
+  function changeView(v: "cuentas" | "cruce") {
+    setView(v);
+    window.history.replaceState(null, "", v === "cruce" ? "/cuentas?vista=cruce" : "/cuentas");
+  }
 
   const mine = accounts.filter((a) => a.owner_user_id === me.user_id && !a.archived);
   const archived = accounts.filter((a) => a.owner_user_id === me.user_id && a.archived);
@@ -62,9 +72,15 @@ export default function CuentasPage() {
   return (
     <main className="px-4 pt-[calc(12px+env(safe-area-inset-top))]">
       <div className="flex items-center justify-between py-2">
-        <h1 className="font-display text-3xl">Cuentas</h1>
-        <Button size="sm" onClick={() => { setEditing(null); setOpen(true); }}><Plus size={16} /> Nueva</Button>
+        <h1 className="font-display text-3xl">{view === "cruce" ? "Cruce de cuentas" : "Cuentas"}</h1>
+        {view === "cuentas" && <Button size="sm" onClick={() => { setEditing(null); setOpen(true); }}><Plus size={16} /> Nueva</Button>}
       </div>
+      <Segmented className="mb-2" value={view} onChange={changeView} options={[
+        { value: "cuentas", label: "Mis cuentas" },
+        { value: "cruce", label: "Cruce con mi pareja" },
+      ]} />
+
+      {view === "cruce" ? <CruceView /> : (<>
 
       <SectionTitle>Mis cuentas y tarjetas</SectionTitle>
       {mine.length === 0 ? (
@@ -113,6 +129,8 @@ export default function CuentasPage() {
           <div className="divide-y divide-border overflow-hidden rounded-2xl border border-dashed border-border opacity-70">{archived.map((a) => row(a, true))}</div>
         </>
       )}
+
+      </>)}
 
       <AccountSheet open={open} onOpenChange={setOpen} account={editing} />
       <AssetSheet open={assetOpen} onOpenChange={setAssetOpen} asset={asset} />

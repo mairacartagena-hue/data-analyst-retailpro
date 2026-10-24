@@ -53,6 +53,8 @@ export interface AccountStatement {
 }
 
 export function accountStatement(account: Account, txs: Transaction[], range: MonthRange): AccountStatement {
+  // El saldo inicial de la cuenta es un punto conocido (opening_balance en opening_at).
+  // Saldo en cualquier momento T = saldo inicial + movimientos entre opening_at y T (restando los que van hacia atrás).
   const openingAt = account.opening_at ? Date.parse(account.opening_at) : 0;
   const monthStart = Date.parse(`${range.start}T00:00:00-05:00`);
   const monthEnd = Date.parse(`${range.end}T23:59:59.999-05:00`);
@@ -68,12 +70,10 @@ export function accountStatement(account: Account, txs: Transaction[], range: Mo
     const e = effectOn(account.id, t);
     if (e === 0) continue;
     const at = effectiveAt(t);
-    if (at < openingAt) continue;
-    if (at < monthStart) {
-      opening += e;
-      continue;
-    }
-    if (at > monthEnd) continue;
+    // Saldo al empezar el mes: sumar lo que pasó entre el saldo inicial y el mes, o quitar lo que pasó entre el mes y el saldo inicial
+    if (at < monthStart && at >= openingAt) opening += e;
+    if (at >= monthStart && at < openingAt) opening -= e;
+    if (at < monthStart || at > monthEnd) continue;
     items.push(t);
     if (t.status === "PENDING_REVIEW") pending++;
     if (e > 0) inflow += e;

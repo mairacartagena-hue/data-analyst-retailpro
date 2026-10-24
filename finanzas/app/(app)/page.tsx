@@ -88,7 +88,7 @@ export default function HomePage() {
             {net < 0 ? (
               <Button size="sm" onClick={openSettle}>Liquidar</Button>
             ) : (
-              <Link href="/cruce" className="text-sm font-semibold text-olive">Ver</Link>
+              <Link href="/cuentas?vista=cruce" className="text-sm font-semibold text-olive">Ver</Link>
             )}
           </Card>
         ) : (

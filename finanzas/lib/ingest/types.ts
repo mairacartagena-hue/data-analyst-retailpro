@@ -34,6 +34,8 @@ export interface ParsedEvent {
   institution?: string | null; // Nequi, Bancolombia…
   occurredAt?: string | null; // ISO
   identifiers?: { type: IdentifierType; value: string }[];
+  /** Etiquetas automáticas (ej. #suscripcion). */
+  tags?: string[];
   ignoreReason?: string;
 }
 

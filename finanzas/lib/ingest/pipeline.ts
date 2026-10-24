@@ -47,6 +47,7 @@ export function toDbEvent(ev: RawEvent, it: Interpretation) {
           institution: p.institution ?? null,
           occurred_at: p.occurredAt ?? null,
           identifiers: p.identifiers ?? [],
+          tags: p.tags ?? [],
           ignore_reason: p.ignoreReason ?? null,
         }
       : null,

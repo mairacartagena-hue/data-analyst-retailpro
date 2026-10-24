@@ -1,9 +1,183 @@
--- Copiar todo → Supabase → finanzas-pareja → SQL Editor → Run. Se puede correr más de una vez.
+-- 0014b · save_transaction con categoría de ingreso; _ingest_core detecta suscripciones.
+-- Categorías de ingresos en save_transaction y detección automática de suscripciones al recibir avisos.
 
--- 0013 · Reintentar avisos: la lógica de ingesta queda en _ingest_core(usuario, hogar, evento).
---  · ingest_event(token, evento): MacroDroid y Gmail (valida el token)
---  · reingest_log(log, evento): la persona, con su sesión, vuelve a procesar un aviso no reconocido
---  · update de ingest_logs propio: marcar un aviso como registrado a mano
+create or replace function public.save_transaction(p jsonb)
+returns uuid
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_hh uuid := my_household_id();
+  v_id uuid := nullif(p->>'id', '')::uuid;
+  v_kind text := p->>'kind';
+  v_amount bigint := (p->>'amount')::bigint;
+  v_account uuid := nullif(p->>'account_id', '')::uuid;
+  v_to uuid := nullif(p->>'to_account_id', '')::uuid;
+  v_counter uuid := nullif(p->>'counterparty_user_id', '')::uuid;
+  v_date date := coalesce(nullif(p->>'occurred_on', '')::date, today_bogota());
+  v_desc text := nullif(trim(coalesce(p->>'description', '')), '');
+  v_tags text[] := coalesce(array(select jsonb_array_elements_text(coalesce(p->'tags', '[]'::jsonb))), '{}');
+  v_old transactions;
+  v_split jsonb;
+  v_splits jsonb := coalesce(p->'splits', '[]'::jsonb);
+  v_n int;
+  v_sum bigint := 0;
+  v_cat categories;
+  v_cat_id uuid;
+  v_resp uuid;
+  v_origin text;
+  v_split_id uuid;
+  v_inc_cat uuid := nullif(p->>'income_category_id', '')::uuid;
+begin
+  if v_uid is null then raise exception 'Necesitas iniciar sesión'; end if;
+  if v_hh is null then raise exception 'Primero crea o únete a un hogar'; end if;
+  if v_kind not in ('EXPENSE', 'INCOME', 'TRANSFER', 'SETTLEMENT') then raise exception 'Tipo de movimiento no válido'; end if;
+  if v_amount is null or v_amount <= 0 then raise exception 'El monto debe ser mayor que cero'; end if;
+
+  if v_id is not null then
+    select * into v_old from transactions where id = v_id and household_id = v_hh for update;
+    if not found then raise exception 'Ese movimiento no existe'; end if;
+    if v_old.created_by <> v_uid then raise exception 'Solo quien registró el movimiento puede editarlo'; end if;
+    -- Un pendiente que llegó automáticamente puede cambiar de tipo al revisarlo (ej. pago de tarjeta)
+    if v_old.kind <> v_kind and (v_old.status <> 'PENDING_REVIEW' or v_kind = 'SETTLEMENT') then
+      raise exception 'No se puede cambiar el tipo de un movimiento';
+    end if;
+  end if;
+
+  if v_account is not null and not exists (
+    select 1 from accounts where id = v_account and owner_user_id = v_uid and household_id = v_hh
+  ) then
+    raise exception 'La cuenta de origen debe ser tuya';
+  end if;
+
+  if v_kind in ('EXPENSE', 'INCOME') and v_account is null then
+    raise exception 'Elige la cuenta';
+  end if;
+
+  if v_kind = 'TRANSFER' then
+    if v_account is null or v_to is null or v_account = v_to then
+      raise exception 'Elige dos cuentas distintas';
+    end if;
+    if not exists (select 1 from accounts where id = v_to and owner_user_id = v_uid and household_id = v_hh) then
+      raise exception 'Las transferencias son entre tus propias cuentas. Para pagarle a tu pareja usa Liquidar.';
+    end if;
+  end if;
+
+  if v_kind = 'SETTLEMENT' then
+    if v_counter is null or v_counter = v_uid
+       or not exists (select 1 from household_members where user_id = v_counter and household_id = v_hh) then
+      raise exception 'La liquidación es con tu pareja';
+    end if;
+    if v_to is not null and not exists (
+      select 1 from accounts where id = v_to and owner_user_id = v_counter and household_id = v_hh
+    ) then
+      raise exception 'La cuenta de destino debe ser de tu pareja';
+    end if;
+  else
+    v_counter := null;
+  end if;
+
+  if v_kind <> 'TRANSFER' and v_kind <> 'SETTLEMENT' then
+    v_to := null;
+  end if;
+
+  -- Categoría de un ingreso (solo ingresos; personal o compartida que la persona pueda ver)
+  if v_kind <> 'INCOME' then v_inc_cat := null; end if;
+  if v_inc_cat is not null and not exists (
+    select 1 from categories where id = v_inc_cat and household_id = v_hh and kind = 'INCOME'
+      and (responsibility <> 'PRIVATE' or owner_user_id = v_uid)
+  ) then
+    raise exception 'Categoría de ingreso no válida';
+  end if;
+
+  if v_kind = 'EXPENSE' then
+    v_n := jsonb_array_length(v_splits);
+    if v_n = 0 then raise exception 'El gasto necesita al menos una categoría o responsable'; end if;
+    select coalesce(sum((s->>'amount')::bigint), 0) into v_sum from jsonb_array_elements(v_splits) s;
+    if v_sum <> v_amount then
+      raise exception 'La suma del desglose (%) debe ser igual al total (%)', v_sum, v_amount;
+    end if;
+  end if;
+
+  if v_id is null then
+    insert into transactions (household_id, kind, status, occurred_on, amount, description, merchant,
+                              account_id, to_account_id, payer_user_id, counterparty_user_id,
+                              is_shared, source, tags, created_by, income_category_id)
+    values (v_hh, v_kind, 'CONFIRMED', v_date, v_amount, v_desc, nullif(trim(coalesce(p->>'merchant', '')), ''),
+            v_account, v_to, v_uid, v_counter,
+            v_kind = 'INCOME' and coalesce((p->>'is_shared')::boolean, false), 'MANUAL', v_tags, v_uid, v_inc_cat)
+    returning id into v_id;
+  else
+    update transactions
+       set kind = v_kind,
+           status = 'CONFIRMED',
+           occurred_on = v_date,
+           amount = v_amount,
+           description = v_desc,
+           merchant = nullif(trim(coalesce(p->>'merchant', '')), ''),
+           account_id = v_account,
+           to_account_id = v_to,
+           counterparty_user_id = v_counter,
+           is_shared = v_kind = 'INCOME' and coalesce((p->>'is_shared')::boolean, false),
+           tags = v_tags,
+           income_category_id = v_inc_cat
+     where id = v_id;
+    delete from cross_ledger where transaction_id = v_id;
+    delete from transaction_splits where transaction_id = v_id;
+  end if;
+
+  if v_kind = 'EXPENSE' then
+    for v_split in select * from jsonb_array_elements(v_splits)
+    loop
+      v_cat_id := nullif(v_split->>'category_id', '')::uuid;
+      v_resp := nullif(v_split->>'responsible_user_id', '')::uuid;
+      v_origin := coalesce(nullif(v_split->>'origin', ''), 'NORMAL');
+
+      if (v_split->>'amount')::bigint <= 0 then raise exception 'Cada parte del desglose debe ser mayor que cero'; end if;
+
+      if v_cat_id is not null then
+        select * into v_cat from categories where id = v_cat_id and household_id = v_hh;
+        if not found or not can_see_category(v_cat_id) then raise exception 'Categoría no válida'; end if;
+        if v_resp is null then v_resp := category_responsible(v_cat_id); end if;
+        if v_cat.responsibility = 'PRIVATE' and v_resp <> v_cat.owner_user_id then
+          raise exception 'Una categoría privada solo puede quedar a cargo de su dueño';
+        end if;
+      end if;
+
+      if v_resp is null then v_resp := v_uid; end if;
+      if not exists (select 1 from household_members where user_id = v_resp and household_id = v_hh) then
+        raise exception 'El responsable debe ser miembro del hogar';
+      end if;
+      if v_origin = 'FIXED_EXCESS' and v_resp = v_uid then v_origin := 'NORMAL'; end if;
+
+      insert into transaction_splits (transaction_id, household_id, amount, category_id, responsible_user_id, origin, note)
+      values (v_id, v_hh, (v_split->>'amount')::bigint, v_cat_id, v_resp, v_origin,
+              nullif(trim(coalesce(v_split->>'note', '')), ''))
+      returning id into v_split_id;
+
+      -- Caso 2 y 3: pagó uno y le correspondía al otro → asiento a favor del pagador
+      if v_resp <> v_uid then
+        insert into cross_ledger (household_id, creditor_user_id, debtor_user_id, amount, kind,
+                                  transaction_id, split_id, description, occurred_on, created_by)
+        values (v_hh, v_uid, v_resp, (v_split->>'amount')::bigint,
+                case when v_origin = 'FIXED_EXCESS' then 'FIXED_EXCESS'
+                     when v_n = 1 then 'CROSS_PAYMENT'
+                     else 'SPLIT' end,
+                v_id, v_split_id, coalesce(v_desc, nullif(trim(coalesce(p->>'merchant', '')), '')),
+                v_date, v_uid);
+      end if;
+    end loop;
+  end if;
+
+  if v_kind = 'SETTLEMENT' then
+    insert into cross_ledger (household_id, creditor_user_id, debtor_user_id, amount, kind,
+                              transaction_id, description, occurred_on, created_by)
+    values (v_hh, v_uid, v_counter, v_amount, 'SETTLEMENT', v_id, coalesce(v_desc, 'Liquidación'), v_date, v_uid);
+  end if;
+
+  return v_id;
+end;
+$$;
 
 create or replace function public._ingest_core(p_uid uuid, p_hh uuid, p_event jsonb)
 returns jsonb
@@ -38,6 +212,7 @@ declare
   v_split_resp uuid;
   v_split_id uuid;
   v_n int;
+  v_prev uuid;
 begin
   v_uid := p_uid;
   v_hh := p_hh;
@@ -100,6 +275,8 @@ begin
   if v_last4 is not null and (v_account_kind = 'CREDIT_CARD' or v_kind = 'CARD_PAYMENT') then
     v_tags := v_tags || ('#tc_' || v_last4);
   end if;
+  -- Etiquetas que trae el parser (ej. #suscripcion para comercios de suscripción conocidos)
+  v_tags := v_tags || coalesce(array(select lower(jsonb_array_elements_text(coalesce(p_event->'parsed'->'tags', '[]'::jsonb)))), '{}');
 
   -- 1) Deduplicación: mismo usuario, monto exacto, ±5 minutos, comercio parecido y cuenta compatible
   select t.* into v_existing from transactions t
@@ -189,6 +366,21 @@ begin
     end if;
   end if;
 
+  -- Suscripción: el mismo comercio cobró un monto parecido (±15 %) hace 25 a 35 días
+  if v_txkind = 'EXPENSE' and v_norm is not null and not ('#suscripcion' = any (v_tags)) then
+    select t.id into v_prev from transactions t
+     where t.household_id = v_hh and t.payer_user_id = v_uid and t.kind = 'EXPENSE'
+       and coalesce(t.merchant_norm, t.description) is not null
+       and ingest_merchant_compatible(coalesce(t.merchant_norm, lower(t.description)), v_norm)
+       and t.amount between v_amount * 0.85 and v_amount * 1.15
+       and tx_effective_at(t.occurred_at, t.occurred_on) between v_at - interval '35 days' and v_at - interval '25 days'
+     limit 1;
+    if v_prev is not null then
+      v_tags := v_tags || '#suscripcion'::text;
+      update transactions set tags = array(select distinct unnest(tags || array['#suscripcion'])) where id = v_prev;
+    end if;
+  end if;
+
   if v_txkind in ('EXPENSE', 'INCOME') and v_account is null then
     v_status := 'PENDING_REVIEW';
     v_split_cat := null;
@@ -227,49 +419,3 @@ begin
 end;
 $$;
 revoke all on function public._ingest_core(uuid, uuid, jsonb) from public, anon, authenticated;
-
-create or replace function public.ingest_event(p_token text, p_event jsonb)
-returns jsonb
-language plpgsql security definer set search_path = public, extensions
-as $$
-declare
-  v_tok ingest_tokens;
-begin
-  if p_token is null or length(p_token) < 20 then raise exception 'Token no válido'; end if;
-  select * into v_tok from ingest_tokens where token_hash = encode(digest(p_token, 'sha256'), 'hex');
-  if not found then raise exception 'Token no válido'; end if;
-  update ingest_tokens set last_used_at = now() where id = v_tok.id;
-  return _ingest_core(v_tok.user_id, v_tok.household_id, p_event);
-end;
-$$;
-grant execute on function public.ingest_event(text, jsonb) to anon, authenticated;
-
-create or replace function public.reingest_log(p_log_id uuid, p_event jsonb)
-returns jsonb
-language plpgsql security definer set search_path = public
-as $$
-declare
-  v_log ingest_logs;
-  v_res jsonb;
-begin
-  select * into v_log from ingest_logs where id = p_log_id and user_id = auth.uid();
-  if not found then raise exception 'Ese aviso no existe'; end if;
-  if v_log.result not in ('UNRECOGNIZED', 'ERROR', 'DISCARDED') then
-    raise exception 'Ese aviso ya se procesó';
-  end if;
-  -- Sin external_id para que no se tome como repetido
-  v_res := _ingest_core(v_log.user_id, v_log.household_id, (p_event - 'external_id') || jsonb_build_object('channel', v_log.channel));
-  if v_res->>'result' in ('ACCEPTED', 'MERGED', 'IGNORED') then
-    update ingest_logs set result = 'IGNORED', reason = 'Reintentado: ' || (v_res->>'result'),
-                           transaction_id = nullif(v_res->>'transaction_id', '')::uuid
-     where id = v_log.id;
-  end if;
-  return v_res;
-end;
-$$;
-revoke all on function public.reingest_log(uuid, jsonb) from public, anon;
-grant execute on function public.reingest_log(uuid, jsonb) to authenticated;
-
-drop policy if exists "marcar mis eventos" on public.ingest_logs;
-create policy "marcar mis eventos" on public.ingest_logs for update to authenticated
-  using (user_id = auth.uid()) with check (user_id = auth.uid());

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { AlertCircle, ArrowLeft, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Landmark, Receipt } from "lucide-react";
+import { AlertCircle, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Landmark, Receipt } from "lucide-react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { useFinance, type FinanceState } from "@/lib/data/FinanceProvider";
 import { useShell } from "@/components/AppShell";
@@ -82,10 +82,7 @@ export default function CierrePage() {
 
   return (
     <main className="px-4 pt-[calc(12px+env(safe-area-inset-top))]">
-      <div className="flex items-center gap-2 py-2">
-        <Link href="/ajustes" aria-label="Volver" className="rounded-full p-2 text-muted hover:bg-surface-2"><ArrowLeft size={20} /></Link>
-        <h1 className="font-display text-3xl">Cierre del mes</h1>
-      </div>
+      <h1 className="py-2 font-display text-3xl">Cierre del mes</h1>
 
       <div className="flex items-center justify-between">
         <button className="rounded-full p-2 text-muted" onClick={() => setMonth(shiftMonth(month, -1))} aria-label="Mes anterior"><ChevronLeft size={22} /></button>
