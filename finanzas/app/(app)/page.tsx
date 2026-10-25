@@ -49,6 +49,7 @@ export default function HomePage() {
   const net = crossNet(state);
   const worth = netWorth(state, scope);
   const flow = cashFlow(state, period, scope);
+  const [withPending, setWithPending] = useState(false);
   const cats = limitsForScope(state, scope);
   const obligations = cats.filter((l) => l.is_household_obligation);
   const others = cats.filter((l) => !l.is_household_obligation);
@@ -66,6 +67,8 @@ export default function HomePage() {
   const upcoming = useUpcoming(period);
   const pendingDues = upcoming.occurrences.filter((o) => !o.paid && (scope !== "household" || o.payment.scope === "HOUSEHOLD"));
   const cardDues = scope === "household" ? [] : upcoming.cards;
+  const pendingTotal = pendingDues.reduce((sum, o) => sum + Number(o.payment.amount), 0);
+  const shownNet = withPending ? flow.net - pendingTotal : flow.net;
 
   return (
     <main className="px-4 pt-[calc(12px+env(safe-area-inset-top))]">
@@ -155,14 +158,18 @@ export default function HomePage() {
           </Card>
           <Card>
             <p className="text-xs text-muted">Flujo del periodo</p>
-            <p className={cn("num mt-1 text-lg font-semibold", flow.net < 0 && "text-danger")}>{formatCop(flow.net)}</p>
+            <p className={cn("num mt-1 text-lg font-semibold", shownNet < 0 && "text-danger")}>{formatCop(shownNet)}</p>
             <p className="num mt-1 text-xs text-muted">Entró {formatCop(flow.income)}</p>
             <p className="num text-xs text-muted">Salió {formatCop(flow.expense)}</p>
+            {withPending && <p className="num text-xs text-muted">Pendiente −{formatCop(pendingTotal)}</p>}
+            <Segmented className="mt-2" value={withPending ? "PENDING" : "REAL"} onChange={(v) => setWithPending(v === "PENDING")}
+              options={[{ value: "REAL", label: "Real" }, { value: "PENDING", label: "Sin pagar" }]} />
           </Card>
         </div>
         {scope !== "me" && (
           <p className="mt-2 px-1 text-xs text-muted">{scope === "household" ? "Solo movimientos del hogar, pague quien pague." : "Incluye lo del hogar y lo tuyo."} Las transferencias no cuentan.</p>
         )}
+        <p className="mt-2 px-1 text-xs text-muted">“Sin pagar” descuenta del flujo los pagos programados del periodo que todavía no has registrado.</p>
 
         <Button variant="outline" className="mt-6 w-full" onClick={() => openTransaction(null)}>Registrar un movimiento</Button>
       </SwipePeriods>
