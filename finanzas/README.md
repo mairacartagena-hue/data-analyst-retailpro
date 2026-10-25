@@ -41,6 +41,7 @@ PWA privada de finanzas personales y en pareja (Android y escritorio). Todo en p
 | Partidas de montos fijos: si alguien se pasa de su parte, la app pregunta si se cobra el excedente | `fixedAmountsExcess()` |
 | Saldo Seguro para Gastar con desglose | `lib/finance/safeToSpend.ts` |
 | Patrimonio neto (cuentas + activos/pasivos manuales) y flujo de caja | `lib/finance/derive.ts` |
+| Flujo del periodo con interruptor Real / Sin pagar (descuenta los pagos programados del periodo aún no registrados) | `app/(app)/page.tsx` |
 | Dashboard con vistas Mis finanzas / Hogar / Vista global | `app/(app)/page.tsx` |
 | RLS en todas las tablas, Realtime en ambos celulares, PWA instalable, modo claro/oscuro | `supabase/migrations` |
 
