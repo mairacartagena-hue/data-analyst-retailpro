@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
-import { ArrowRightLeft, ChevronDown, Settings } from "lucide-react";
+import { ArrowRightLeft, ChevronDown, Info, Settings } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { useShell } from "@/components/AppShell";
 import { PeriodSwitcher, SwipePeriods } from "@/components/PeriodSwitcher";
@@ -50,6 +50,7 @@ export default function HomePage() {
   const worth = netWorth(state, scope);
   const flow = cashFlow(state, period, scope);
   const [withPending, setWithPending] = useState(false);
+  const [flowInfo, setFlowInfo] = useState(false);
   const cats = limitsForScope(state, scope);
   const obligations = cats.filter((l) => l.is_household_obligation);
   const others = cats.filter((l) => !l.is_household_obligation);
@@ -157,7 +158,11 @@ export default function HomePage() {
             <p className="num text-xs text-muted">Pasivos {formatCop(worth.liabilities)}</p>
           </Card>
           <Card>
-            <p className="text-xs text-muted">Flujo del periodo</p>
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-muted">Flujo del periodo</p>
+              <button type="button" onClick={() => setFlowInfo(!flowInfo)} aria-expanded={flowInfo} aria-label="¿Qué significa cada opción?"
+                className="rounded-full p-1 text-muted hover:text-text"><Info size={15} /></button>
+            </div>
             <p className={cn("num mt-1 text-lg font-semibold", shownNet < 0 && "text-danger")}>{formatCop(shownNet)}</p>
             <p className="num mt-1 text-xs text-muted">Entró {formatCop(flow.income)}</p>
             <p className="num text-xs text-muted">Salió {formatCop(flow.expense)}</p>
@@ -169,7 +174,12 @@ export default function HomePage() {
         {scope !== "me" && (
           <p className="mt-2 px-1 text-xs text-muted">{scope === "household" ? "Solo movimientos del hogar, pague quien pague." : "Incluye lo del hogar y lo tuyo."} Las transferencias no cuentan.</p>
         )}
-        <p className="mt-2 px-1 text-xs text-muted">“Sin pagar” descuenta del flujo los pagos programados del periodo que todavía no has registrado.</p>
+        {flowInfo && (
+          <div className="mt-2 space-y-1 rounded-2xl bg-surface-2 px-3 py-2 text-xs text-muted">
+            <p><strong className="text-text">Real:</strong> lo que entró menos lo que salió en el periodo. Solo cuenta movimientos ya registrados.</p>
+            <p><strong className="text-text">Sin pagar:</strong> el mismo flujo, pero descontando además los pagos programados del periodo (gastos y pagos de deuda) que todavía no has registrado. Muestra cuánto te quedaría si los pagaras todos.</p>
+          </div>
+        )}
 
         <Button variant="outline" className="mt-6 w-full" onClick={() => openTransaction(null)}>Registrar un movimiento</Button>
       </SwipePeriods>
