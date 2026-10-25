@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
   if (!log_id) return NextResponse.json({ ok: false, error: "Falta el aviso" }, { status: 400 });
 
   // La RLS solo deja leer los avisos propios
-  const { data: log, error } = await sb.from("ingest_logs").select("id, channel, source, raw_text, received_at").eq("id", log_id).maybeSingle();
+  const { data: log, error } = await sb.from("ingest_logs").select("id, channel, source, raw_text, received_at, event_at").eq("id", log_id).maybeSingle();
   if (error || !log) return NextResponse.json({ ok: false, error: "Ese aviso no existe" }, { status: 404 });
   if (!log.raw_text) return NextResponse.json({ ok: false, error: "El texto original ya se borró (pasaron más de 30 días)" }, { status: 410 });
 
@@ -23,7 +23,8 @@ export async function POST(req: NextRequest) {
     channel: log.channel as Channel,
     source: log.source ?? "",
     text: log.raw_text,
-    receivedAt: log.received_at,
+    // La fecha del correo, no la hora en que se leyó: así el pago se compara con el aviso del banco
+    receivedAt: log.event_at ?? log.received_at,
   };
   const it = await interpret(ev);
   const { data, error: rpcError } = await sb.rpc("reingest_log", { p_log_id: log_id, p_event: toDbEvent(ev, it) });
