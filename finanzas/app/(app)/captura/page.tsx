@@ -10,6 +10,7 @@ import { Card, SectionTitle } from "@/components/ui/card";
 import { ErrorText } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { MemorySheet, memoryTitle } from "@/components/MemorySheet";
+import { groupMemory, type MemoryGroup } from "@/lib/finance/memoryApply";
 import type { IngestLog, MerchantMemory } from "@/lib/types";
 import { CHANNEL_LABEL } from "@/lib/types";
 import { categoryLabel } from "@/lib/finance/labels";
@@ -63,7 +64,7 @@ export default function CapturaPage() {
   const [open, setOpen] = useState<string | null>("android");
   const [error, setError] = useState<string | null>(null);
   const [failed, setFailed] = useState<IngestLog[]>([]);
-  const [editingMemory, setEditingMemory] = useState<MerchantMemory | null>(null);
+  const [editingMemory, setEditingMemory] = useState<MemoryGroup | null>(null);
   const [retrying, setRetrying] = useState<{ done: number; total: number } | null>(null);
   const [retrySummary, setRetrySummary] = useState<string | null>(null);
 
@@ -138,14 +139,14 @@ export default function CapturaPage() {
     void reload();
   }
 
-  async function toggleAuto(m: MerchantMemory, v: boolean) {
-    const { error } = await supabase.from("merchant_memory").update({ auto_apply: v }).eq("id", m.id);
+  async function toggleAuto(g: MemoryGroup, v: boolean) {
+    const { error } = await supabase.from("merchant_memory").update({ auto_apply: v }).in("id", g.all.map((m) => m.id));
     if (error) setError(errMsg(error)); else void load();
   }
 
-  async function forget(m: MerchantMemory) {
-    if (!confirm(`¿Olvidar “${m.identifier}”?`)) return;
-    const { error } = await supabase.from("merchant_memory").delete().eq("id", m.id);
+  async function forget(g: MemoryGroup) {
+    if (!confirm(`¿Olvidar “${g.main.identifier}”?`)) return;
+    const { error } = await supabase.from("merchant_memory").delete().in("id", g.all.map((m) => m.id));
     if (error) setError(errMsg(error)); else void load();
   }
 
@@ -284,29 +285,30 @@ export default function CapturaPage() {
         <p className="px-1 text-sm text-muted">Cuando revises un movimiento con “Recordar este comercio”, aparecerá aquí.</p>
       ) : (
         <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface">
-          {memory.map((m) => {
+          {groupMemory(memory).map((g) => {
+            const m = g.main;
             const cat = categoryLabel(categories, m.category_id);
             const resp = memberById(m.responsible_user_id);
             return (
               <div key={m.id} className="flex items-center gap-3 px-3.5 py-3">
-                <button className="min-w-0 flex-1 text-left" onClick={() => setEditingMemory(m)} aria-label={`Editar ${memoryTitle(m)}`}>
+                <button className="min-w-0 flex-1 text-left" onClick={() => setEditingMemory(g)} aria-label={`Editar ${memoryTitle(m)}`}>
                   <p className="flex items-center gap-1.5 truncate font-medium">{memoryTitle(m)} <Pencil size={12} className="shrink-0 text-muted" /></p>
                   <p className="truncate text-xs text-muted">
-                    {m.movement_kind === "REFUND" ? "Reembolso de " : ""}{cat.icon} {cat.name} · {resp ? (resp.user_id === me.user_id ? "tú" : resp.display_name) : ""} · {m.scope === "HOUSEHOLD" ? "hogar" : "personal"} · {m.hits} uso{m.hits === 1 ? "" : "s"}
+                    {m.movement_kind === "REFUND" ? "Reembolso de " : ""}{cat.icon} {cat.name} · {resp ? (resp.user_id === me.user_id ? "tú" : resp.display_name) : ""} · {m.scope === "HOUSEHOLD" ? "hogar" : "personal"} · {g.hits} uso{g.hits === 1 ? "" : "s"}
                     {m.label ? ` · ${m.identifier}` : ""}
                   </p>
                 </button>
                 <label className="flex items-center gap-1.5 text-xs text-muted">
-                  Siempre <Switch checked={m.auto_apply} onCheckedChange={(v) => toggleAuto(m, v)} aria-label="Aplicar siempre" />
+                  Siempre <Switch checked={m.auto_apply} onCheckedChange={(v) => toggleAuto(g, v)} aria-label="Aplicar siempre" />
                 </label>
-                <button className="p-1 text-muted" onClick={() => forget(m)} aria-label="Olvidar"><Trash2 size={16} /></button>
+                <button className="p-1 text-muted" onClick={() => forget(g)} aria-label="Olvidar"><Trash2 size={16} /></button>
               </div>
             );
           })}
         </div>
       )}
       <p className="mt-2 px-1 text-xs text-muted">Toca un nombre para cambiar dónde se guarda. El texto original de cada aviso se borra solo a los 30 días.</p>
-      <MemorySheet memory={editingMemory} onClose={() => setEditingMemory(null)} onChanged={load} />
+      <MemorySheet group={editingMemory} onClose={() => setEditingMemory(null)} onChanged={load} />
     </main>
   );
 }
