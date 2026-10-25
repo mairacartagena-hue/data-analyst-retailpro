@@ -207,6 +207,9 @@ export function TransactionSheet({
   const total = parseCop(amount) ?? 0;
   const selectedCategory = usable.find((c) => c.id === categoryId) ?? null;
   const withSplits = hasSplits(kind);
+  // Los comentarios van justo después de la categoría; sin categoría (transferencias, ajustes) quedan al final
+  const showsCategory = withSplits || (kind === "INCOME" && !partnerEdit);
+  const commentsBlock = editing ? <TransactionComments txId={editing.id} /> : null;
   const kindGroup: KindGroup = OTHER_KINDS.includes(kind) ? "OTHER" : (kind as KindGroup);
   const scheduledPayment = scheduled ? state.commitments.find((c) => c.id === scheduled.id) ?? null : null;
 
@@ -561,6 +564,7 @@ export function TransactionSheet({
               </div>
             </Field>
           )}
+          {kind === "INCOME" && !partnerEdit && commentsBlock}
 
           {withSplits && !splitMode && (
             <>
@@ -568,6 +572,8 @@ export function TransactionSheet({
                 <CategoryPicker categories={usable} value={categoryId}
                   onPick={pickCategory} onNew={partnerEdit ? undefined : () => setNewCategory("EXPENSE")} />
               </Field>
+
+              {commentsBlock}
 
               {partner && (
                 <Field label="¿A quién le corresponde?" hint={preset?.categoryId && !editing ? "Propuesto por el presupuesto de la categoría; puedes cambiarlo. No tiene que ser quien pagó." : "Quién asume económicamente el gasto; no tiene que ser quien pagó."}>
@@ -635,6 +641,7 @@ export function TransactionSheet({
               </div>
             </div>
           )}
+          {withSplits && splitMode && commentsBlock}
 
           {crossedAmount > 0 && otherId && (
             <div className="space-y-2 rounded-2xl bg-wood-soft px-3 py-2.5 text-sm">
@@ -696,7 +703,7 @@ export function TransactionSheet({
               {busy ? "Guardando..." : isPendingReview ? "Confirmar" : "Guardar"}
             </Button>
           </div>
-          {editing && <TransactionComments txId={editing.id} />}
+          {!showsCategory && commentsBlock}
         </div>
       )}
       <CategorySheet open={newCategory !== null} onOpenChange={(v) => !v && setNewCategory(null)} category={null}
