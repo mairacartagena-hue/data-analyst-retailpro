@@ -68,3 +68,53 @@ describe("motor de cruce", () => {
     expect(suggestSettlement(A, B, after)).toBeNull();
   });
 });
+
+describe("deudas a mi favor que siguen abiertas", () => {
+  const ME = "me";
+  const HE = "he";
+  let n = 0;
+  const row = (creditor: string, amount: number, date: string, extra: Record<string, unknown> = {}) => ({
+    id: `r${++n}`, creditor_user_id: creditor, debtor_user_id: creditor === ME ? HE : ME, amount, kind: "LOAN" as const,
+    description: null, occurred_on: date, created_at: `${date}T10:00:00Z`, ...extra,
+  });
+
+  it("lista cada deuda con lo que queda", async () => {
+    const { openDebtsInFavor } = await import("@/lib/finance/crossLedger");
+    const a = row(ME, 300_000, "2026-10-01", { description: "Envío para una compra" });
+    const b = row(ME, 50_000, "2026-10-05");
+    expect(openDebtsInFavor([a, b], ME).map((d) => [d.id, d.remaining])).toEqual([[a.id, 300_000], [b.id, 50_000]]);
+  });
+
+  it("un pago o perdón que apunta a una deuda baja esa, no otra", async () => {
+    const { openDebtsInFavor } = await import("@/lib/finance/crossLedger");
+    const a = row(ME, 300_000, "2026-10-01");
+    const b = row(ME, 50_000, "2026-10-05");
+    const forgive = row(HE, 50_000, "2026-10-06", { kind: "FORGIVEN", resolves_id: b.id });
+    expect(openDebtsInFavor([a, b, forgive], ME).map((d) => [d.id, d.remaining])).toEqual([[a.id, 300_000]]);
+    const partial = row(HE, 120_000, "2026-10-07", { kind: "PAYMENT", resolves_id: a.id });
+    expect(openDebtsInFavor([a, b, partial], ME).map((d) => [d.id, d.remaining])).toEqual([[a.id, 180_000], [b.id, 50_000]]);
+  });
+
+  it("lo que él pone a su favor sin apuntar a nada (su liquidación, una compra a mi cargo) baja las más antiguas primero", async () => {
+    const { openDebtsInFavor } = await import("@/lib/finance/crossLedger");
+    const a = row(ME, 100_000, "2026-10-01");
+    const b = row(ME, 100_000, "2026-10-02");
+    const compra = row(HE, 150_000, "2026-10-03", { kind: "CROSS_PAYMENT" });
+    expect(openDebtsInFavor([a, b, compra], ME).map((d) => [d.id, d.remaining])).toEqual([[b.id, 50_000]]);
+  });
+
+  it("el total abierto coincide con el neto del cruce", async () => {
+    const { openDebtsInFavor, netFor } = await import("@/lib/finance/crossLedger");
+    const rows = [row(ME, 300_000, "2026-10-01"), row(HE, 120_000, "2026-10-02", { kind: "CROSS_PAYMENT" }), row(ME, 40_000, "2026-10-03"), row(HE, 10_000, "2026-10-04", { kind: "FORGIVEN" })];
+    const entries = rows.map((r) => ({ creditorUserId: r.creditor_user_id, debtorUserId: r.debtor_user_id, amount: r.amount, kind: r.kind }));
+    expect(openDebtsInFavor(rows, ME).reduce((a, d) => a + d.remaining, 0)).toBe(netFor(ME, entries));
+  });
+
+  it("si yo le debo a él no hay deudas abiertas a mi favor; y lo que le debía antes se descuenta de lo que le presto después (neto)", async () => {
+    const { openDebtsInFavor } = await import("@/lib/finance/crossLedger");
+    expect(openDebtsInFavor([row(HE, 80_000, "2026-10-01")], ME)).toEqual([]);
+    const owed = row(HE, 80_000, "2026-10-01");
+    const lent = row(ME, 100_000, "2026-10-02");
+    expect(openDebtsInFavor([owed, lent], ME).map((d) => d.remaining)).toEqual([20_000]); // 100.000 − 80.000, igual que el neto
+  });
+});

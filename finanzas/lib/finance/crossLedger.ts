@@ -11,7 +11,7 @@ export interface SplitDraft {
   origin?: SplitOrigin;
 }
 
-export type LedgerKind = "CROSS_PAYMENT" | "SPLIT" | "FIXED_EXCESS" | "LOAN" | "ERRAND" | "SETTLEMENT" | "REFUND";
+export type LedgerKind = "CROSS_PAYMENT" | "SPLIT" | "FIXED_EXCESS" | "LOAN" | "ERRAND" | "SETTLEMENT" | "REFUND" | "PAYMENT" | "FORGIVEN";
 
 export interface LedgerEntry {
   creditorUserId: string; // a quien le deben
@@ -100,4 +100,66 @@ export function suggestSettlement(me: string, partner: string, entries: LedgerEn
   return net < 0
     ? { payerUserId: me, receiverUserId: partner, amount: -net }
     : { payerUserId: partner, receiverUserId: me, amount: net };
+}
+
+export interface LedgerRowLite {
+  id: string;
+  creditor_user_id: string;
+  debtor_user_id: string;
+  amount: number;
+  kind: LedgerKind;
+  description: string | null;
+  occurred_on: string;
+  created_at: string;
+  /** Deuda a la que corresponde un pago o un perdón. */
+  resolves_id?: string | null;
+}
+
+export interface OpenDebt {
+  id: string;
+  kind: LedgerKind;
+  description: string | null;
+  occurredOn: string;
+  original: number;
+  /** Lo que todavía me deben de esta deuda. */
+  remaining: number;
+}
+
+/**
+ * Deudas a mi favor que siguen abiertas y cuánto queda de cada una.
+ * Un pago o perdón con `resolves_id` baja esa deuda; lo demás que la pareja pone a su favor
+ * (un pago suyo, algo que compró a mi cargo…) baja las más antiguas primero.
+ * Si la pareja tiene a su favor más de lo que me debe, no queda ninguna abierta.
+ */
+export function openDebtsInFavor(rows: LedgerRowLite[], me: string): OpenDebt[] {
+  const sorted = [...rows].sort((a, b) => a.occurred_on.localeCompare(b.occurred_on) || a.created_at.localeCompare(b.created_at));
+  const credits = sorted.filter((r) => r.creditor_user_id === me).map((r) => ({ row: r, remaining: Number(r.amount) }));
+  const byId = new Map(credits.map((c) => [c.row.id, c]));
+  const loose: number[] = []; // lo que la pareja pone a su favor sin apuntar a una deuda concreta (en orden)
+
+  for (const r of sorted) {
+    if (r.debtor_user_id !== me) continue;
+    let amount = Number(r.amount);
+    const target = r.resolves_id ? byId.get(r.resolves_id) : undefined;
+    if (target) {
+      const used = Math.min(amount, target.remaining);
+      target.remaining -= used;
+      amount -= used;
+    }
+    if (amount > 0) loose.push(amount);
+  }
+
+  // Lo suelto baja las deudas más antiguas primero
+  for (let amount of loose) {
+    for (const c of credits) {
+      if (amount <= 0) break;
+      const used = Math.min(amount, c.remaining);
+      c.remaining -= used;
+      amount -= used;
+    }
+  }
+
+  return credits
+    .filter((c) => c.remaining > 0)
+    .map((c) => ({ id: c.row.id, kind: c.row.kind, description: c.row.description, occurredOn: c.row.occurred_on, original: Number(c.row.amount), remaining: c.remaining }));
 }

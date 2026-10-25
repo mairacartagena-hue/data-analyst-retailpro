@@ -240,6 +240,8 @@ export interface LedgerRow {
   amount: number;
   kind: LedgerKind;
   transaction_id: string | null;
+  /** Deuda que resuelve este asiento (pago o perdón). */
+  resolves_id?: string | null;
   description: string | null;
   occurred_on: string;
   created_by: string;
