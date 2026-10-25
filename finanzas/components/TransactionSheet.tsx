@@ -120,6 +120,8 @@ export function TransactionSheet({
   const [date, setDate] = useState(todayBogota());
   const [accountId, setAccountId] = useState<string>("");
   const [toAccountId, setToAccountId] = useState<string>("");
+  /** Transferencia hacia la pareja: sale de mi cuenta y él me la debe en el cruce hasta que compre. */
+  const [toPartner, setToPartner] = useState(false);
   const [direction, setDirection] = useState<"IN" | "OUT">("OUT");
   const [categoryId, setCategoryId] = useState<string>("");
   const [responsibleId, setResponsibleId] = useState<string>(me.user_id);
@@ -143,6 +145,7 @@ export function TransactionSheet({
     setFixedPrompt(null);
     setBusy(false);
     setTagIds(editing ? state.txTags[editing.id] ?? [] : []);
+    setToPartner(false);
     if (editing) {
       setKind(editing.kind === "SETTLEMENT" ? "EXPENSE" : editing.kind);
       setScope(editing.scope ?? "PERSONAL");
@@ -187,6 +190,7 @@ export function TransactionSheet({
     setDate(preset?.date ?? todayBogota());
     setAccountId(myAccounts.some((a) => a.id === last) ? last : (myAccounts[0]?.id ?? ""));
     setToAccountId(preset?.toAccountId ?? "");
+    setToPartner(false);
     setDirection("OUT");
     setCategoryId(presetCategory?.id ?? "");
     // Desde un presupuesto: su espacio y quien lo asume. Si no: quien paga y el último espacio usado.
@@ -257,9 +261,51 @@ export function TransactionSheet({
     return { mine: { ...mine, spent: mine.spent - sameCat }, theirs };
   }, [kind, splitMode, selectedCategory, partner, partnerEdit, scope, responsibleId, me.user_id, state, date, editing]);
 
+  /** Envío a la pareja: se registra como liquidación (sale de mi cuenta, llega a la suya y queda en el cruce). */
+  async function saveToPartner() {
+    if (!partner) return setError("Tu pareja todavía no se ha unido al hogar.");
+    if (!accountId) return setError("Elige de qué cuenta sale.");
+    setBusy(true);
+    const { data: savedId, error } = await supabase.rpc("save_transaction", {
+      p: {
+        kind: "SETTLEMENT",
+        amount: total,
+        occurred_on: date,
+        description: description.trim() || `Envío a ${partner.display_name}`,
+        account_id: accountId,
+        to_account_id: toAccountId || null,
+        counterparty_user_id: partner.user_id,
+        creates_debt: createsDebt,
+        tags: [],
+      },
+    });
+    if (!error && savedId && editing && isPendingReview) {
+      // Era un aviso por revisar (ej. "Cuenta ···4993"): el aviso pasa al envío y el pendiente se quita
+      await supabase.from("ingest_logs").update({ transaction_id: savedId, result: "ACCEPTED", reason: "Registrado como envío a la pareja" }).eq("transaction_id", editing.id);
+      const del = await supabase.rpc("delete_transaction", { p_id: editing.id });
+      if (del.error) {
+        setBusy(false);
+        void reload();
+        return setError(`Se registró el envío, pero no pude quitar el pendiente: ${errMsg(del.error)}. Bórralo a mano.`);
+      }
+    }
+    if (!error && savedId) {
+      const { add } = diffTags([], tagIds);
+      if (add.length > 0) await supabase.from("transaction_tags").insert(add.map((tag_id) => ({ transaction_id: savedId as string, tag_id, household_id: state.household.id })));
+    }
+    if (!error && preset?.logId && savedId) {
+      await supabase.from("ingest_logs").update({ result: "ACCEPTED", reason: "Registrado a mano", transaction_id: savedId }).eq("id", preset.logId);
+    }
+    setBusy(false);
+    if (error) return setError(errMsg(error));
+    onOpenChange(false);
+    void reload();
+  }
+
   async function save(chargeExcess?: number) {
     setError(null);
     if (total <= 0) return setError("Escribe el monto.");
+    if (kind === "TRANSFER" && toPartner) return saveToPartner();
     if (kind !== "TRANSFER" && !accountId) return setError("Elige la cuenta.");
 
     let payloadSplits: (SplitDraft & { origin?: string })[] = [];
@@ -448,11 +494,48 @@ export function TransactionSheet({
             </Field>
           )}
 
-          {kind === "TRANSFER" && (
+          {kind === "TRANSFER" && !partnerEdit && (
+            <Segmented value={toPartner ? "PARTNER" : "MINE"} onChange={(v) => { setToPartner(v === "PARTNER"); setToAccountId(""); }} options={[
+              { value: "MINE", label: "A mis cuentas" },
+              { value: "PARTNER", label: `A ${partner?.display_name ?? "mi pareja"}` },
+            ]} />
+          )}
+
+          {kind === "TRANSFER" && !toPartner && (
             <Field label="Llega a" hint="Para pagar una tarjeta, elige la tarjeta como destino. No consume presupuesto.">
               <ChipGroup value={toAccountId} onChange={setToAccountId}
                 options={myAccounts.filter((a) => a.id !== accountId).map((a) => ({ value: a.id, label: accountLabel(labels, a.id) }))} />
             </Field>
+          )}
+
+          {kind === "TRANSFER" && toPartner && !partner && (
+            <div className="space-y-2 rounded-2xl bg-wood-soft px-3 py-3 text-sm">
+              <p><strong>Tu pareja todavía no está en el hogar.</strong> Para enviarle plata (por ejemplo para que haga una compra) y que quede anotado en el cruce, primero tiene que unirse.</p>
+              <p className="text-muted">Pásale este enlace; con su cuenta creada podrás elegir sus cuentas aquí.</p>
+              <p className="break-all rounded-xl bg-surface px-3 py-2 text-xs">{typeof window !== "undefined" ? `${window.location.origin}/unirse/${state.household.invite_code}` : state.household.invite_code}</p>
+              <Button type="button" size="sm" variant="outline" onClick={() => { try { void navigator.clipboard.writeText(`${window.location.origin}/unirse/${state.household.invite_code}`); } catch {} }}>Copiar enlace</Button>
+            </div>
+          )}
+
+          {kind === "TRANSFER" && toPartner && partner && (
+            <div className="space-y-3">
+              {labels.some((l) => l.owner_user_id === partner.user_id && l.kind !== "CREDIT_CARD") && (
+                <Field label={`Llega a la cuenta de ${partner.display_name} (opcional)`}>
+                  <ChipGroup value={toAccountId} onChange={(v) => setToAccountId(v === toAccountId ? "" : v)}
+                    options={labels.filter((l) => l.owner_user_id === partner.user_id && l.kind !== "CREDIT_CARD").map((l) => ({ value: l.id, label: accountLabel(labels, l.id) }))} />
+                </Field>
+              )}
+              <ChipGroup value={["Envío para una compra", "Préstamo"].find((m) => description.startsWith(m)) ?? ""}
+                onChange={(m) => setDescription(`${m} · ${partner.display_name}`)}
+                options={[{ value: "Envío para una compra", label: "Para una compra" }, { value: "Préstamo", label: "Préstamo" }]} />
+              <div className="rounded-2xl border border-border bg-surface px-3">
+                <SwitchRow label={`Anotar como deuda de ${partner.display_name}`}
+                  hint={createsDebt
+                    ? `Queda en el cruce: ${partner.display_name} te debe este dinero. Cuando haga la compra y la registre a tu cargo, el cruce se compensa solo.`
+                    : "Solo mueve la plata entre cuentas; el cruce no cambia (ej. un regalo o plata que ya era de él)."}
+                  checked={createsDebt} onCheckedChange={setCreatesDebt} />
+              </div>
+            </div>
           )}
 
           {kind === "ADJUSTMENT" && (

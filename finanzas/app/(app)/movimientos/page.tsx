@@ -201,7 +201,7 @@ function TxRow({ tx }: { tx: Transaction }) {
     sign = "";
   } else if (tx.kind === "SETTLEMENT") {
     icon = <Handshake size={18} className="text-wood" />;
-    title = "Liquidación";
+    title = tx.description && tx.description !== "Liquidación" ? tx.description : "Liquidación";
     subtitle = `${payer?.display_name} → ${memberById(tx.counterparty_user_id)?.display_name}`;
   }
 
