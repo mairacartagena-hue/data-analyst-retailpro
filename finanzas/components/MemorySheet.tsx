@@ -10,7 +10,7 @@ import { Segmented } from "@/components/ui/segmented";
 import { Sheet } from "@/components/ui/sheet";
 import { SwitchRow } from "@/components/ui/switch";
 import type { MerchantMemory } from "@/lib/types";
-import { applyChange, memoryChange, memoryMatches, memoryValues } from "@/lib/finance/memoryApply";
+import { applyChange, memoryChange, memoryMatches, memoryValues, type MemoryGroup } from "@/lib/finance/memoryApply";
 import { errMsg } from "@/lib/utils";
 
 /** Cómo se muestra el identificador de una memoria cuando no tiene nombre. */
@@ -26,7 +26,9 @@ export function memoryTitle(m: MerchantMemory): string {
 }
 
 /** Editar dónde se guarda un comercio, llave o cuenta: nombre, categoría, responsable, espacio y si se aplica solo. */
-export function MemorySheet({ memory, onClose, onChanged }: { memory: MerchantMemory | null; onClose: () => void; onChanged: () => void }) {
+export function MemorySheet({ group, onClose, onChanged }: { group: MemoryGroup | null; onClose: () => void; onChanged: () => void }) {
+  const memory = group?.main ?? null;
+  const ids = group?.all.map((m) => m.id) ?? [];
   const { categories, me, partner, supabase, reload, transactions } = useFinance();
   const [label, setLabel] = useState("");
   const [categoryId, setCategoryId] = useState("");
@@ -68,7 +70,7 @@ export function MemorySheet({ memory, onClose, onChanged }: { memory: MerchantMe
       scope,
       creates_debt: createsDebt,
       auto_apply: auto,
-    }).eq("id", memory.id);
+    }).in("id", ids);
     if (error) {
       setBusy(false);
       return setError(errMsg(error));
@@ -76,7 +78,7 @@ export function MemorySheet({ memory, onClose, onChanged }: { memory: MerchantMe
 
     // Los movimientos anteriores de este origen cambian igual, solo en lo que se editó
     const change = memoryChange(memoryValues(memory, me.user_id), after);
-    const matches = transactions.filter((t) => memoryMatches(t, memory));
+    const matches = transactions.filter((t) => group!.all.some((m) => memoryMatches(t, m)));
     let updated = 0;
     let pending = 0;
     let divided = 0;
@@ -105,7 +107,7 @@ export function MemorySheet({ memory, onClose, onChanged }: { memory: MerchantMe
   async function forget() {
     if (!memory || !confirm(`¿Olvidar “${memoryTitle(memory)}”? Los movimientos que ya tienes no cambian; los nuevos llegarán sin categoría.`)) return;
     setBusy(true);
-    const { error } = await supabase.from("merchant_memory").delete().eq("id", memory.id);
+    const { error } = await supabase.from("merchant_memory").delete().in("id", ids);
     setBusy(false);
     if (error) return setError(errMsg(error));
     onChanged();
@@ -114,7 +116,7 @@ export function MemorySheet({ memory, onClose, onChanged }: { memory: MerchantMe
 
   return (
     <Sheet open onOpenChange={(v) => !v && onClose()} title="Editar memoria"
-      description={`${memory.identifier_type === "MERCHANT" ? "Comercio" : memory.identifier_type === "ACCOUNT" ? "Llave o cuenta" : memory.identifier_type === "PHONE" ? "Celular" : memory.identifier_type === "NIT" ? "NIT" : "Palabra"}: ${memory.identifier} · ${memory.hits} uso${memory.hits === 1 ? "" : "s"}`}>
+      description={`${memory.identifier_type === "MERCHANT" ? "Comercio" : memory.identifier_type === "ACCOUNT" ? "Llave o cuenta" : memory.identifier_type === "PHONE" ? "Celular" : memory.identifier_type === "NIT" ? "NIT" : "Palabra"}: ${memory.identifier} · ${group!.hits} uso${group!.hits === 1 ? "" : "s"}`}>
       <div className="space-y-4 pb-2">
         <Field label="Nombre" htmlFor="mem-label">
           <Input id="mem-label" value={label} onChange={(e) => setLabel(e.target.value)} maxLength={60} placeholder="Ej. Heladería, Hermano, Lady uñas" />
@@ -152,7 +154,7 @@ export function MemorySheet({ memory, onClose, onChanged }: { memory: MerchantMe
         </div>
 
         {(() => {
-          const n = transactions.filter((t) => t.status === "CONFIRMED" && memoryMatches(t, memory)).length;
+          const n = transactions.filter((t) => t.status === "CONFIRMED" && group!.all.some((m) => memoryMatches(t, m))).length;
           return n > 0 && !result ? <p className="text-xs text-muted">Al guardar, lo que cambies también se aplica a los {n} movimiento{n === 1 ? "" : "s"} anterior{n === 1 ? "" : "es"} de este origen.</p> : null;
         })()}
         <ErrorText>{error}</ErrorText>

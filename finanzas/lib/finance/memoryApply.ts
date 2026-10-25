@@ -41,6 +41,41 @@ export function memoryMatches(tx: Transaction, m: MerchantMemory): boolean {
   return (tx.ingest_identifiers ?? []).some((i) => i.type.toUpperCase() === m.identifier_type && i.value.toLowerCase() === m.identifier);
 }
 
+/** Una llave, cuenta o celular y su "gemela": la misma cuenta guardada con solo sus 4 últimos dígitos ("cuenta 9549"). */
+export interface MemoryGroup {
+  main: MerchantMemory;
+  twins: MerchantMemory[];
+  /** Todas las filas del grupo, para editarlas, apagarlas u olvidarlas juntas. */
+  all: MerchantMemory[];
+  hits: number;
+}
+
+const LAST4_NAME = /^(?:cuenta|llave)\s*(\d{4})$/i;
+
+/**
+ * Cada aviso que se recuerda guarda dos filas: la llave completa y el nombre con los 4 dígitos finales (porque algunos
+ * avisos solo traen esos). Para la persona es la misma cuenta, así que aquí se muestran juntas; las dos filas siguen
+ * existiendo porque cada una reconoce un tipo de aviso distinto.
+ */
+export function groupMemory(list: MerchantMemory[]): MemoryGroup[] {
+  const full = list.filter((m) => m.identifier_type === "ACCOUNT" || m.identifier_type === "PHONE");
+  const twinOf = new Map<string, string>(); // id de la gemela -> id de la llave completa
+  for (const m of list) {
+    const last4 = m.identifier_type === "MERCHANT" ? LAST4_NAME.exec(m.identifier)?.[1] : undefined;
+    if (!last4) continue;
+    const owner = full.find((f) => f.identifier.endsWith(last4) && /^\d+$/.test(f.identifier)
+      && (f.movement_kind ?? null) === (m.movement_kind ?? null) && (f.category_id ?? null) === (m.category_id ?? null));
+    if (owner) twinOf.set(m.id, owner.id);
+  }
+  const groups: MemoryGroup[] = [];
+  for (const m of list) {
+    if (twinOf.has(m.id)) continue;
+    const twins = list.filter((t) => twinOf.get(t.id) === m.id);
+    groups.push({ main: m, twins, all: [m, ...twins], hits: Math.max(m.hits, ...twins.map((t) => t.hits)) });
+  }
+  return groups;
+}
+
 const DERIVED_DESCRIPTION = /^(?:cuenta|llave)\s*[·.\s]*\d+$/i;
 
 export interface ApplyResult {
