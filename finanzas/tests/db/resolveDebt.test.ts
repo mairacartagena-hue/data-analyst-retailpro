@@ -5,6 +5,7 @@ import type { PGlite } from "@electric-sql/pglite";
 import { as, rpc, setupDb } from "./harness";
 import { openDebtsInFavor, type LedgerRowLite } from "@/lib/finance/crossLedger";
 
+type Row = LedgerRowLite & { transaction_id: string | null };
 const MAY = "00000000-0000-0000-0000-00000000000a";
 const BREI = "00000000-0000-0000-0000-00000000000b";
 
@@ -15,7 +16,7 @@ describe("resolver una deuda a mi favor", () => {
     Number((await as<{ balance: string }>(db, uid, `select balance::text from public.account_balances() where account_id = $1`, [acc]))[0]?.balance);
   const net = async () => Number((await db.query<{ net: string }>(`select coalesce(sum(case when creditor_user_id = '${MAY}' then amount else -amount end), 0)::text net from cross_ledger`)).rows[0].net);
   const ledger = async () => (await db.query<Record<string, unknown>>(`select id, creditor_user_id, debtor_user_id, amount, kind, description, occurred_on, created_at, resolves_id, transaction_id from cross_ledger order by created_at, id`)).rows
-    .map((r) => ({ ...r, amount: Number(r.amount), occurred_on: r.occurred_on instanceof Date ? r.occurred_on.toISOString().slice(0, 10) : String(r.occurred_on), created_at: String(r.created_at) })) as unknown as LedgerRowLite[];
+    .map((r) => ({ ...r, amount: Number(r.amount), occurred_on: r.occurred_on instanceof Date ? r.occurred_on.toISOString().slice(0, 10) : String(r.occurred_on), created_at: String(r.created_at) })) as unknown as Row[];
   const resolve = (uid: string, p: object) => rpc<string>(db, uid, "resolve_debt", p);
 
   beforeAll(async () => {
