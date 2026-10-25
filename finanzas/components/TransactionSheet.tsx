@@ -134,7 +134,7 @@ export function TransactionSheet({
   const [newCategory, setNewCategory] = useState<"EXPENSE" | "INCOME" | null>(null);
   const [fixedPrompt, setFixedPrompt] = useState<FixedPrompt | null>(null);
   const [remember, setRemember] = useState(true);
-  const [autoApply, setAutoApply] = useState(false);
+  const [autoApply, setAutoApply] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -171,7 +171,7 @@ export function TransactionSheet({
         if (editing.status === "PENDING_REVIEW") setScope(lastScope());
       }
       setRemember(true);
-      setAutoApply(false);
+      setAutoApply(true);
       // Un pago de tarjeta que llegó solo se revisa como transferencia hacia la tarjeta
       if (editing.status === "PENDING_REVIEW" && editing.movement_type === "CARD_PAYMENT") {
         setKind("TRANSFER");

@@ -42,7 +42,7 @@ export function PendingReview() {
 function PendingCard({ tx }: { tx: Transaction }) {
   const { me, categories, labels, supabase, reload, memberById, transactions } = useFinance();
   const { openTransaction } = useShell();
-  const [always, setAlways] = useState(false);
+  const [always, setAlways] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
