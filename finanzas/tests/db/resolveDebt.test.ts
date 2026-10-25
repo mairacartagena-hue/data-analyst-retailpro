@@ -1,4 +1,4 @@
-// Deudas a favor: "me la paga" (entra la plata y baja la deuda) o "se la perdono" (solo baja la deuda).
+// Deudas a favor: "cobrar" (entra la plata y baja la deuda) o "condonar" (solo baja la deuda).
 
 import { beforeAll, describe, expect, it } from "vitest";
 import type { PGlite } from "@electric-sql/pglite";
@@ -50,10 +50,10 @@ describe("resolver una deuda a mi favor", () => {
     expect(await as(db, BREI, `select 1 from transactions where id = $1`, [row.transaction_id])).toHaveLength(0);
   });
 
-  it("se la perdono: baja la deuda y no mueve plata", async () => {
+  it("condonar: baja la deuda y no mueve plata", async () => {
     const before = await balance(MAY, mayAcc);
     const breiBefore = await balance(BREI, breiAcc);
-    await resolve(MAY, { mode: "FORGIVEN", amount: 50_000, occurred_on: "2026-10-27", entry_id: debtId, note: "Perdonada" });
+    await resolve(MAY, { mode: "FORGIVEN", amount: 50_000, occurred_on: "2026-10-27", entry_id: debtId, note: "Condonada" });
     expect(await balance(MAY, mayAcc)).toBe(before);
     expect(await balance(BREI, breiAcc)).toBe(breiBefore);
     expect(await net()).toBe(150_000);
