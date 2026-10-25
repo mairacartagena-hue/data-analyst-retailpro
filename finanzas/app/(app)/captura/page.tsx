@@ -13,7 +13,7 @@ import { MemorySheet, memoryTitle } from "@/components/MemorySheet";
 import type { IngestLog, MerchantMemory } from "@/lib/types";
 import { CHANNEL_LABEL } from "@/lib/types";
 import { categoryLabel } from "@/lib/finance/labels";
-import { appsScript, notificationBody, smsBody } from "@/lib/ingest/templates";
+import { appsScript, authHeader, notificationBody, smsBody } from "@/lib/ingest/templates";
 import { findAmount } from "@/lib/ingest/normalize";
 import { cn, errMsg } from "@/lib/utils";
 
@@ -186,6 +186,9 @@ export default function CapturaPage() {
         ) : (
           <p className="text-sm">Genera tu token personal. Es la llave con la que MacroDroid y Gmail envían tus movimientos.</p>
         )}
+        {token && !newToken && !token.last_used_at && (
+          <p className="rounded-2xl bg-warning-soft px-3 py-2 text-sm">Tu token todavía no ha recibido nada: falta conectar MacroDroid o el Apps Script de Gmail (paso 2).</p>
+        )}
         <Button variant={token ? "outline" : "primary"} onClick={generate}><KeyRound size={16} /> {token ? "Generar uno nuevo" : "Generar token"}</Button>
         <div>
           <p className="mb-1 text-sm text-muted">Dirección (URL) del webhook:</p>
@@ -195,13 +198,18 @@ export default function CapturaPage() {
       </Card>
 
       <SectionTitle>2 · Conectar</SectionTitle>
+      <p className="mb-2 px-1 text-xs text-muted">
+        Cada persona lo hace una vez, con su propio token y en su propio celular o Gmail. Al generar el token, los botones de copiar ya lo incluyen; si sales de esta pantalla no se vuelve a mostrar y tendrás que generar uno nuevo.
+      </p>
       <div className="space-y-3">
         {section("android", <Smartphone size={18} />, "Notificaciones de Android (MacroDroid)", (
           <ol className="space-y-3">
             <Step n={1}>Instala <strong>MacroDroid</strong> desde Play Store (gratis, hasta 5 macros; usaremos 2).</Step>
             <Step n={2}>Crea una macro → <strong>Disparador</strong>: Dispositivo/Aplicaciones → <strong>Notificación recibida</strong>. Elige las apps: Nequi, Bancolombia, BBVA, Banco de Bogotá y Google Wallet (Billetera de Google). Concede el acceso a notificaciones cuando lo pida.</Step>
             <Step n={3}><strong>Acción</strong>: Conectividad → <strong>Solicitud HTTP</strong>. Método <strong>POST</strong>, URL la del paso 1.</Step>
-            <Step n={4}>En <strong>Encabezados</strong> agrega <code>Authorization</code> con el valor <code>Bearer TU_TOKEN</code> (la palabra Bearer, un espacio y tu token).</Step>
+            <Step n={4}>En <strong>Encabezados</strong> agrega <code>Authorization</code> con el valor <code>Bearer TU_TOKEN</code> (la palabra Bearer, un espacio y tu token).
+              {newToken && <div className="mt-2"><CopyButton text={authHeader(newToken)} label="Copiar el valor con tu token" /></div>}
+            </Step>
             <Step n={5}>
               En <strong>Cuerpo</strong>, tipo <strong>application/json</strong>, pega esto. Si MacroDroid te muestra los campos con otro nombre, elígelos con el botón de “texto mágico”: nombre de la app, título y texto de la notificación.
               <div className="mt-2 space-y-2"><Code>{notificationBody()}</Code><CopyButton text={notificationBody()} /></div>
@@ -222,8 +230,9 @@ export default function CapturaPage() {
         {section("gmail", <Mail size={18} />, "Correos bancarios (Gmail + Apps Script)", (
           <ol className="space-y-3">
             <Step n={1}>En Gmail (en computador): busca un correo de alerta de tu banco → menú ⋮ → <strong>Filtrar mensajes similares</strong> → <strong>Crear filtro</strong> → <strong>Aplicar la etiqueta</strong> nueva <code>Finanzas/Bancos</code>. Repite por cada banco.</Step>
-            <Step n={2}>Entra a <strong>script.google.com</strong> → Proyecto nuevo. Borra lo que hay y pega este código. Reemplaza <code>PEGA_AQUI_TU_TOKEN</code> por tu token.
-              <div className="mt-2 space-y-2"><Code>{appsScript(webhook)}</Code><CopyButton text={appsScript(webhook)} label="Copiar código" /></div>
+            <Step n={2}>Entra a <strong>script.google.com</strong> → Proyecto nuevo. Borra lo que hay y pega este código.{" "}
+              {newToken ? "Ya trae tu token puesto." : <>Reemplaza <code>PEGA_AQUI_TU_TOKEN</code> por tu token (o genera uno nuevo arriba y se copia ya con el token).</>}
+              <div className="mt-2 space-y-2"><Code>{appsScript(webhook, newToken ?? undefined)}</Code><CopyButton text={appsScript(webhook, newToken ?? undefined)} label={newToken ? "Copiar código con mi token" : "Copiar código"} /></div>
             </Step>
             <Step n={3}>Arriba elige la función <strong>instalar</strong> → <strong>Ejecutar</strong> → acepta los permisos (Google avisa que la app no está verificada porque es tuya: Configuración avanzada → Ir al proyecto).</Step>
             <Step n={4}>Listo: cada 5 minutos revisa la etiqueta y marca con <code>Finanzas/Procesado</code> lo que ya envió, así nada llega dos veces.</Step>

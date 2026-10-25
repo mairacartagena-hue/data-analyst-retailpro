@@ -71,6 +71,7 @@ Pendiente para fases siguientes: voz/OCR/Telegram/offline con cola (Fase 3), Web
 | Memoria de comercios de cada persona (comercio, NIT, cuenta o celular) | `merchant_memory`, `remember_merchant()` |
 | Registro de eventos (`ingest_logs`), texto crudo borrado a los 30 días | Ajustes → Captura automática |
 | Guía MacroDroid (notificaciones y SMS) y Google Apps Script para Gmail | Ajustes → Captura automática |
+| Al generar el token, los botones de copiar (código del Apps Script y valor del encabezado Authorization) ya lo incluyen; aviso si el token aún no ha recibido nada. Cada persona configura su propio celular y Gmail una vez | `lib/ingest/templates.ts` |
 
 | Google Wallet (notificación de pago con el celular; la cuenta se reconoce por los 4 dígitos de la tarjeta) | `parsers/googleWallet.ts` |
 
