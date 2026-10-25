@@ -8,11 +8,16 @@ export function smsBody(): string {
   return `{"channel":"ANDROID_SMS","sender":"[sms_number]","text":"[sms_message]"}`;
 }
 
-/** Google Apps Script: lee la etiqueta de Gmail y envía cada correo nuevo una sola vez. */
-export function appsScript(webhookUrl: string): string {
+/** Valor del encabezado Authorization para MacroDroid. */
+export function authHeader(token: string): string {
+  return `Bearer ${token}`;
+}
+
+/** Google Apps Script: lee la etiqueta de Gmail y envía cada correo nuevo una sola vez. Con `token` con `token` sale listo para pegar, sin reemplazar nada a mano. */
+export function appsScript(webhookUrl: string, token?: string): string {
   return `// Finanzas en Pareja · Alertas bancarias de Gmail
-// 1) Pega tu token en TOKEN. 2) Ejecuta "instalar" una vez y acepta los permisos.
-const TOKEN = 'PEGA_AQUI_TU_TOKEN';
+// 1) Pega tu token en TOKEN (si ya viene puesto, sáltate este paso). 2) Ejecuta "instalar" una vez y acepta los permisos.
+const TOKEN = '${token ?? "PEGA_AQUI_TU_TOKEN"}';
 const WEBHOOK = '${webhookUrl}';
 const ETIQUETA = 'Finanzas/Bancos';        // etiqueta que le pone tu filtro de Gmail
 const PROCESADO = 'Finanzas/Procesado';    // se agrega a cada correo ya enviado
