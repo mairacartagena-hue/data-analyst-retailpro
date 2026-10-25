@@ -170,3 +170,46 @@ describe("etiquetas", () => {
     expect((await db.query(`select 1 from tags where id = $1`, [t])).rows).toHaveLength(1);
   });
 });
+
+describe("migración 0024: lo reconocido se confirma solo", () => {
+  let db: PGlite;
+  let acc: string, mercado: string, token: string;
+
+  beforeAll(async () => {
+    db = await setupDb();
+    await db.exec(`insert into auth.users values ('${MAY}')`);
+    await as(db, MAY, `select public.create_household('Casa', 'May')`);
+    const hh = (await db.query<{ id: string }>(`select id from households`)).rows[0].id;
+    acc = (await as<{ id: string }>(db, MAY, `insert into accounts (household_id, owner_user_id, name, kind, visibility, opening_balance, opening_at, last4)
+      values ($1, $2, 'Ahorros', 'DEPOSIT', 'PRIVATE', 1000000, '2026-01-01', '2505') returning id`, [hh, MAY]))[0].id;
+    mercado = await rpc<string>(db, MAY, "save_category", { name: "Mercado", responsibility: "MEMBER_A_100" });
+    token = (await as<{ t: string }>(db, MAY, `select public.create_ingest_token() as t`))[0].t;
+  }, 30_000);
+
+  // cada compra con otro monto y día para que la deduplicación no las junte
+  let day = 20;
+  const buy = async (id: string, merchant: string) =>
+    (await as<{ r: { transaction_id: string; status: string } }>(db, null, `select public.ingest_event($1, $2::jsonb) as r`, [token, JSON.stringify({
+      channel: "GMAIL", external_id: id, parsed: { kind: "PURCHASE", amount: 30_000 + day * 100, merchant, merchant_norm: merchant.toLowerCase(), last4: "2505", occurred_at: `2026-10-${day++}T15:00:00Z`, identifiers: [] },
+    })]))[0].r;
+
+  it("un comercio guardado sin tocar 'Aplicar siempre' entra confirmado con su categoría; uno desconocido queda pendiente", async () => {
+    const first = await buy("k1", "Tienda Ejemplo");
+    await rpc(db, MAY, "save_transaction", { id: first.transaction_id, kind: "EXPENSE", amount: 30_000, account_id: acc, merchant: "Tienda Ejemplo", splits: [{ amount: 30_000, category_id: mercado }] });
+    // la app ya no manda false por defecto; aquí la memoria nace con el valor por defecto de la base
+    await db.exec(`insert into merchant_memory (household_id, user_id, identifier_type, identifier, category_id, responsible_user_id)
+      select household_id, user_id, 'MERCHANT', 'tienda ejemplo', '${mercado}', user_id from household_members limit 1`);
+    expect((await db.query<{ auto_apply: boolean }>(`select auto_apply from merchant_memory`)).rows).toEqual([{ auto_apply: true }]);
+
+    expect((await buy("k2", "Tienda Ejemplo")).status).toBe("CONFIRMED");
+    expect((await buy("k3", "Comercio Nuevo")).status).toBe("PENDING_REVIEW");
+  });
+
+  it("la migración 0024 se puede volver a correr y deja prendidas las memorias viejas", async () => {
+    await db.exec(`update merchant_memory set auto_apply = false`);
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    await db.exec(fs.readFileSync(path.join(__dirname, "../../supabase/migrations/0024_auto_confirm_known.sql"), "utf8"));
+    expect((await db.query<{ auto_apply: boolean }>(`select auto_apply from merchant_memory`)).rows.every((r) => r.auto_apply)).toBe(true);
+  });
+});

@@ -33,7 +33,7 @@ export function MemorySheet({ memory, onClose, onChanged }: { memory: MerchantMe
   const [responsibleId, setResponsibleId] = useState("");
   const [scope, setScope] = useState<"HOUSEHOLD" | "PERSONAL">("PERSONAL");
   const [createsDebt, setCreatesDebt] = useState(true);
-  const [auto, setAuto] = useState(false);
+  const [auto, setAuto] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<string | null>(null);
