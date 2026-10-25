@@ -528,9 +528,6 @@ export function TransactionSheet({
                     options={labels.filter((l) => l.owner_user_id === partner.user_id && l.kind !== "CREDIT_CARD").map((l) => ({ value: l.id, label: accountLabel(labels, l.id) }))} />
                 </Field>
               )}
-              <ChipGroup value={["Envío para una compra", "Préstamo"].find((m) => description.startsWith(m)) ?? ""}
-                onChange={(m) => setDescription(`${m} · ${partner.display_name}`)}
-                options={[{ value: "Envío para una compra", label: "Para una compra" }, { value: "Préstamo", label: "Préstamo" }]} />
               <div className="rounded-2xl border border-border bg-surface px-3">
                 <SwitchRow label={`Anotar como deuda de ${partner.display_name}`}
                   hint={createsDebt
