@@ -31,7 +31,7 @@ const KIND_LABEL: Record<LedgerRow["kind"], string> = {
   SETTLEMENT: "Liquidación",
   REFUND: "Reembolso de su parte",
   PAYMENT: "Pago recibido",
-  FORGIVEN: "Deuda perdonada",
+  FORGIVEN: "Deuda condonada",
 };
 
 export function CruceView() {
@@ -95,7 +95,7 @@ export function CruceView() {
                 {debts.map((d) => <DebtRow key={d.id} debt={d} partnerName={partner.display_name} onResolve={(mode) => setResolving({ debt: d, mode })} />)}
               </div>
               <p className="mt-2 px-1 text-xs text-muted">
-                Cada deuda se resuelve de dos formas: <strong>me la paga</strong> (entra la plata a tu cuenta) o <strong>se la perdono</strong> (solo se quita del cruce, sin mover plata).
+                Cada deuda se resuelve de dos formas: <strong>cobrar</strong> (entra la plata a tu cuenta) o <strong>condonar</strong> (solo se quita del cruce, sin mover plata).
               </p>
             </>
           )}
@@ -120,7 +120,7 @@ export function CruceView() {
                         {l.kind === "SETTLEMENT" || l.kind === "PAYMENT"
                           ? `${memberById(l.creditor_user_id)?.display_name} pagó`
                           : l.kind === "FORGIVEN"
-                          ? `${memberById(l.debtor_user_id)?.display_name} le perdonó la deuda`
+                          ? `${memberById(l.debtor_user_id)?.display_name} le condonó la deuda`
                           : `${memberById(l.debtor_user_id)?.display_name} le debe a ${memberById(l.creditor_user_id)?.display_name}`}
                       </span>
                     </button>
@@ -150,7 +150,7 @@ export function CruceView() {
   );
 }
 
-/** Una deuda a mi favor con su interruptor: me la paga / se la perdono. */
+/** Una deuda a mi favor con su interruptor: cobrar / condonar. */
 function DebtRow({ debt, partnerName, onResolve }: { debt: OpenDebt; partnerName: string; onResolve: (mode: "PAID" | "FORGIVEN") => void }) {
   const [mode, setMode] = useState<"PAID" | "FORGIVEN">("PAID");
   return (
@@ -162,9 +162,9 @@ function DebtRow({ debt, partnerName, onResolve }: { debt: OpenDebt; partnerName
         </div>
         <p className="num shrink-0 font-display text-xl text-olive">{formatCop(debt.remaining)}</p>
       </div>
-      <Segmented value={mode} onChange={setMode} options={[{ value: "PAID", label: `${partnerName} me la paga` }, { value: "FORGIVEN", label: "Se la perdono" }]} />
+      <Segmented value={mode} onChange={setMode} options={[{ value: "PAID", label: "Cobrar" }, { value: "FORGIVEN", label: "Condonar" }]} />
       <Button size="sm" className="w-full" variant={mode === "FORGIVEN" ? "outline" : "primary"} onClick={() => onResolve(mode)}>
-        {mode === "PAID" ? "Registrar el pago" : "Perdonar la deuda"}
+        {mode === "PAID" ? "Cobrar" : "Condonar"}
       </Button>
     </Card>
   );
@@ -204,7 +204,7 @@ function ResolveDebtSheet({ resolving, onClose, maxTotal }: { resolving: { debt:
       p: {
         mode, amount: n, occurred_on: date, entry_id: debt.id,
         account_id: mode === "PAID" ? account : null,
-        note: mode === "PAID" ? `Pago de ${partner!.display_name}${debt.description ? `: ${debt.description}` : ""}` : `Perdonada${debt.description ? `: ${debt.description}` : ""}`,
+        note: mode === "PAID" ? `Pago de ${partner!.display_name}${debt.description ? `: ${debt.description}` : ""}` : `Condonada${debt.description ? `: ${debt.description}` : ""}`,
       },
     });
     setBusy(false);
@@ -214,10 +214,10 @@ function ResolveDebtSheet({ resolving, onClose, maxTotal }: { resolving: { debt:
   }
 
   return (
-    <Sheet open onOpenChange={(v) => !v && onClose()} title={mode === "PAID" ? "Registrar el pago" : "Perdonar la deuda"}
+    <Sheet open onOpenChange={(v) => !v && onClose()} title={mode === "PAID" ? "Cobrar la deuda" : "Condonar la deuda"}
       description={`${debt.description || KIND_LABEL[debt.kind]} · ${formatCop(debt.remaining)} pendientes`}>
       <div className="space-y-4 pb-2">
-        <Segmented value={mode} onChange={setMode} options={[{ value: "PAID", label: `${partner.display_name} me la paga` }, { value: "FORGIVEN", label: "Se la perdono" }]} />
+        <Segmented value={mode} onChange={setMode} options={[{ value: "PAID", label: "Cobrar" }, { value: "FORGIVEN", label: "Condonar" }]} />
         <AmountInput large value={amount} onChange={setAmount} />
         <p className="-mt-2 text-xs text-muted">Puedes resolver solo una parte; el resto queda pendiente.</p>
         {mode === "PAID" ? (
@@ -228,12 +228,12 @@ function ResolveDebtSheet({ resolving, onClose, maxTotal }: { resolving: { debt:
             <p className="rounded-2xl bg-surface-2 px-3 py-2 text-xs text-muted">Sube el saldo de tu cuenta y baja la deuda. No cuenta como ingreso del hogar.</p>
           </>
         ) : (
-          <p className="rounded-2xl bg-wood-soft px-3 py-2 text-sm">Solo se quita del cruce: no se mueve plata. {partner.display_name} lo verá en el historial como deuda perdonada. Si te arrepientes, puedes deshacerlo desde el historial.</p>
+          <p className="rounded-2xl bg-wood-soft px-3 py-2 text-sm">Solo se quita del cruce: no se mueve plata. {partner.display_name} lo verá en el historial como deuda condonada. Si te arrepientes, puedes deshacerlo desde el historial.</p>
         )}
         <Field label="Fecha" htmlFor="resolve-date"><Input id="resolve-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
         <ErrorText>{error}</ErrorText>
         <Button size="lg" className="w-full" disabled={busy} onClick={save}>
-          {busy ? "Guardando..." : mode === "PAID" ? `Registrar pago de ${formatCop(n)}` : `Perdonar ${formatCop(n)}`}
+          {busy ? "Guardando..." : mode === "PAID" ? `Cobrar ${formatCop(n)}` : `Condonar ${formatCop(n)}`}
         </Button>
       </div>
     </Sheet>
