@@ -275,6 +275,7 @@ export function TransactionSheet({
         account_id: accountId,
         to_account_id: toAccountId || null,
         counterparty_user_id: partner.user_id,
+        creates_debt: createsDebt,
         tags: [],
       },
     });
@@ -527,9 +528,13 @@ export function TransactionSheet({
               <ChipGroup value={["Envío para una compra", "Préstamo"].find((m) => description.startsWith(m)) ?? ""}
                 onChange={(m) => setDescription(`${m} · ${partner.display_name}`)}
                 options={[{ value: "Envío para una compra", label: "Para una compra" }, { value: "Préstamo", label: "Préstamo" }]} />
-              <p className="rounded-2xl bg-surface-2 px-3 py-2 text-xs text-muted">
-                Sale de tu cuenta y queda en el cruce: {partner.display_name} te debe este dinero. Cuando haga la compra y la registre a tu cargo, el cruce se compensa solo.
-              </p>
+              <div className="rounded-2xl border border-border bg-surface px-3">
+                <SwitchRow label={`Anotar como deuda de ${partner.display_name}`}
+                  hint={createsDebt
+                    ? `Queda en el cruce: ${partner.display_name} te debe este dinero. Cuando haga la compra y la registre a tu cargo, el cruce se compensa solo.`
+                    : "Solo mueve la plata entre cuentas; el cruce no cambia (ej. un regalo o plata que ya era de él)."}
+                  checked={createsDebt} onCheckedChange={setCreatesDebt} />
+              </div>
             </div>
           )}
 

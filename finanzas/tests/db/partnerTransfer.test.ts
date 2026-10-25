@@ -73,6 +73,26 @@ describe("transferencia a las cuentas de la pareja", () => {
     expect((await db.query<{ transaction_id: string }>(`select transaction_id from ingest_logs where external_id = 'p1'`)).rows).toEqual([{ transaction_id: settled }]);
   });
 
+  it("con creates_debt en falso la plata se mueve pero el cruce no cambia (y por defecto sigue anotando la deuda)", async () => {
+    const before = Number(await net());
+    const mayBefore = await balance(MAY, mayAcc);
+    const breiBefore = await balance(BREI, breiAcc);
+    await rpc(db, MAY, "save_transaction", { kind: "SETTLEMENT", amount: 80_000, occurred_on: "2026-10-28", description: "Regalo", account_id: mayAcc, to_account_id: breiAcc, counterparty_user_id: BREI, creates_debt: false });
+    expect(await balance(MAY, mayAcc)).toBe(mayBefore - 80_000);
+    expect(await balance(BREI, breiAcc)).toBe(breiBefore + 80_000);
+    expect(Number(await net())).toBe(before);
+    expect((await db.query<{ creates_debt: boolean }>(`select creates_debt from transactions where description = 'Regalo'`)).rows).toEqual([{ creates_debt: false }]);
+    // la liquidación de siempre no manda creates_debt: sigue anotando
+    await rpc(db, MAY, "save_transaction", { kind: "SETTLEMENT", amount: 10_000, occurred_on: "2026-10-28", account_id: mayAcc, counterparty_user_id: BREI });
+    expect(Number(await net())).toBe(before + 10_000);
+  });
+
+  it("la migración 0022 se puede volver a correr", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    await db.exec(fs.readFileSync(path.join(__dirname, "../../supabase/migrations/0022_settlement_without_debt.sql"), "utf8"));
+  });
+
   it("no se puede enviar a alguien que no es de mi hogar", async () => {
     await expect(as(db, MAY, `select public.save_transaction($1::jsonb)`, [JSON.stringify({ kind: "SETTLEMENT", amount: 1000, account_id: mayAcc, counterparty_user_id: "00000000-0000-0000-0000-0000000000ff" })])).rejects.toThrow(/pareja/);
   });
