@@ -27,6 +27,61 @@ export function remainingMonths(termMonths: number | null | undefined, openingAt
   return Math.max(1, term - elapsed);
 }
 
+/** Datos del crédito que definen su cuota. */
+export interface CreditTerms {
+  interest_rate_ea?: number | null;
+  term_months?: number | null;
+  opening_at?: string | null;
+  monthly_costs?: number | null;
+  due_day?: number | null;
+  paid_installments?: number | null;
+  paid_installments_on?: string | null;
+}
+
+/** Días de pago (due_day) entre `after` (sin incluir) y `until` (incluido). */
+function dueDaysBetween(dueDay: number, after: string, until: string): number {
+  if (until <= after) return 0;
+  let [y, m] = after.split("-").map(Number);
+  let n = 0;
+  for (let i = 0; i < 1200; i++) {
+    const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const d = `${y}-${String(m).padStart(2, "0")}-${String(Math.min(dueDay, last)).padStart(2, "0")}`;
+    if (d > until) break;
+    if (d > after) n++;
+    if (m === 12) { y++; m = 1; } else m++;
+  }
+  return n;
+}
+
+/**
+ * Cuotas pagadas hasta hoy. Si la persona dijo en qué cuota iba, se parte de ahí y se suma cada día de pago que
+ * pasó desde esa fecha. Si no, se cuentan los meses desde el saldo inicial (como antes). null sin plazo.
+ */
+export function installmentsPaid(a: CreditTerms, today: string): number | null {
+  const term = Math.round(Number(a.term_months ?? 0));
+  if (term <= 0) return null;
+  if (a.paid_installments != null && a.paid_installments_on) {
+    const passed = a.due_day ? dueDaysBetween(a.due_day, a.paid_installments_on, today) : term - remainingMonths(term, a.paid_installments_on, today);
+    return Math.min(term, a.paid_installments + passed);
+  }
+  return term - remainingMonths(term, a.opening_at, today);
+}
+
+/** Cuotas que faltan por pagar (mínimo 1 mientras haya deuda). */
+export function remainingInstallments(a: CreditTerms, today: string): number {
+  const term = Math.max(1, Math.round(Number(a.term_months ?? 0)));
+  const paid = installmentsPaid(a, today);
+  return Math.max(1, term - (paid ?? 0));
+}
+
+/** "Cuota 38 de 240": la próxima que toca pagar. null si no hay plazo. */
+export function installmentLabel(a: CreditTerms, today: string): string | null {
+  const paid = installmentsPaid(a, today);
+  const term = Math.round(Number(a.term_months ?? 0));
+  if (paid == null || term <= 0) return null;
+  return paid >= term ? `${term} de ${term} cuotas pagadas` : `Cuota ${paid + 1} de ${term}`;
+}
+
 export interface CreditSplit {
   /** Cuota total pagada. */
   total: number;
@@ -44,10 +99,10 @@ export function suggestSplit(balance: number, eaPercent: number | null | undefin
 }
 
 /** Cuota estimada del próximo pago (capital + intereses + costos) para reservar en el Saldo Seguro. */
-export function nextCuota(balance: number, eaPercent: number | null | undefined, termMonths: number | null | undefined, openingAt: string | null | undefined, costs: number, today: string): number {
+export function nextCuota(balance: number, a: CreditTerms, today: string): number {
   if (balance <= 0) return 0;
-  const n = remainingMonths(termMonths, openingAt, today);
-  return Math.round(annuityPayment(balance, monthlyRate(eaPercent), n)) + Math.round(costs);
+  const n = remainingInstallments(a, today);
+  return Math.round(annuityPayment(balance, monthlyRate(a.interest_rate_ea), n)) + Math.round(a.monthly_costs ?? 0);
 }
 
 /**
@@ -58,14 +113,14 @@ export function nextCuota(balance: number, eaPercent: number | null | undefined,
  * Sin día de pago se reserva la cuota completa, como antes. Con día de pago pero ninguno dentro del periodo, nada.
  */
 export function creditReserve(
-  account: { id: string; interest_rate_ea?: number | null; term_months?: number | null; opening_at?: string | null; monthly_costs?: number | null; statement_day?: number | null; due_day?: number | null },
+  account: CreditTerms & { id: string; statement_day?: number | null },
   balance: number,
   txs: Transaction[],
   period: Period,
   today: string,
 ): number {
   const owed = Math.max(0, -balance);
-  const cuota = nextCuota(owed, account.interest_rate_ea, account.term_months, account.opening_at, account.monthly_costs ?? 0, today);
+  const cuota = nextCuota(owed, account, today);
   if (cuota <= 0 || !account.due_day) return cuota;
 
   const dues = account.statement_day

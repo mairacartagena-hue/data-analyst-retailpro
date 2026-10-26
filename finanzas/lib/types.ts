@@ -89,6 +89,9 @@ export interface Account {
   interest_rate_ea?: number | null;
   /** Créditos: plazo en meses y costos mensuales (seguros, otros). */
   term_months?: number | null;
+  /** Créditos: cuotas ya pagadas a la fecha paid_installments_on (desde ahí suma cada día de pago). */
+  paid_installments?: number | null;
+  paid_installments_on?: string | null;
   monthly_costs?: number;
   archived: boolean;
 }

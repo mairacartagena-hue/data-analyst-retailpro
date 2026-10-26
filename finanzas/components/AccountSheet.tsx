@@ -10,7 +10,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { ErrorText, Field, Input, Select } from "@/components/ui/input";
 import { projectCard } from "@/lib/finance/installments";
-import { nextCuota, suggestSplit } from "@/lib/finance/credit";
+import { installmentLabel, installmentsPaid, nextCuota, suggestSplit } from "@/lib/finance/credit";
 import { formatCop } from "@/lib/finance/money";
 import { monthName, todayBogota } from "@/lib/finance/periods";
 import { SwitchRow } from "@/components/ui/switch";
@@ -39,6 +39,7 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
   const [rate, setRate] = useState("");
   const [term, setTerm] = useState("");
   const [costs, setCosts] = useState("");
+  const [currentInst, setCurrentInst] = useState("");
   const [responsible, setResponsible] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -63,6 +64,8 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
     setRate(account?.interest_rate_ea ? String(account.interest_rate_ea).replace(".", ",") : "");
     setTerm(account?.term_months ? String(account.term_months) : "");
     setCosts(account?.monthly_costs ? String(account.monthly_costs) : "");
+    const paidNow = account?.kind === "CREDIT" ? installmentsPaid(account, todayBogota()) : null;
+    setCurrentInst(paidNow != null && account?.term_months ? String(Math.min(paidNow + 1, account.term_months)) : "");
     setResponsible(account?.responsible_user_id && account.responsible_user_id !== account.owner_user_id ? account.responsible_user_id : "");
   }, [open, account]);
 
@@ -79,6 +82,8 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
     if (aliasList.some((a) => !/^\d{4}$/.test(a))) return setError("Cada número adicional debe tener 4 dígitos, separados por comas.");
     const rateValue = rate.trim() ? Number(rate.replace(",", ".")) : null;
     if (isCredit && (!Number.isFinite(Number.parseInt(term, 10)) || Number.parseInt(term, 10) < 1)) return setError("Escribe el plazo en meses.");
+    const instN = Number.parseInt(currentInst, 10);
+    if (isCredit && currentInst && (!(instN >= 1) || instN > Number.parseInt(term, 10))) return setError("La cuota en la que vas debe estar entre 1 y el número de cuotas.");
     if ((isCard || isCredit) && rateValue != null && (!Number.isFinite(rateValue) || rateValue < 0 || rateValue > 200)) return setError("La tasa debe ser un porcentaje entre 0 y 200 (ej. 28,5).");
     if (isDebt && responsible && responsible !== me.user_id && visibility === "PRIVATE") return setError(`Para que ${partner?.display_name ?? "tu pareja"} vea la deuda, la cuenta no puede ser privada: elige que vea el saldo o todo.`);
     const day = (v: string) => (v ? Math.min(31, Math.max(1, Number(v))) : null);
@@ -102,6 +107,8 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
       interest_rate_ea: isCard || isCredit ? rateValue : null,
       term_months: isCredit ? Math.min(600, Math.max(1, Number.parseInt(term, 10) || 0)) || null : null,
       monthly_costs: isCredit ? parseCop(costs) ?? 0 : 0,
+      // "Voy en la cuota 38": quedan 37 pagadas a hoy; cada día de pago que pase suma una
+      ...(isCredit && currentInst ? { paid_installments: instN - 1, paid_installments_on: todayBogota() } : {}),
       responsible_user_id: isDebt && responsible && responsible !== me.user_id ? responsible : null,
     };
     setBusy(true);
@@ -172,7 +179,10 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
         )}
         {isCredit && (
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Plazo (meses)" htmlFor="term"><Input id="term" inputMode="numeric" value={term} onChange={(e) => setTerm(e.target.value.replace(/\D/g, "").slice(0, 3))} /></Field>
+            <Field label="Número de cuotas" htmlFor="term" hint="Plazo total en meses."><Input id="term" inputMode="numeric" value={term} onChange={(e) => setTerm(e.target.value.replace(/\D/g, "").slice(0, 3))} /></Field>
+            <Field label="¿En qué cuota vas?" htmlFor="cur-inst" hint="La próxima que vas a pagar. Desde aquí suma una cada día de pago.">
+              <Input id="cur-inst" inputMode="numeric" value={currentInst} placeholder={term ? `1 a ${term}` : ""} onChange={(e) => setCurrentInst(e.target.value.replace(/\D/g, "").slice(0, 3))} />
+            </Field>
             <Field label="Día de pago" htmlFor="dd2"><Input id="dd2" inputMode="numeric" value={dueDay} onChange={(e) => setDueDay(e.target.value.replace(/\D/g, "").slice(0, 2))} /></Field>
             <Field label="Seguros y otros costos al mes" hint="Seguro de vida, de inmueble, cuotas de administración del crédito."><AmountInput value={costs} onChange={setCosts} /></Field>
           </div>
@@ -412,7 +422,7 @@ function CreditPayments({ account }: { account: Account }) {
   const [busy, setBusy] = useState(false);
   const owed = Math.max(0, -(balances[account.id] ?? 0));
   const today = todayBogota();
-  const next = nextCuota(owed, account.interest_rate_ea, account.term_months, account.opening_at, account.monthly_costs ?? 0, today);
+  const next = nextCuota(owed, account, today);
   const [date, setDate] = useState(today);
   const [total, setTotal] = useState("");
   const [interest, setInterest] = useState("");
@@ -426,7 +436,7 @@ function CreditPayments({ account }: { account: Account }) {
   const interestN = parseCop(interest) ?? split.interest;
   const costsN = parseCop(costsPaid) ?? 0;
   const capitalN = Math.max(0, totalN - interestN - costsN);
-  const paidCount = transactions.filter((t) => t.account_id === account.id && t.kind === "TRANSFER" && t.description?.startsWith("Cuota crédito")).length;
+  const progress = installmentLabel(account, today);
 
   function openForm() {
     setOpen(true);
@@ -471,7 +481,7 @@ function CreditPayments({ account }: { account: Account }) {
     <div className="space-y-2 rounded-2xl border border-border p-3">
       <p className="text-sm font-medium">Cuotas del crédito</p>
       <p className="text-xs text-muted">
-        Debe {formatCop(owed)} · cuota estimada {formatCop(next)} · {paidCount} pagos registrados
+        Debe {formatCop(owed)} · cuota estimada {formatCop(next)}{progress ? ` · ${progress}` : ""}
       </p>
       {!open ? (
         <Button size="sm" variant="outline" onClick={openForm} disabled={owed <= 0}>Registrar cuota</Button>

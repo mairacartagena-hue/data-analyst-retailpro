@@ -3,7 +3,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Download, LogOut, RefreshCw, Share2 } from "lucide-react";
+import { ArrowLeft, Bell, BellOff, Download, LogOut, RefreshCw, Share2 } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { MemberBadge } from "@/components/MemberBadge";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ import { Segmented } from "@/components/ui/segmented";
 import { getInstallPrompt, isStandalone, subscribeInstallPrompt } from "@/lib/pwa";
 import { cn, errMsg } from "@/lib/utils";
 import { clearOffline } from "@/lib/offline/store";
+import { disablePush, enablePush, pushState, type PushState } from "@/lib/push/client";
 
 const COLORS = ["#6b7a3a", "#a0703f", "#8c5a46", "#4f6d6a", "#7b5c8a", "#b5654a", "#5a6f8f", "#9a8a3c"];
 type Theme = "system" | "light" | "dark";
@@ -182,6 +183,8 @@ export default function AjustesPage() {
         { value: "system", label: "Automático" }, { value: "light", label: "Claro" }, { value: "dark", label: "Oscuro" },
       ]} />
 
+      <NotificationsCard />
+
       <InstallCard />
 
       <Button variant="ghost" className="mt-8 w-full text-muted" onClick={logout}><LogOut size={18} /> Cerrar sesión</Button>
@@ -204,6 +207,66 @@ function InstallCard() {
         ) : (
           <p className="text-xs text-muted">En Chrome: menú ⋮ → “Instalar app” o “Agregar a pantalla principal”.</p>
         )}
+      </Card>
+    </>
+  );
+}
+
+/** Activar las notificaciones en este celular, probarlas y apagarlas. */
+function NotificationsCard() {
+  const { supabase } = useFinance();
+  const [state, setState] = useState<PushState | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => { void pushState().then(setState); }, []);
+
+  async function run(fn: () => Promise<void>, ok?: string) {
+    setBusy(true);
+    setError(null);
+    setMsg(null);
+    try {
+      await fn();
+      if (ok) setMsg(ok);
+    } catch (e) {
+      setError(errMsg(e));
+    } finally {
+      setBusy(false);
+      setState(await pushState());
+    }
+  }
+
+  async function test() {
+    const res = await fetch("/api/push/test", { method: "POST" });
+    const body = (await res.json().catch(() => ({}))) as { ok?: boolean; reason?: string };
+    if (!body.ok) throw new Error(body.reason ?? "No se pudo enviar la prueba.");
+  }
+
+  return (
+    <>
+      <SectionTitle>Notificaciones</SectionTitle>
+      <Card className="space-y-3">
+        <p className="text-sm">
+          Un aviso al día (8 a. m.) con lo que vence: pagos programados, tarjetas, cuotas de los créditos, el saldo del crédito por confirmar,
+          el cierre del mes y los movimientos por revisar.
+        </p>
+        {state === null ? null : state === "unsupported" ? (
+          <p className="text-xs text-muted">Este navegador no recibe notificaciones. Usa Chrome en Android o instala la app.</p>
+        ) : state === "needs-install" ? (
+          <p className="text-xs text-muted">En iPhone primero instala la app: Compartir → “Agregar a inicio”, y ábrela desde el ícono.</p>
+        ) : state === "denied" ? (
+          <p className="text-xs text-muted">Las notificaciones están bloqueadas para esta app. Permítelas en los ajustes del navegador (candado junto a la dirección → Notificaciones) y vuelve aquí.</p>
+        ) : state === "on" ? (
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" onClick={() => run(test, "Prueba enviada: debería llegarte en unos segundos.")} disabled={busy}><Bell size={16} /> Enviar prueba</Button>
+            <Button size="sm" variant="outline" onClick={() => run(() => disablePush(supabase), "Notificaciones apagadas en este celular.")} disabled={busy}><BellOff size={16} /> Apagar</Button>
+          </div>
+        ) : (
+          <Button onClick={() => run(() => enablePush(supabase), "Listo: este celular recibirá los avisos.")} disabled={busy}><Bell size={16} /> Activar en este celular</Button>
+        )}
+        {state === "on" && <p className="text-xs text-muted">Activadas en este celular. Cada persona las activa en el suyo.</p>}
+        {msg && <p className="text-xs text-olive">{msg}</p>}
+        <ErrorText>{error}</ErrorText>
       </Card>
     </>
   );
