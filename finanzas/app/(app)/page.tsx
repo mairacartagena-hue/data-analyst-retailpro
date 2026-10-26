@@ -19,7 +19,8 @@ import { UpcomingList, useUpcoming } from "@/components/Upcoming";
 import { Card, SectionTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
-import { cashFlow, crossNet, limitResponsible, limitsForScope, netWorth, safeToSpendFor, statusesFor, type Scope } from "@/lib/finance/derive";
+import { Sheet } from "@/components/ui/sheet";
+import { cashFlow, crossNet, limitResponsible, limitsForScope, netWorth, safeToSpendDetail, safeToSpendFor, statusesFor, type SafeToSpendDetail, type Scope } from "@/lib/finance/derive";
 import { formatCop } from "@/lib/finance/money";
 import { thirdPartyBalance } from "@/lib/finance/thirdParty";
 import { thirdPartyName } from "@/lib/data/thirdParty";
@@ -48,7 +49,8 @@ export default function HomePage() {
   };
 
   const statuses = useMemo(() => statusesFor(state, period), [state, period]);
-  const safe = useMemo(() => safeToSpendFor(state, period, statuses), [state, period, statuses]);
+  const safeDetail = useMemo(() => safeToSpendDetail(state, period, statuses), [state, period, statuses]);
+  const safe = useMemo(() => safeToSpendFor(state, period, statuses, safeDetail), [state, period, statuses, safeDetail]);
   const net = crossNet(state);
   const worth = netWorth(state, scope);
   const flow = cashFlow(state, period, scope);
@@ -102,7 +104,7 @@ export default function HomePage() {
         <CreditCheck />
         <PendingReview />
 
-        <SafeToSpendCard safe={safe} tpName={thirdPartyName(state.thirdParties)} />
+        <SafeToSpendCard safe={safe} detail={safeDetail} tpName={thirdPartyName(state.thirdParties)} />
         <ThirdPartyCard />
 
         {partner ? (
@@ -214,16 +216,48 @@ function ThirdPartyCard() {
   );
 }
 
-function SafeToSpendCard({ safe, tpName }: { safe: ReturnType<typeof safeToSpendFor>; tpName: string }) {
+type SafeSection = "accounts" | "obligations" | "savings" | "debts";
+
+const SECTION_INFO: Record<SafeSection, { title: string; description: string; empty: string; href: string; linkLabel: string }> = {
+  accounts: {
+    title: "Saldo en cuentas y billeteras",
+    description: "Tus cuentas de ahorro, billeteras y efectivo. Las tarjetas y créditos no suman aquí.",
+    empty: "No tienes cuentas de depósito, billeteras ni efectivo con saldo.",
+    href: "/cuentas", linkLabel: "Ver cuentas",
+  },
+  obligations: {
+    title: "Obligaciones del hogar pendientes",
+    description: "Lo que te falta pagar este periodo en los presupuestos del hogar marcados como obligación. Puedes quitar la marca desde el presupuesto.",
+    empty: "No tienes obligaciones del hogar pendientes este periodo.",
+    href: "/presupuestos", linkLabel: "Ver presupuestos",
+  },
+  savings: {
+    title: "Ahorros programados pendientes",
+    description: "Lo que te falta aportar este periodo a tus metas con aporte por periodo.",
+    empty: "No tienes aportes a metas pendientes este periodo.",
+    href: "/metas", linkLabel: "Ver metas",
+  },
+  debts: {
+    title: "Tarjetas y créditos: lo que vence este periodo",
+    description: "Tarjetas: el extracto que vence en el periodo. Créditos: la próxima cuota. Préstamos: todo lo que debes.",
+    empty: "No tienes pagos de tarjetas ni créditos este periodo.",
+    href: "/cuentas", linkLabel: "Ver cuentas",
+  },
+};
+
+function SafeToSpendCard({ safe, detail, tpName }: { safe: ReturnType<typeof safeToSpendFor>; detail: SafeToSpendDetail; tpName: string }) {
   const [open, setOpen] = useState(false);
-  const rows = [
-    { label: "Saldo en cuentas y billeteras", value: safe.realBalance, sign: "" },
-    { label: "Obligaciones del hogar pendientes", value: safe.householdObligationsPending, sign: "−" },
-    { label: "Ahorros programados pendientes", value: safe.scheduledSavingsPending, sign: "−" },
-    { label: "Tarjetas y créditos: lo que vence este periodo", value: safe.creditCardDebt, sign: "−" },
-    { label: "Lo que le debes a tu pareja", value: safe.owedToPartner, sign: "−" },
+  const [section, setSection] = useState<SafeSection | null>(null);
+  const rows: { label: string; value: number; sign: string; section?: SafeSection; href?: string }[] = [
+    { label: SECTION_INFO.accounts.title, value: safe.realBalance, sign: "", section: "accounts" },
+    { label: SECTION_INFO.obligations.title, value: safe.householdObligationsPending, sign: "−", section: "obligations" },
+    { label: SECTION_INFO.savings.title, value: safe.scheduledSavingsPending, sign: "−", section: "savings" },
+    { label: SECTION_INFO.debts.title, value: safe.creditCardDebt, sign: "−", section: "debts" },
+    { label: "Lo que le debes a tu pareja", value: safe.owedToPartner, sign: "−", href: "/cuentas?vista=cruce" },
     ...(safe.heldForThirdParty > 0 ? [{ label: `Plata de ${tpName} por pagar`, value: safe.heldForThirdParty, sign: "−" }] : []),
   ];
+  const info = section ? SECTION_INFO[section] : null;
+  const lines = section ? detail[section] : [];
   return (
     <Card className="mt-4 bg-olive text-on-olive">
       <button className="w-full text-left" onClick={() => setOpen(!open)} aria-expanded={open}>
@@ -240,17 +274,54 @@ function SafeToSpendCard({ safe, tpName }: { safe: ReturnType<typeof safeToSpend
         {open && (
           <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
             <div className="mt-3 space-y-1.5 border-t border-on-olive/20 pt-3 text-sm">
-              {rows.map((r) => (
-                <div key={r.label} className="flex justify-between gap-3">
-                  <span className="opacity-85">{r.label}</span>
-                  <span className="num font-medium">{r.sign}{formatCop(r.value)}</span>
-                </div>
-              ))}
+              {rows.map((r) => {
+                const content = (
+                  <>
+                    <span className="opacity-85">
+                      {r.label}
+                      {(r.section || r.href) && <span className="ml-1 whitespace-nowrap text-xs font-semibold underline underline-offset-2">Ver detalle</span>}
+                    </span>
+                    <span className="num shrink-0 font-medium">{r.sign}{formatCop(r.value)}</span>
+                  </>
+                );
+                const cls = "flex w-full justify-between gap-3 text-left";
+                if (r.section) {
+                  const sec = r.section;
+                  return <button key={r.label} type="button" className={cls} onClick={() => setSection(sec)}>{content}</button>;
+                }
+                if (r.href) return <Link key={r.label} href={r.href} className={cls}>{content}</Link>;
+                return <div key={r.label} className={cls}>{content}</div>;
+              })}
               <p className="pt-1 text-xs opacity-70">Lo que tu pareja te debe no suma: no es dinero disponible hasta que te pague.</p>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
+      <Sheet open={section !== null} onOpenChange={(v) => !v && setSection(null)}
+        title={info?.title ?? ""} description={info?.description}>
+        <div className="space-y-2 pb-2">
+          {lines.length === 0 ? (
+            <p className="text-sm text-muted">{info?.empty}</p>
+          ) : (
+            <>
+              {lines.map((l) => (
+                <div key={l.id} className="flex items-start justify-between gap-3 rounded-2xl bg-surface-2 px-4 py-3">
+                  <div className="min-w-0">
+                    <p className="font-medium">{l.label}</p>
+                    {l.note && <p className="text-xs text-muted">{l.note}</p>}
+                  </div>
+                  <p className="num shrink-0 font-semibold">{formatCop(l.amount)}</p>
+                </div>
+              ))}
+              <div className="flex justify-between px-4 pt-1 text-sm">
+                <span className="text-muted">Total</span>
+                <span className="num font-semibold">{formatCop(lines.reduce((a, l) => a + l.amount, 0))}</span>
+              </div>
+            </>
+          )}
+          {info && <Link href={info.href} className="block pt-2 text-center text-sm font-semibold text-olive">{info.linkLabel}</Link>}
+        </div>
+      </Sheet>
     </Card>
   );
 }

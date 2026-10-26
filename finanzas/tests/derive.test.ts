@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cashFlow, crossNet, limitsForScope, netWorth, responsibleOf, safeToSpendFor, type Snapshot } from "@/lib/finance/derive";
+import { cashFlow, crossNet, limitsForScope, netWorth, responsibleOf, safeToSpendDetail, safeToSpendFor, type Snapshot } from "@/lib/finance/derive";
 import { periodFor, DEFAULT_PERIOD_SETTINGS } from "@/lib/finance/periods";
 import type { Account, Category, CategoryLimit, Member } from "@/lib/types";
 
@@ -53,6 +53,19 @@ describe("derivados del inicio", () => {
     expect(r.creditCardDebt).toBe(500_000);
     expect(r.owedToPartner).toBe(70_000);
     expect(r.total).toBe(2_300_000 - 1_100_000 - 500_000 - 70_000);
+  });
+
+  it("el detalle del Saldo Seguro dice de dónde sale cada línea y cuadra con el total", () => {
+    const d = safeToSpendDetail(snapshot, oct);
+    expect(d.accounts.map((l) => [l.id, l.amount])).toEqual([["ahorros", 2_000_000], ["nequi", 300_000]]);
+    expect(d.obligations.map((l) => [l.id, l.amount])).toEqual([["l-mercado", 600_000], ["l-arriendo", 500_000]]);
+    expect(d.debts.map((l) => [l.id, l.amount])).toEqual([["visa", 500_000]]);
+    expect(d.savings).toEqual([]);
+  });
+
+  it("un presupuesto del hogar que no es obligación no resta del Saldo Seguro", () => {
+    const s = { ...snapshot, limits: snapshot.limits.map((l) => (l.id === "l-mercado" ? { ...l, is_household_obligation: false } : l)) };
+    expect(safeToSpendFor(s, oct).householdObligationsPending).toBe(500_000);
   });
 
   it("cruce neto desde mi punto de vista", () => {

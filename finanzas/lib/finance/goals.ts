@@ -32,15 +32,20 @@ export function goalProgress(goal: SavingsGoal, contributions: SavingsContributi
  * Ahorros programados pendientes de una persona en el periodo (para el Saldo Seguro):
  * en sus metas activas con aporte por periodo, lo que aún no ha aportado ella misma.
  */
-export function pendingSavingsFor(userId: string, goals: SavingsGoal[], contributions: SavingsContribution[], period: Pick<Period, "start" | "end">): number {
-  let total = 0;
+/** Lo que falta aportar este periodo en cada meta activa con aporte por periodo (solo las que tienen algo pendiente). */
+export function pendingSavingsByGoal(userId: string, goals: SavingsGoal[], contributions: SavingsContribution[], period: Pick<Period, "start" | "end">): { goal: SavingsGoal; pending: number }[] {
+  const out: { goal: SavingsGoal; pending: number }[] = [];
   for (const g of goals) {
     if (g.status !== "ACTIVE" || g.owner_user_id !== userId || !g.planned_amount) continue;
     const done = contributions
       .filter((c) => c.goal_id === g.id && c.user_id === userId && c.occurred_on >= period.start && c.occurred_on <= period.end)
       .reduce((a, c) => a + c.amount, 0);
     const left = Math.min(g.planned_amount - done, g.target_amount - contributions.filter((c) => c.goal_id === g.id).reduce((a, c) => a + c.amount, 0));
-    total += Math.max(0, left);
+    if (left > 0) out.push({ goal: g, pending: left });
   }
-  return total;
+  return out;
+}
+
+export function pendingSavingsFor(userId: string, goals: SavingsGoal[], contributions: SavingsContribution[], period: Pick<Period, "start" | "end">): number {
+  return pendingSavingsByGoal(userId, goals, contributions, period).reduce((a, x) => a + x.pending, 0);
 }
