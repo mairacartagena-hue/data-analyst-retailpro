@@ -95,6 +95,13 @@ GEMINI_MODEL=...            # opcional; por defecto gemini-flash-lite-latest
 | **Cola:** un movimiento nuevo guardado sin internet queda “por enviar” y se envía solo cuando vuelve la conexión (o con “Enviar ahora”). Cada uno lleva un identificador propio: si se reenvía no se duplica (`save_transaction_once()`, migración 0026). Editar, revisar avisos y leer fotos necesitan internet | `lib/data/FinanceProvider.tsx`, `components/OfflineBanner.tsx` |
 | Al cerrar sesión se borra la copia local, la cola y las pantallas guardadas (avisa si hay movimientos sin enviar) | `app/(app)/ajustes` |
 
+## Compras a cuotas con tarjeta de crédito (migración 0027)
+
+- Al registrar (o revisar) un gasto pagado con una tarjeta de crédito aparece **Cuotas** (1 a 48). También se puede dictar: “compré un televisor de 2 millones con la Visa a 12 cuotas”. Se guarda en `transactions.installments`.
+- **Presupuestos, informes y flujo del periodo:** cada mes cuenta su cuota de capital (valor ÷ cuotas, desde el mes de la compra; el sobrante de pesos va en la primera). En Movimientos la compra aparece una vez, con “· 12 cuotas”; en el detalle de un presupuesto sale “cuota 3 de 12”. Los totales que la pareja ve de un presupuesto personal compartido también se reparten (`shared_personal_spending()`).
+- **Intereses estimados:** en Cuentas, cada tarjeta tiene su **tasa de interés (% efectiva anual)** (`accounts.interest_rate_ea`). Como cobran las tarjetas en Colombia: capital fijo por cuota e intereses sobre el saldo que queda, con la tasa mensual equivalente. A 1 cuota no hay intereses. Los intereses reales se registran con el extracto (Cierre del mes).
+- **Saldo Seguro y vencimiento de la tarjeta:** se aparta solo lo que toca pagar en el periodo: deuda de la tarjeta − capital de las cuotas que vencen después + intereses estimados de las cuotas del periodo. La deuda completa sigue en Cuentas y en Patrimonio.
+
 ## Cierre del mes (conciliación)
 
 Ajustes → **Cierre del mes** (`app/(app)/cierre`), con recordatorio en el inicio los últimos 3 días del mes y los primeros 5 del siguiente.
@@ -160,7 +167,7 @@ Pestañas: **Inicio · Movimientos · + · Presupuesto · Informes · Más**. �
 
 ## Decisiones de la Fase 1
 
-1. **Tarjeta de crédito:** la compra consume el presupuesto al comprar; pagar la tarjeta es una transferencia y no vuelve a consumir presupuesto.
+1. **Tarjeta de crédito:** la compra consume el presupuesto al comprar (si es a cuotas, una cuota por mes); pagar la tarjeta es una transferencia y no vuelve a consumir presupuesto.
 2. **Montos fijos:** lo ejecutado cuenta para el responsable de cada parte. Si quien paga se pasa de su parte fija, la app pregunta cuánto cobrarle a la pareja (propone el excedente hasta lo que a la pareja le falte); si se cobra, esa parte queda a cargo de la pareja y genera un asiento de cruce.
 3. **Cuenta privada en categoría compartida:** la pareja ve monto, fecha y concepto; la cuenta aparece como “Cuenta privada”, salvo que su dueño active “Mostrar el nombre en gastos compartidos”.
 4. **Ingresos:** privados por defecto; se pueden compartir (la pareja los ve y cuentan en el flujo del hogar).
@@ -173,7 +180,7 @@ Pestañas: **Inicio · Movimientos · + · Presupuesto · Informes · Más**. �
 ## Configuración
 
 ### 1. Base de datos (Supabase, proyecto `finanzas-pareja`)
-Las migraciones están en `supabase/migrations/` (0001 → 0026). Para aplicarlas a mano, pega cada archivo completo en **SQL Editor → Run**, en orden. Se pueden correr más de una vez.
+Las migraciones están en `supabase/migrations/` (0001 → 0027). Para aplicarlas a mano, pega cada archivo completo en **SQL Editor → Run**, en orden. Se pueden correr más de una vez.
 
 ### 2. Autenticación
 En Supabase → **Authentication → URL Configuration**:

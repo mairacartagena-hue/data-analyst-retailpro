@@ -52,6 +52,12 @@ describe("frase completa", () => {
     expect(r).toMatchObject({ kind: "TRANSFER", amount: 200_000, accountId: "nequi", toAccountId: "ahorros" });
   });
 
+  it("compra a cuotas", () => {
+    const r = parsePhrase("compré un televisor de 2 millones con la tarjeta visa a 12 cuotas", ctx);
+    expect(r).toMatchObject({ amount: 2_000_000, accountId: "visa", installments: 12 });
+    expect(r.description).not.toMatch(/cuotas/);
+  });
+
   it("frase vacía", () => {
     expect(parsePhrase("  ", ctx)).toEqual({});
   });

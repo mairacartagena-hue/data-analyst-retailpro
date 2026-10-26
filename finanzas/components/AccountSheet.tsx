@@ -32,6 +32,7 @@ export function AccountSheet({ open, onOpenChange, account }: { open: boolean; o
   const [limit, setLimit] = useState("");
   const [statementDay, setStatementDay] = useState("");
   const [dueDay, setDueDay] = useState("");
+  const [rate, setRate] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -52,6 +53,7 @@ export function AccountSheet({ open, onOpenChange, account }: { open: boolean; o
     setLimit(account?.credit_limit ? String(account.credit_limit) : "");
     setStatementDay(account?.statement_day ? String(account.statement_day) : "");
     setDueDay(account?.due_day ? String(account.due_day) : "");
+    setRate(account?.interest_rate_ea ? String(account.interest_rate_ea).replace(".", ",") : "");
   }, [open, account]);
 
   const isCard = kind === "CREDIT_CARD";
@@ -62,6 +64,8 @@ export function AccountSheet({ open, onOpenChange, account }: { open: boolean; o
     if (last4 && !/^\d{4}$/.test(last4)) return setError("Los últimos 4 dígitos deben ser 4 números.");
     const aliasList = [...new Set(aliases.split(/[\s,;]+/).filter(Boolean))];
     if (aliasList.some((a) => !/^\d{4}$/.test(a))) return setError("Cada número adicional debe tener 4 dígitos, separados por comas.");
+    const rateValue = rate.trim() ? Number(rate.replace(",", ".")) : null;
+    if (isCard && rateValue != null && (!Number.isFinite(rateValue) || rateValue < 0 || rateValue > 200)) return setError("La tasa debe ser un porcentaje entre 0 y 200 (ej. 28,5).");
     const day = (v: string) => (v ? Math.min(31, Math.max(1, Number(v))) : null);
     const base = parseCop(opening) ?? 0;
     const row = {
@@ -80,6 +84,7 @@ export function AccountSheet({ open, onOpenChange, account }: { open: boolean; o
       credit_limit: isCard ? parseCop(limit) : null,
       statement_day: isCard ? day(statementDay) : null,
       due_day: isCard ? day(dueDay) : null,
+      interest_rate_ea: isCard ? rateValue : null,
     };
     setBusy(true);
     const { error } = account
@@ -153,6 +158,12 @@ export function AccountSheet({ open, onOpenChange, account }: { open: boolean; o
             <Field label="Día de corte" htmlFor="sd"><Input id="sd" inputMode="numeric" value={statementDay} onChange={(e) => setStatementDay(e.target.value.replace(/\D/g, "").slice(0, 2))} /></Field>
             <Field label="Día de pago" htmlFor="dd"><Input id="dd" inputMode="numeric" value={dueDay} onChange={(e) => setDueDay(e.target.value.replace(/\D/g, "").slice(0, 2))} /></Field>
           </div>
+        )}
+        {isCard && (
+          <Field label="Tasa de interés (% efectiva anual)" htmlFor="rate"
+            hint="Sale en el extracto de la tarjeta. Sirve para estimar los intereses de las compras a cuotas; las de 1 cuota no pagan intereses.">
+            <Input id="rate" inputMode="decimal" value={rate} placeholder="ej. 28,5" onChange={(e) => setRate(e.target.value.replace(/[^\d,.]/g, "").slice(0, 6))} />
+          </Field>
         )}
         <Field label={`¿Qué puede ver ${partner?.display_name ?? "tu pareja"}?`}
           hint="La cuenta sigue siendo tuya. Tus movimientos personales nunca se muestran; los del hogar sí, sin importar con qué cuenta los pagues.">

@@ -27,7 +27,7 @@ import { categoryLabel } from "@/lib/finance/labels";
 
 export default function PresupuestosPage() {
   const state = useFinance();
-  const { categories, period, me, partner, memberById, limits, plans, planCategories, transactions } = state;
+  const { categories, period, me, partner, memberById, limits, plans, planCategories } = state;
   const { openPayment } = useShell();
   const [detail, setDetail] = useState<CategoryLimit | null>(null);
   const [limit, setLimit] = useState<CategoryLimit | null>(null);
@@ -88,10 +88,12 @@ export default function PresupuestosPage() {
   const closedPlans = plans.filter((p) => !planAppliesTo(p, period));
   // Un presupuesto personal que comparte la pareja se mide con sus totales compartidos (no veo sus movimientos)
   const metrics = useMemo(() => {
-    const withShared = [...transactions, ...sharedAsTransactions(state.sharedSpending)];
+    // Compras a cuotas: cada cuota cuenta en su mes
+    const own = state.consumption;
+    const withShared = [...own, ...sharedAsTransactions(state.sharedSpending)];
     return new Map(plans.map((p) => [p.id, planMetrics(p, planCategories, categories,
-      p.owner_user_id === me.user_id || p.scope === "HOUSEHOLD" ? transactions : withShared, upcoming.occurrences, period, upcoming.today)]));
-  }, [plans, planCategories, categories, transactions, state.sharedSpending, upcoming, period, me.user_id]);
+      p.owner_user_id === me.user_id || p.scope === "HOUSEHOLD" ? own : withShared, upcoming.occurrences, period, upcoming.today)]));
+  }, [plans, planCategories, categories, state.consumption, state.sharedSpending, upcoming, period, me.user_id]);
   const householdCommitted = committedTotal(occurrencesOfSpace(upcoming.occurrences, "HOUSEHOLD"));
   const myCommitted = committedTotal(occurrencesOfSpace(upcoming.occurrences, "PERSONAL", me.user_id));
 

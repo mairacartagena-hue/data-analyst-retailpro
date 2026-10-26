@@ -28,6 +28,7 @@ import { unassigned, validateSplits, type SplitDraft } from "@/lib/finance/cross
 import { accountLabel, categoryLabel } from "@/lib/finance/labels";
 import { categoryPath, hasSplits } from "@/lib/finance/spaces";
 import { errMsg } from "@/lib/utils";
+import { installmentPlan, MAX_INSTALLMENTS } from "@/lib/finance/installments";
 import { isNetworkError } from "@/lib/offline/store";
 import { newClientId, type QueuedTx } from "@/lib/offline/queue";
 
@@ -134,6 +135,8 @@ export function TransactionSheet({
   const [splitMode, setSplitMode] = useState(false);
   const [splits, setSplits] = useState<SplitRow[]>([]);
   const [createsDebt, setCreatesDebt] = useState(true);
+  /** Compras con tarjeta de crédito: número de cuotas. */
+  const [installments, setInstallments] = useState("1");
   const [tagIds, setTagIds] = useState<string[]>([]);
   const [incomeCategoryId, setIncomeCategoryId] = useState("");
   const [scheduled, setScheduled] = useState<{ id: string; for: string } | null>(null);
@@ -162,6 +165,7 @@ export function TransactionSheet({
       setToAccountId(editing.to_account_id ?? "");
       setDirection(editing.direction ?? "OUT");
       setCreatesDebt(editing.creates_debt ?? true);
+      setInstallments(String(editing.installments ?? 1));
       setIncomeCategoryId(editing.income_category_id ?? "");
       setScheduled(editing.scheduled_payment_id && editing.scheduled_for ? { id: editing.scheduled_payment_id, for: editing.scheduled_for } : null);
       const sp = editing.splits;
@@ -205,12 +209,26 @@ export function TransactionSheet({
     setSplitMode(false);
     setSplits([]);
     setCreatesDebt(true);
+    setInstallments("1");
     setIncomeCategoryId("");
     setScheduled(preset?.scheduledPaymentId && preset.scheduledFor ? { id: preset.scheduledPaymentId, for: preset.scheduledFor } : null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, editing, preset]);
 
   const total = parseCop(amount) ?? 0;
+  // Compra con tarjeta de crédito: se puede diferir a cuotas (cada mes cuenta su cuota en el presupuesto)
+  const payAccount = accounts.find((a) => a.id === accountId) ?? null;
+  const isCardPurchase = kind === "EXPENSE" && payAccount?.kind === "CREDIT_CARD" && !partnerEdit;
+  const installmentCount = Math.min(MAX_INSTALLMENTS, Math.max(1, Number.parseInt(installments, 10) || 1));
+  const installmentHint = (() => {
+    if (!isCardPurchase || installmentCount <= 1) return "Cada mes cuenta su cuota en el presupuesto.";
+    const plan = installmentPlan(total, installmentCount, date, payAccount?.interest_rate_ea);
+    const interest = plan.reduce((a, c) => a + c.interest, 0);
+    const first = plan[0];
+    const base = `${installmentCount} cuotas de ${formatCop(plan[plan.length - 1]?.capital ?? 0)} de capital; en el presupuesto cuenta una por mes.`;
+    if (!payAccount?.interest_rate_ea) return `${base} Escribe la tasa de la tarjeta en Cuentas para estimar los intereses.`;
+    return `${base} Primera cuota ≈ ${formatCop(first?.total ?? 0)} con intereses; intereses estimados en total ≈ ${formatCop(interest)} (${payAccount.interest_rate_ea} % E.A.).`;
+  })();
   const selectedCategory = usable.find((c) => c.id === categoryId) ?? null;
   const withSplits = hasSplits(kind);
   // Los comentarios van justo después de la categoría; sin categoría (transferencias, ajustes) quedan al final
@@ -314,6 +332,7 @@ export function TransactionSheet({
     if (r.amount) setAmount(String(r.amount));
     if (r.description) setDescription(r.description);
     if (r.date) setDate(r.date);
+    if (r.installments) setInstallments(String(r.installments));
     if (r.accountId && myAccounts.some((a) => a.id === r.accountId)) setAccountId(r.accountId);
     if (r.toAccountId && myAccounts.some((a) => a.id === r.toAccountId)) setToAccountId(r.toAccountId);
     if (r.categoryId) {
@@ -422,6 +441,7 @@ export function TransactionSheet({
         account_id: accountId || null,
         to_account_id: kind === "TRANSFER" ? toAccountId : null,
         direction: kind === "ADJUSTMENT" ? direction : null,
+        installments: isCardPurchase ? installmentCount : 1,
         creates_debt: createsDebt,
         is_shared: kind === "INCOME" && scope === "HOUSEHOLD",
         income_category_id: kind === "INCOME" ? incomeCategoryId || null : null,
@@ -566,6 +586,17 @@ export function TransactionSheet({
             <Field label={kind === "INCOME" || kind === "REFUND" ? "Entró a" : kind === "TRANSFER" ? "Sale de" : kind === "ADJUSTMENT" ? "Cuenta" : "Pagué con"}>
               <ChipGroup value={accountId} onChange={setAccountId}
                 options={myAccounts.map((a) => ({ value: a.id, label: accountLabel(labels, a.id) }))} />
+            </Field>
+          )}
+
+          {isCardPurchase && (
+            <Field label="Cuotas" htmlFor="cuotas" hint={installmentHint}>
+              <div className="flex flex-wrap items-center gap-2">
+                <ChipGroup value={["1", "3", "6", "12", "24", "36"].includes(installments) ? installments : null} onChange={setInstallments}
+                  options={["1", "3", "6", "12", "24", "36"].map((n) => ({ value: n, label: n === "1" ? "1 (sin cuotas)" : n }))} />
+                <Input id="cuotas" inputMode="numeric" value={installments} className="w-20"
+                  onChange={(e) => setInstallments(e.target.value.replace(/\D/g, "").slice(0, 2))} aria-label="Número de cuotas" />
+              </div>
             </Field>
           )}
 

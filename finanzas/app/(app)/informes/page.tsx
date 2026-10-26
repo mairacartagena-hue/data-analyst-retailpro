@@ -19,13 +19,15 @@ const SERIES_1 = "var(--series-1)";
 const SERIES_2 = "var(--series-2)";
 
 export default function InformesPage() {
-  const { transactions: all, categories, labels, period, me, partner, memberById, tags, txTags } = useFinance();
+  const { transactions: all, consumption: allConsumption, categories, labels, period, me, partner, memberById, tags, txTags } = useFinance();
   const router = useRouter();
   const members = [me, partner].filter(Boolean) as Member[];
   const [space, setSpace] = useState<ReportSpace>("all");
   const transactions = useMemo(() => all.filter((t) => inReportSpace(t, space)), [all, space]);
+  // Gastos por periodo: una compra a cuotas cuenta cada cuota en su mes (el CSV lista los movimientos tal cual)
+  const consumption = useMemo(() => allConsumption.filter((t) => inReportSpace(t, space)), [allConsumption, space]);
 
-  const byCategory = useMemo(() => spendingByCategory(transactions, categories, period, true), [transactions, categories, period]);
+  const byCategory = useMemo(() => spendingByCategory(consumption, categories, period, true), [consumption, categories, period]);
   const totalExpense = byCategory.reduce((a, c) => a + c.total, 0);
   const totalIncome = transactions.filter((t) => t.kind === "INCOME" && isWithin(t.occurred_on, period)).reduce((a, t) => a + t.amount, 0);
 
@@ -33,9 +35,9 @@ export default function InformesPage() {
     const current = todayBogota().slice(0, 7);
     return Array.from({ length: 6 }, (_, i) => shiftMonth(current, i - 5));
   }, []);
-  const trend = useMemo(() => monthlyTrend(transactions, months), [transactions, months]);
-  const byTag = useMemo(() => spendingByTag(transactions, txTags, tags, period), [transactions, txTags, tags, period]);
-  const people = useMemo(() => spendingByPerson(transactions, categories, period, members), [transactions, categories, period, members]);
+  const trend = useMemo(() => monthlyTrend(consumption, months), [consumption, months]);
+  const byTag = useMemo(() => spendingByTag(consumption, txTags, tags, period), [consumption, txTags, tags, period]);
+  const people = useMemo(() => spendingByPerson(consumption, categories, period, members), [consumption, categories, period, members]);
 
   function download() {
     const inPeriod = transactions.filter((t) => isWithin(t.occurred_on, period));

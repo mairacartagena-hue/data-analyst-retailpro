@@ -18,6 +18,8 @@ export interface CaptureResult {
   categoryId?: string;
   accountId?: string;
   toAccountId?: string;
+  /** Compras con tarjeta: "a 12 cuotas". */
+  installments?: number;
 }
 
 export function fold(text: string): string {
@@ -111,6 +113,8 @@ export function parsePhrase(
 
   const amount = findSpokenAmount(t);
   if (amount) out.amount = amount.amount;
+  const cuotas = /\b(?:a|en)?\s*(\d{1,2})\s*cuotas?\b/.exec(t);
+  if (cuotas && Number(cuotas[1]) >= 1 && Number(cuotas[1]) <= 48) out.installments = Number(cuotas[1]);
 
   if (INCOME_WORDS.test(t)) out.kind = "INCOME";
   else if (TRANSFER_WORDS.test(t)) out.kind = "TRANSFER";
@@ -165,6 +169,7 @@ export function parsePhrase(
 
 function tidy(text: string): string {
   return text
+    .replace(/\b(?:a|en)?\s*\d{1,2}\s*cuotas?\b/g, " ")
     .replace(/\b(hoy|ayer|anteayer|antier|antes de ayer)\b/g, " ")
     .replace(/\b(me gaste|gaste|pague|compre|recibi|me pagaron|me consignaron|me llego|me llegaron|me devolvieron|pase|transferi|movi|cobre|vendi|registra|registrar|anota|anotar|pesos|plata)\b/g, " ")
     .replace(/\b(con|en efectivo|efectivo)\b\s*$/g, " ")

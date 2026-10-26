@@ -195,7 +195,7 @@ function SafeToSpendCard({ safe }: { safe: ReturnType<typeof safeToSpendFor> }) 
     { label: "Saldo en cuentas y billeteras", value: safe.realBalance, sign: "" },
     { label: "Obligaciones del hogar pendientes", value: safe.householdObligationsPending, sign: "−" },
     { label: "Ahorros programados pendientes", value: safe.scheduledSavingsPending, sign: "−" },
-    { label: "Deuda de tarjetas de crédito", value: safe.creditCardDebt, sign: "−" },
+    { label: "Tarjetas: lo que toca pagar este periodo", value: safe.creditCardDebt, sign: "−" },
     { label: "Lo que le debes a tu pareja", value: safe.owedToPartner, sign: "−" },
   ];
   return (

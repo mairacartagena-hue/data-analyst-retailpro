@@ -9,12 +9,16 @@ import { dueDatesBetween, occurrencesIn, type Occurrence } from "@/lib/finance/c
 import { formatCop } from "@/lib/finance/money";
 import { formatDay, todayBogota, type Period } from "@/lib/finance/periods";
 import { accountLabel } from "@/lib/finance/labels";
+import { cardDue } from "@/lib/finance/installments";
 import { cn } from "@/lib/utils";
 
 export interface CardDue {
   accountId: string;
   due: string;
+  /** Lo que toca pagar en el periodo (sin las cuotas que vencen después). */
+  amount: number;
   debt: number;
+  interest: number;
 }
 
 /** Vencimientos visibles del periodo (hogar + mis personales) y fechas de pago de mis tarjetas con deuda. */
@@ -26,10 +30,10 @@ export function useUpcoming(period: Period) {
     const cards: CardDue[] = [];
     for (const a of accounts) {
       if (a.owner_user_id !== me.user_id || a.archived || a.kind !== "CREDIT_CARD" || !a.due_day) continue;
-      const debt = Math.max(0, -(balances[a.id] ?? 0));
-      if (debt <= 0) continue;
+      const d = cardDue(a, balances[a.id] ?? 0, transactions, period);
+      if (d.due <= 0) continue;
       const fake = { frequency: "MONTHLY", day_of_month: a.due_day, start_date: period.start, end_date: null, due_date: null } as ScheduledPayment;
-      for (const due of dueDatesBetween(fake, period.start, period.end)) cards.push({ accountId: a.id, due, debt });
+      for (const due of dueDatesBetween(fake, period.start, period.end)) cards.push({ accountId: a.id, due, amount: d.due, debt: d.debt, interest: d.interest });
     }
     return { occurrences: occ, cards, today };
   }, [commitments, transactions, accounts, balances, me.user_id, period]);
@@ -106,12 +110,12 @@ export function UpcomingList({
             <span className="block truncate font-medium">Pago {accountLabel(labels, c.accountId)}</span>
             <span className="flex items-center gap-1 truncate text-xs text-muted">
               <Lock size={11} className="shrink-0" />
-              <span className={cn("truncate", w.tone === "danger" && "font-semibold text-danger", w.tone === "warn" && "font-semibold text-warning")}>{w.text} · deuda actual</span>
+              <span className={cn("truncate", w.tone === "danger" && "font-semibold text-danger", w.tone === "warn" && "font-semibold text-warning")}>{w.text}{c.amount < c.debt ? ` · de ${formatCop(c.debt)} de deuda` : " · deuda actual"}{c.interest > 0 ? ` · incluye ≈${formatCop(c.interest)} de intereses` : ""}</span>
             </span>
           </span>
-          <span className="num shrink-0 text-sm font-semibold">{formatCop(c.debt)}</span>
+          <span className="num shrink-0 text-sm font-semibold">{formatCop(c.amount)}</span>
           <button className="shrink-0 rounded-full bg-olive-soft px-3 py-1.5 text-sm font-semibold"
-            onClick={() => openPayment({ kind: "TRANSFER", toAccountId: c.accountId, amount: c.debt, description: "Pago de tarjeta", date: today })}>
+            onClick={() => openPayment({ kind: "TRANSFER", toAccountId: c.accountId, amount: c.amount, description: "Pago de tarjeta", date: today })}>
             Pagar
           </button>
         </div>
