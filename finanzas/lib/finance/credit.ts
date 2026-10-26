@@ -36,6 +36,8 @@ export interface CreditTerms {
   due_day?: number | null;
   paid_installments?: number | null;
   paid_installments_on?: string | null;
+  /** Cuota fija del extracto (capital + intereses, sin seguros). */
+  installment_amount?: number | null;
 }
 
 /** Días de pago (due_day) entre `after` (sin incluir) y `until` (incluido). */
@@ -107,6 +109,11 @@ export function suggestSplit(balance: number, eaPercent: number | null | undefin
 /** Cuota estimada del próximo pago (capital + intereses + costos) para reservar en el Saldo Seguro. */
 export function nextCuota(balance: number, a: CreditTerms, today: string): number {
   if (balance <= 0) return 0;
+  // Cuota del extracto: intereses según la tasa y la diferencia a capital (la última no pasa de lo que se debe)
+  if (a.installment_amount && a.installment_amount > 0) {
+    const interest = Math.round(balance * monthlyRate(a.interest_rate_ea));
+    return Math.round(Math.min(a.installment_amount, balance + interest)) + Math.round(a.monthly_costs ?? 0);
+  }
   const n = remainingInstallments(a, today);
   return Math.round(annuityPayment(balance, monthlyRate(a.interest_rate_ea), n)) + Math.round(a.monthly_costs ?? 0);
 }

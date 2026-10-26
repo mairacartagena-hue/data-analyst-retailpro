@@ -168,6 +168,7 @@ async function loadAll(sb: SupabaseClient, userId: string): Promise<Loaded> {
       term_months: num(a.term_months) as number | null,
       paid_installments: num(a.paid_installments) as number | null,
       original_amount: num(a.original_amount) as number | null,
+      installment_amount: num(a.installment_amount) as number | null,
       monthly_costs: Number(a.monthly_costs ?? 0),
     })),
     labels: (labels.data ?? []) as AccountLabel[],

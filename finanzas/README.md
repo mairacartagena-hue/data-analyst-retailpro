@@ -56,6 +56,7 @@ Pendiente para fases siguientes: Web Push e IA (Fase 4). Las metas de ahorro y l
 - Saldo Seguro: se reserva la cuota del periodo hasta que se pague, no el saldo total. Patrimonio: resta el saldo de capital real.
 - **Cuotas (migración 0034):** en el crédito se indica el **número de cuotas** y **en qué cuota vas** (la próxima a pagar). Desde ese día, cada día de pago suma una cuota; la app muestra “Cuota 38 de 240” en Cuentas → Créditos y en el crédito, y calcula la cuota estimada con las cuotas que faltan. Sin ese dato cuenta los meses desde el saldo inicial.
 - **Valor inicial (migración 0035):** lo que prestó el banco. Con él se ve cuánto del capital ya se pagó (barra en el crédito y “Pagado X %” en Cuentas → Créditos).
+- **Valor de la cuota (migración 0036):** la cuota fija del extracto (capital + intereses, sin seguros). Con ella la app reserva esa cuota: los intereses salen de la tasa y el saldo, y la diferencia va a capital. Vacío: se calcula con la tasa y las cuotas que faltan.
 - **Pestañas:** Cuentas se divide en **Cuentas · Créditos · Cruce** (créditos con cuotas y préstamos van en Créditos, con la deuda total y las cuotas del mes). En **Cierre del mes** también se separa **Cuentas / Créditos**: en un crédito se compara la deuda de capital con el extracto y la diferencia se corrige con un ajuste de saldo (no es gasto ni ingreso).
 - La responsabilidad de la cuota se asigna igual que cualquier partida (ej. hipoteca 100 % de un miembro).
 - Aviso mensual en el inicio (después del día de pago, hasta confirmarlo ese mes) para confirmar el saldo con el extracto: “¿El saldo de tu hipoteca es $X? Confirmar / Corregir”. Confirmar guarda la conciliación del mes; Corregir pide el saldo del extracto y registra la diferencia como ajuste de saldo (no es gasto ni ingreso) (`components/CreditCheck.tsx`).
@@ -212,7 +213,7 @@ Pestañas: **Inicio · Movimientos · + · Presupuesto · Informes · Más**. �
 ## Configuración
 
 ### 1. Base de datos (Supabase, proyecto `finanzas-pareja`)
-Las migraciones están en `supabase/migrations/` (0001 → 0035). Para aplicarlas a mano, pega cada archivo completo en **SQL Editor → Run**, en orden. Se pueden correr más de una vez.
+Las migraciones están en `supabase/migrations/` (0001 → 0036). Para aplicarlas a mano, pega cada archivo completo en **SQL Editor → Run**, en orden. Se pueden correr más de una vez.
 
 ### 2. Autenticación
 En Supabase → **Authentication → URL Configuration**:
