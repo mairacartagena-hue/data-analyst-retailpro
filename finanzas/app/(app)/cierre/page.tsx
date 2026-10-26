@@ -177,32 +177,50 @@ function AccountClose({ account, month }: { account: Account; month: string }) {
   const gmfMode = (account.gmf_mode ?? "TAXED") as GmfMode;
   const gmf = !isDebt && account.kind !== "CASH" ? Math.max(0, gmfEstimate(st.gmfBase, gmfMode, uvt) - st.gmfRecorded) : 0;
 
+  async function saveClose(status: "RECONCILED" | "DIFFERENCE", appBalance: number) {
+    const statement = isDebt ? -bankValue! : bankValue!;
+    return supabase.from("account_reconciliations").upsert({
+      household_id: account.household_id, account_id: account.id, owner_user_id: account.owner_user_id, month: range.start,
+      statement_balance: statement, app_balance: appBalance, status,
+    }, { onConflict: "account_id,month" });
+  }
+
+  /** Guarda el cierre tal cual: conciliada si cuadra; si no, queda "con diferencia" sin tocar el saldo. */
   async function markReconciled() {
     if (bankValue === null) return setError("Escribe el saldo que dice tu banco.");
     setBusy(true);
     setError(null);
-    const statement = isDebt ? -bankValue : bankValue;
-    const { error } = await supabase.from("account_reconciliations").upsert({
-      household_id: account.household_id, account_id: account.id, owner_user_id: account.owner_user_id, month: range.start,
-      statement_balance: statement, app_balance: st.closing, status: diff === 0 ? "RECONCILED" : "DIFFERENCE",
-    }, { onConflict: "account_id,month" });
+    const { error } = await saveClose(diff === 0 ? "RECONCILED" : "DIFFERENCE", st.closing);
     setBusy(false);
     if (error) return setError(errMsg(error));
     void reload();
   }
 
-  async function adjustCredit() {
-    if (diff === null || diff === 0) return;
+  /**
+   * Conciliar con ajuste: registra la diferencia como ajuste de saldo (no es gasto ni ingreso) para que la app
+   * quede igual al banco o al extracto, y marca la cuenta como conciliada.
+   */
+  async function adjustAndReconcile() {
+    if (bankValue === null) return setError("Escribe el saldo que dice tu banco.");
+    if (diff === null || diff === 0) return markReconciled();
     setBusy(true);
     setError(null);
-    const today = todayBogota();
-    const { error } = await supabase.rpc("save_transaction", { p: {
-      kind: "ADJUSTMENT", amount: Math.abs(diff), occurred_on: range.end < today ? range.end : today, account_id: account.id,
-      direction: diff < 0 ? "OUT" : "IN", description: `Ajuste del saldo con el extracto (${account.name})`, tags: ["#conciliacion"],
-    } });
-    setBusy(false);
-    if (error) return setError(errMsg(error));
-    void reload();
+    try {
+      const today = todayBogota();
+      const { error } = await supabase.rpc("save_transaction", { p: {
+        kind: "ADJUSTMENT", amount: Math.abs(diff), occurred_on: range.end < today ? range.end : today, account_id: account.id,
+        // + el banco tiene más (o se debe menos) que la app: el ajuste suma al saldo; − resta
+        direction: diff > 0 ? "IN" : "OUT", description: `Ajuste del saldo con el extracto (${account.name})`, tags: ["#conciliacion"],
+      } });
+      if (error) throw error;
+      const r = await saveClose("RECONCILED", isDebt ? -bankValue : bankValue);
+      if (r.error) throw r.error;
+      void reload();
+    } catch (e) {
+      setError(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -262,11 +280,6 @@ function AccountClose({ account, month }: { account: Account; month: string }) {
                     ? `El extracto dice que debes ${formatCop(-diff)} más que la app.`
                     : `El extracto dice que debes ${formatCop(diff)} menos que la app.`}
               </p>
-              {diff !== 0 && (
-                <Button variant="outline" size="sm" className="w-full" onClick={adjustCredit} disabled={busy}>
-                  Ajustar la deuda de la app a {formatCop(bankValue ?? 0)}
-                </Button>
-              )}
             </div>
           )}
 
@@ -284,17 +297,26 @@ function AccountClose({ account, month }: { account: Account; month: string }) {
                 <p className="text-xs text-warning">Parte de esta diferencia podría ser el 4x1000 (≈ {formatCop(gmf)}). Regístralo arriba primero.</p>
               )}
               {diff !== 0 && (
-                <Button variant="outline" size="sm" className="w-full" onClick={() => setFee("unknown")}>
-                  Registrar {formatCop(Math.abs(diff))} como “No identificado”
-                </Button>
+                <>
+                  <p className="text-xs text-muted">Si sabes qué fue, regístralo como gasto o ingreso. Si no, abajo puedes ajustar el saldo de la app al del banco (no cuenta como gasto ni ingreso).</p>
+                  <Button variant="outline" size="sm" className="w-full" onClick={() => setFee("unknown")}>
+                    Registrar {formatCop(Math.abs(diff))} como {diff > 0 ? "ingreso" : "gasto"} “No identificado”
+                  </Button>
+                </>
               )}
             </div>
           )}
 
           <ErrorText>{error}</ErrorText>
-          <Button className="w-full" onClick={markReconciled} disabled={busy || bankValue === null}>
-            {diff === 0 ? "Marcar como conciliada" : "Guardar cierre con diferencia"}
+          <Button className="w-full" onClick={adjustAndReconcile} disabled={busy || bankValue === null}>
+            {busy ? "Guardando..." : diff === null || diff === 0 ? "Marcar como conciliada"
+              : `Ajustar ${isDebt ? "la deuda" : "el saldo"} a ${formatCop(bankValue ?? 0)} y conciliar`}
           </Button>
+          {diff !== null && diff !== 0 && (
+            <button className="w-full text-center text-xs text-muted underline" onClick={markReconciled} disabled={busy}>
+              Guardar el cierre con la diferencia, sin ajustar
+            </button>
+          )}
         </div>
       )}
 

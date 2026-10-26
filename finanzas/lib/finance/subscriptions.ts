@@ -73,3 +73,45 @@ export function detectSubscriptions(txs: Transaction[], payerId: string): Subscr
   }
   return out.sort((a, b) => b.averageAmount - a.averageAmount);
 }
+
+export interface UpcomingSubscription {
+  key: string;
+  name: string;
+  amount: number; // último cobro
+  nextDate: string; // fecha estimada del próximo cobro
+}
+
+function addMonthsKeepDay(iso: string, months: number, day: number): string {
+  const [y, m] = iso.split("-").map(Number);
+  const first = new Date(Date.UTC(y, m - 1 + months, 1));
+  const last = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate();
+  return `${first.toISOString().slice(0, 8)}${String(Math.min(day, last)).padStart(2, "0")}`;
+}
+
+/**
+ * Próximos cobros de suscripciones según los antecedentes: los comercios marcados como suscripción, los conocidos
+ * o los que se cobran cada mes por un monto parecido. El próximo cobro se estima el mismo día del mes del último.
+ * Si el último cobro tiene más de ~40 días, la suscripción se da por cancelada.
+ */
+export function upcomingSubscriptions(txs: Transaction[], payerId: string, today: string, until: string): UpcomingSubscription[] {
+  const groups = new Map<string, Transaction[]>();
+  for (const t of txs) {
+    if (t.kind !== "EXPENSE" || t.payer_user_id !== payerId) continue;
+    const k = key(t);
+    if (!k) continue;
+    groups.set(k, [...(groups.get(k) ?? []), t]);
+  }
+  const detected = new Set(detectSubscriptions(txs, payerId).map((c) => c.key));
+  const out: UpcomingSubscription[] = [];
+  for (const [k, list] of groups) {
+    if (!detected.has(k) && !list.some((t) => t.tags.includes(SUBSCRIPTION_TAG))) continue;
+    const last = [...list].sort((a, b) => a.occurred_on.localeCompare(b.occurred_on)).at(-1)!;
+    if (last.occurred_on > today || days(today, last.occurred_on) > 40) continue;
+    const day = Number(last.occurred_on.slice(8, 10));
+    let next = addMonthsKeepDay(last.occurred_on, 1, day);
+    for (let i = 2; next <= today; i++) next = addMonthsKeepDay(last.occurred_on, i, day);
+    if (next > until) continue;
+    out.push({ key: k, name: last.merchant ?? last.description ?? k, amount: last.amount, nextDate: next });
+  }
+  return out.sort((a, b) => a.nextDate.localeCompare(b.nextDate) || b.amount - a.amount);
+}

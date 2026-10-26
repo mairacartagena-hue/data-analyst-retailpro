@@ -8,6 +8,7 @@ import { cardDue, statementsDueIn } from "./installments";
 import { creditReserve, isCreditKind, nextCuota } from "./credit";
 import { formatCop } from "./money";
 import { addDays, monthName } from "./periods";
+import { upcomingSubscriptions } from "./subscriptions";
 
 export interface Reminder {
   key: string;
@@ -101,7 +102,24 @@ export function buildReminders(s: ReminderInput): Reminder[] {
     }
   }
 
-  // 4. Cierre del mes: el primer día del mes siguiente, si faltan cuentas o créditos por conciliar
+  // 4. Suscripciones que se van a cobrar (según los cobros anteriores): el día antes, agrupadas por día
+  const subs = upcomingSubscriptions(s.transactions, me, today, addDays(end, 1));
+  const byDay = new Map<string, typeof subs>();
+  for (const x of subs) byDay.set(x.nextDate, [...(byDay.get(x.nextDate) ?? []), x]);
+  for (const [day, list] of byDay) {
+    const send = addDays(day, -1) < today ? today : addDays(day, -1);
+    const when = day === today ? "Hoy" : "Mañana";
+    const total = list.reduce((a, x) => a + x.amount, 0);
+    const title = list.length === 1
+      ? `${when} se cobra ${list[0].name} (≈ ${formatCop(list[0].amount)})`
+      : `${when} se cobran ${list.length} suscripciones (≈ ${formatCop(total)})`;
+    const body = list.length === 1
+      ? "Según tus cobros anteriores. Revisa que tengas saldo o cancélala si ya no la usas."
+      : list.map((x) => `${x.name} ≈ ${formatCop(x.amount)}`).join(" · ");
+    push({ key: `suscripcion:${day}:${list.map((x) => x.key).join(",")}`.slice(0, 200), send_on: send, title: title.slice(0, 120), body: body.slice(0, 300), url: "/movimientos" });
+  }
+
+  // 5. Cierre del mes: el primer día del mes siguiente, si faltan cuentas o créditos por conciliar
   const month = monthStart(today);
   const missing = mine.filter((a) => !s.reconciliations.some((r) => r.account_id === a.id && r.month === month && r.status === "RECONCILED"));
   if (missing.length > 0) {

@@ -44,4 +44,22 @@ describe("recordatorios para notificaciones", () => {
     const r = buildReminders(base({ accounts: [card], balances: { v: -300_000 } }));
     expect(r.find((x) => x.key === "tarjeta:v:2026-11-05:-1")?.send_on).toBe("2026-11-04");
   });
+
+  it("suscripciones: aviso el día antes del próximo cobro según los anteriores", () => {
+    const tx = (id: string, on: string, merchant: string, amount: number, tags: string[] = []) =>
+      ({ id, kind: "EXPENSE", payer_user_id: ME, occurred_on: on, merchant, merchant_norm: merchant.toLowerCase(), amount, tags }) as unknown as Transaction;
+    const transactions = [
+      tx("n1", "2026-09-25", "Netflix", 44_900), tx("n2", "2026-10-25", "Netflix", 44_900), // ya se cobró en octubre: el próximo es noviembre
+      tx("s1", "2026-09-02", "Spotify", 16_900), tx("s2", "2026-10-02", "Spotify", 16_900),
+      tx("g1", "2026-10-03", "Gimnasio", 120_000, ["#suscripcion"]),
+      tx("v1", "2026-06-10", "Disney", 30_000), // hace mucho: cancelada
+      tx("m1", "2026-10-05", "Mercado", 200_000),
+    ];
+    const r = buildReminders(base({ today: "2026-10-26", transactions })).filter((x) => x.key.startsWith("suscripcion"));
+    expect(r.map((x) => [x.send_on, x.title])).toEqual([
+      ["2026-11-01", "Mañana se cobra Spotify (≈ $ 16.900)"],
+      ["2026-11-02", "Mañana se cobra Gimnasio (≈ $ 120.000)"],
+      ["2026-11-24", "Mañana se cobra Netflix (≈ $ 44.900)"],
+    ]);
+  });
 });
