@@ -13,6 +13,7 @@ import { Card, SectionTitle } from "@/components/ui/card";
 import type { Account, ManualAsset } from "@/lib/types";
 import { ASSET_TYPE_LABEL, VISIBILITY_LABEL } from "@/lib/types";
 import { formatCop } from "@/lib/finance/money";
+import { responsibleOf } from "@/lib/finance/derive";
 import { cn } from "@/lib/utils";
 import { isCreditKind, nextCuota } from "@/lib/finance/credit";
 import { todayBogota } from "@/lib/finance/periods";
@@ -22,7 +23,7 @@ type View = "cuentas" | "creditos" | "cruce";
 const ICONS = { DEPOSIT: Landmark, WALLET: Smartphone, CASH: Wallet, CREDIT_CARD: CreditCard, LOAN: Handshake, CREDIT: Building2 };
 
 export default function CuentasPage() {
-  const { accounts, balances, me, partner, assets } = useFinance();
+  const { accounts, balances, me, partner, assets, memberById } = useFinance();
   const [editing, setEditing] = useState<Account | null>(null);
   const [open, setOpen] = useState(false);
   const [asset, setAsset] = useState<ManualAsset | null>(null);
@@ -57,6 +58,9 @@ export default function CuentasPage() {
     const Icon = ICONS[a.kind];
     const bal = balances[a.id];
     const isCard = a.kind === "CREDIT_CARD";
+    // Quién paga la tarjeta o el crédito
+    const payer = a.kind === "CREDIT_CARD" || a.kind === "LOAN" || a.kind === "CREDIT" ? responsibleOf(a) : null;
+    const payerName = payer ? (payer === me.user_id ? "tú" : memberById(payer)?.display_name ?? "") : "";
     return (
       <button key={a.id} disabled={!editable} onClick={() => { setEditing(a); setOpen(true); }}
         className="flex w-full items-center gap-3 px-3.5 py-3 text-left enabled:hover:bg-surface-2">
@@ -67,6 +71,7 @@ export default function CuentasPage() {
             {a.visibility === "PRIVATE" && <Lock size={11} />}
             {editable ? VISIBILITY_LABEL[a.visibility].split(":")[0] : a.institution ?? ""}
             {(isCard || a.kind === "CREDIT") && a.due_day ? ` · paga el ${a.due_day}` : ""}
+            {payerName ? ` · responsable: ${payerName}` : ""}
           </span>
         </span>
         <span className="text-right">
