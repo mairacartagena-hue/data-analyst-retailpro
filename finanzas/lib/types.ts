@@ -142,7 +142,15 @@ export interface Transaction {
   suggested_responsible_user_id?: string | null;
   suggested_to_account_id?: string | null;
   income_category_id?: string | null;
+  /** Plata de un tercero (ej. Álvaro): mueve la cuenta pero no es gasto ni ingreso propio. */
+  third_party_id?: string | null;
+  ingest_identifiers?: { type: string; value: string }[] | null;
   splits: Split[];
+}
+
+export interface ThirdParty {
+  id: string;
+  name: string;
 }
 
 export interface IngestLog {
@@ -166,6 +174,7 @@ export interface MerchantMemory {
   tag: string | null;
   auto_apply: boolean;
   hits: number;
+  third_party_id?: string | null;
 }
 
 export const CHANNEL_LABEL: Record<string, string> = {

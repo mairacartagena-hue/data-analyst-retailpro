@@ -75,6 +75,7 @@ Pestañas: **Inicio · Movimientos · + · Presupuesto · Informes · Más**. �
 - **Movimientos:** filtros por categoría y cuenta (también por enlace: `?categoria=`, `?cuenta=`).
 - **Sin etiquetas visibles:** la app trabaja solo con categorías. Por dentro se conservan marcas técnicas (ej. `#gmf` para no sumar dos veces el 4x1000 y `#suscripcion` para reconocer cobros de suscripción); los cobros de suscripción sugieren la categoría “Suscripciones” en “Por revisar”.
 - **Informes:** gastos por categoría, por persona (hogar/personal) y tendencia de 6 meses, con vista de tabla y descarga CSV para Excel (separador “;”).
+- **Plata de Álvaro (terceros):** en un gasto o ingreso se activa “Plata de Álvaro”. Ese movimiento mueve el saldo de la cuenta, pero no cuenta como gasto, ingreso, presupuesto ni informe. El inicio muestra el saldo con él: lo recibido y aún no pagado se aparta del Saldo Seguro; lo pagado y aún no devuelto aparece como “Álvaro te debe” y no suma hasta que llegue. En el patrimonio se compensa (pasivo o cuenta por cobrar). La app recuerda el comercio o remitente y la próxima vez pregunta “¿Es plata de Álvaro?”. Tabla `third_parties`, `transactions.third_party_id`, función `set_third_party()`.
 - **Categorías de ingresos** (`categories.kind = INCOME`): personales y sin presupuesto; se crean desde el formulario con “+ Nueva”.
 
 ## Decisiones de la Fase 1
@@ -92,7 +93,7 @@ Pestañas: **Inicio · Movimientos · + · Presupuesto · Informes · Más**. �
 ## Configuración
 
 ### 1. Base de datos (Supabase, proyecto `finanzas-pareja`)
-Las migraciones están en `supabase/migrations/` (0001 → 0015). Para aplicarlas a mano, pega cada archivo completo en **SQL Editor → Run**, en orden. Se pueden correr más de una vez.
+Las migraciones están en `supabase/migrations/` (0001 → 0016). Para aplicarlas a mano, pega cada archivo completo en **SQL Editor → Run**, en orden. Se pueden correr más de una vez.
 
 ### 2. Autenticación
 En Supabase → **Authentication → URL Configuration**:

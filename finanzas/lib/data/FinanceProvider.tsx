@@ -5,7 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabase } from "@/lib/supabase/client";
 import type {
   Account, AccountLabel, Category, CategoryBudgetRow, CustomPeriodRow, Household, LedgerRow, ManualAsset, Member,
-  PeriodSettingsRow, Reconciliation, Split, Transaction,
+  MerchantMemory, PeriodSettingsRow, Reconciliation, Split, ThirdParty, Transaction,
 } from "@/lib/types";
 import type { SpendingRow } from "@/lib/finance/budget";
 import { toPeriodSettings, type Snapshot } from "@/lib/finance/derive";
@@ -15,6 +15,9 @@ export interface FinanceState extends Snapshot {
   household: Household;
   uvt: number;
   reconciliations: Reconciliation[];
+  /** Terceros propios (por ahora solo uno, ej. Álvaro) y los comercios o remitentes recordados como suyos. */
+  thirdParties: ThirdParty[];
+  thirdPartyMemory: Pick<MerchantMemory, "identifier_type" | "identifier" | "third_party_id">[];
   labels: AccountLabel[];
   customPeriods: CustomPeriodRow[];
   period: Period;
@@ -55,7 +58,7 @@ async function loadAll(sb: SupabaseClient, userId: string): Promise<Loaded> {
   const me = meRow as Member;
   const hh = me.household_id;
 
-  const [household, members, settings, customPeriods, accounts, labels, balances, categories, budgets, txs, splits, ledger, assets, spending, recs] =
+  const [household, members, settings, customPeriods, accounts, labels, balances, categories, budgets, txs, splits, ledger, assets, spending, recs, thirdParties, tpMemory] =
     await Promise.all([
       sb.from("households").select("id, name, invite_code").eq("id", hh).single(),
       sb.from("household_members").select("*").eq("household_id", hh),
@@ -79,9 +82,11 @@ async function loadAll(sb: SupabaseClient, userId: string): Promise<Loaded> {
       ),
       sb.from("account_reconciliations").select("id, account_id, month, statement_balance, app_balance, difference, status, note, updated_at")
         .eq("owner_user_id", userId).order("month", { ascending: false }),
+      sb.from("third_parties").select("id, name").eq("owner_user_id", userId).order("created_at"),
+      sb.from("merchant_memory").select("identifier_type, identifier, third_party_id").eq("user_id", userId).not("third_party_id", "is", null),
     ]);
 
-  for (const r of [household, members, settings, customPeriods, accounts, labels, balances, categories, budgets, assets, recs]) {
+  for (const r of [household, members, settings, customPeriods, accounts, labels, balances, categories, budgets, assets, recs, thirdParties, tpMemory]) {
     if (r.error) throw r.error;
   }
 
@@ -108,6 +113,8 @@ async function loadAll(sb: SupabaseClient, userId: string): Promise<Loaded> {
       app_balance: Number(r.app_balance),
       difference: Number(r.difference),
     })),
+    thirdParties: (thirdParties.data ?? []) as ThirdParty[],
+    thirdPartyMemory: (tpMemory.data ?? []) as FinanceState["thirdPartyMemory"],
     customPeriods: (customPeriods.data ?? []) as CustomPeriodRow[],
     accounts: ((accounts.data ?? []) as Account[]).map((a) => ({
       ...a,
@@ -138,7 +145,7 @@ async function loadAll(sb: SupabaseClient, userId: string): Promise<Loaded> {
 const REALTIME_TABLES = [
   "account_reconciliations",
   "accounts", "categories", "category_budgets", "transactions", "transaction_splits",
-  "cross_ledger", "household_members", "period_settings", "manual_assets",
+  "cross_ledger", "household_members", "period_settings", "manual_assets", "third_parties", "merchant_memory",
 ];
 
 export function FinanceProvider({ userId, children }: { userId: string; children: React.ReactNode }) {

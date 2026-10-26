@@ -20,6 +20,8 @@ import { statusesFor } from "@/lib/finance/derive";
 import { fixedAmountsExcess } from "@/lib/finance/budget";
 import { unassigned, validateSplits, type SplitDraft } from "@/lib/finance/crossLedger";
 import { accountLabel, categoryLabel, categoryResponsible } from "@/lib/finance/labels";
+import { suggestThirdParty } from "@/lib/finance/thirdParty";
+import { ensureThirdParty, thirdPartyName } from "@/lib/data/thirdParty";
 import { errMsg } from "@/lib/utils";
 
 type FormKind = Exclude<TxKind, "SETTLEMENT">;
@@ -59,7 +61,8 @@ export function TransactionSheet({
 }: { open: boolean; onOpenChange: (v: boolean) => void; editing: Transaction | null; preset?: TxPreset | null }) {
   const state = useFinance();
   const router = useRouter();
-  const { me, partner, accounts, categories, labels, supabase, reload } = state;
+  const { me, partner, accounts, categories, labels, supabase, reload, thirdParties, thirdPartyMemory } = state;
+  const tpName = thirdPartyName(thirdParties);
 
   const myAccounts = accounts.filter((a) => a.owner_user_id === me.user_id && !a.archived);
   const usable = categories.filter((c) => !c.archived && c.kind !== "INCOME");
@@ -82,6 +85,7 @@ export function TransactionSheet({
   const [splits, setSplits] = useState<SplitRow[]>([]);
   const [isShared, setIsShared] = useState(false);
   const [incomeCategoryId, setIncomeCategoryId] = useState("");
+  const [isThird, setIsThird] = useState(false);
   const [newCategory, setNewCategory] = useState<"EXPENSE" | "INCOME" | null>(null);
   const [fixedPrompt, setFixedPrompt] = useState<FixedPrompt | null>(null);
   const [remember, setRemember] = useState(true);
@@ -104,6 +108,8 @@ export function TransactionSheet({
       setToAccountId(editing.to_account_id ?? "");
       setIsShared(editing.is_shared);
       setIncomeCategoryId(editing.income_category_id ?? "");
+      setIsThird(!!editing.third_party_id
+        || (editing.status === "PENDING_REVIEW" && !!suggestThirdParty(editing, thirdPartyMemory)));
       const sp = editing.splits;
       if (sp.length > 1) {
         setSplitMode(true);
@@ -140,6 +146,7 @@ export function TransactionSheet({
     setSplits([]);
     setIsShared(false);
     setIncomeCategoryId("");
+    setIsThird(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, editing, preset]);
 
@@ -174,8 +181,10 @@ export function TransactionSheet({
     : [{ amount: total, categoryId: categoryId || null, responsibleUserId: responsibleId }];
   const remaining = unassigned(total, splitDrafts);
 
+  const third = isThird && kind !== "TRANSFER";
+
   const fixedContext = useMemo(() => {
-    if (kind !== "EXPENSE" || splitMode || !selectedCategory || !partner) return null;
+    if (kind !== "EXPENSE" || third || splitMode || !selectedCategory || !partner) return null;
     if (selectedCategory.responsibility !== "FIXED_AMOUNTS" || responsibleId !== me.user_id) return null;
     const period = periodFor(state.settings, date);
     const st = statusesFor(state, period).get(selectedCategory.id);
@@ -188,7 +197,7 @@ export function TransactionSheet({
       .reduce((acc, s) => acc + s.amount, 0) ?? 0;
     const sameCat = editing && editing.occurred_on >= period.start && editing.occurred_on <= period.end ? own : 0;
     return { mine: { ...mine, spent: mine.spent - sameCat }, theirs };
-  }, [kind, splitMode, selectedCategory, partner, responsibleId, me.user_id, state, date, editing]);
+  }, [kind, third, splitMode, selectedCategory, partner, responsibleId, me.user_id, state, date, editing]);
 
   async function save(chargeExcess?: number) {
     setError(null);
@@ -196,7 +205,10 @@ export function TransactionSheet({
     if (kind !== "TRANSFER" && !accountId) return setError("Elige la cuenta.");
 
     let payloadSplits: (SplitDraft & { origin?: string })[] = [];
-    if (kind === "EXPENSE") {
+    if (kind === "EXPENSE" && third) {
+      // Plata de un tercero: sin categoría, para que no consuma presupuesto
+      payloadSplits = [{ amount: total, categoryId: null, responsibleUserId: me.user_id }];
+    } else if (kind === "EXPENSE") {
       payloadSplits = splitDrafts;
       const v = validateSplits(total, payloadSplits);
       if (v) return setError(v);
@@ -242,8 +254,8 @@ export function TransactionSheet({
         description,
         account_id: accountId || null,
         to_account_id: kind === "TRANSFER" ? toAccountId : null,
-        is_shared: kind === "INCOME" ? isShared : false,
-        income_category_id: kind === "INCOME" ? incomeCategoryId || null : null,
+        is_shared: kind === "INCOME" && !third ? isShared : false,
+        income_category_id: kind === "INCOME" && !third ? incomeCategoryId || null : null,
         splits: payloadSplits.map((s) => ({
           amount: s.amount,
           category_id: s.categoryId,
@@ -252,7 +264,19 @@ export function TransactionSheet({
         })),
       },
     });
-    if (!error && isPendingReview && kind === "EXPENSE" && !splitMode && remember && (editing?.merchant_norm || (editing?.splits.length ?? 0) > 0)) {
+    const txId = (savedId as string | null) ?? editing?.id ?? null;
+    if (!error && txId && (third || editing?.third_party_id)) {
+      try {
+        const tpId = third ? await ensureThirdParty(supabase, me, thirdParties) : null;
+        const r = await supabase.rpc("set_third_party", { p_transaction_id: txId, p_third_party_id: tpId, p_remember: third });
+        if (r.error) throw r.error;
+      } catch (e) {
+        setBusy(false);
+        void reload();
+        return setError(errMsg(e));
+      }
+    }
+    if (!error && !third && isPendingReview && kind === "EXPENSE" && !splitMode && remember && (editing?.merchant_norm || (editing?.splits.length ?? 0) > 0)) {
       await supabase.rpc("remember_merchant", { p_transaction_id: editing!.id, p_auto_apply: autoApply });
     }
     if (!error && preset?.logId && savedId) {
@@ -280,7 +304,7 @@ export function TransactionSheet({
   }
 
   const partnerName = partner?.display_name ?? "tu pareja";
-  const crossing = kind === "EXPENSE" && !splitMode && responsibleId !== me.user_id;
+  const crossing = kind === "EXPENSE" && !third && !splitMode && responsibleId !== me.user_id;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange} title={isPendingReview ? "Revisar movimiento" : editing ? "Editar movimiento" : preset?.categoryId ? "Registrar pago" : "Registrar"}>
@@ -338,6 +362,12 @@ export function TransactionSheet({
               options={myAccounts.map((a) => ({ value: a.id, label: accountLabel(labels, a.id) }))} />
           </Field>
 
+          {kind !== "TRANSFER" && (
+            <SwitchRow label={`Plata de ${tpName}`}
+              hint={kind === "INCOME" ? `${tpName} te envía la plata para un pago: no cuenta como ingreso y se aparta del Saldo Seguro.` : `Pago que haces por ${tpName}: no cuenta como gasto ni consume presupuesto.`}
+              checked={isThird} onCheckedChange={setIsThird} />
+          )}
+
           {kind === "TRANSFER" && (
             <Field label="Llega a" hint="Para pagar una tarjeta, elige la tarjeta como destino. No consume presupuesto.">
               <ChipGroup value={toAccountId} onChange={setToAccountId}
@@ -345,7 +375,7 @@ export function TransactionSheet({
             </Field>
           )}
 
-          {kind === "INCOME" && (
+          {kind === "INCOME" && !third && (
             <Field label="Categoría del ingreso (opcional)">
               <div className="flex flex-wrap gap-2">
                 {incomeCategories.map((c) => (
@@ -362,12 +392,12 @@ export function TransactionSheet({
             </Field>
           )}
 
-          {kind === "INCOME" && partner && (
+          {kind === "INCOME" && !third && partner && (
             <SwitchRow label={`Compartir con ${partnerName}`} hint="Si lo compartes, lo ve y cuenta en el flujo del hogar."
               checked={isShared} onCheckedChange={setIsShared} />
           )}
 
-          {kind === "EXPENSE" && !splitMode && (
+          {kind === "EXPENSE" && !third && !splitMode && (
             <>
               <Field label="Categoría">
                 <div className="flex flex-wrap gap-2">
@@ -404,7 +434,7 @@ export function TransactionSheet({
             </>
           )}
 
-          {kind === "EXPENSE" && splitMode && (
+          {kind === "EXPENSE" && !third && splitMode && (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <p className="text-sm font-medium text-muted">Desglose por montos exactos</p>
@@ -458,7 +488,7 @@ export function TransactionSheet({
             </div>
           )}
 
-          {isPendingReview && kind === "EXPENSE" && !splitMode && (
+          {isPendingReview && kind === "EXPENSE" && !third && !splitMode && (
             <div className="rounded-2xl border border-border bg-surface px-3">
               <SwitchRow label="Recordar este comercio" hint="La próxima vez te sugiero la misma categoría y responsable."
                 checked={remember} onCheckedChange={setRemember} />

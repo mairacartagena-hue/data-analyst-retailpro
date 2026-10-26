@@ -68,3 +68,23 @@ describe("derivados del inicio", () => {
     expect(cashFlow(snapshot, oct, "me")).toEqual({ income: 0, expense: 0, net: 0 });
   });
 });
+
+describe("Plata de un tercero en el inicio", () => {
+  const period = periodFor(DEFAULT_PERIOD_SETTINGS, "2026-10-15");
+  const base = (t: Partial<Snapshot["transactions"][number]>) => ({
+    id: "t", kind: "INCOME" as const, status: "CONFIRMED" as const, occurred_on: "2026-10-10", amount: 1_000_000,
+    description: null, merchant: null, account_id: "ahorros", to_account_id: null, payer_user_id: A,
+    counterparty_user_id: null, is_shared: false, source: "MANUAL", tags: [], created_by: A, created_at: "", splits: [], ...t,
+  });
+  const s: Snapshot = { ...snapshot, transactions: [base({ third_party_id: "alv" })] };
+
+  it("no cuenta en el flujo de caja y se aparta del Saldo Seguro", () => {
+    expect(cashFlow(s, period, "me").income).toBe(0);
+    const before = safeToSpendFor(snapshot, period).total;
+    expect(safeToSpendFor(s, period).total).toBe(before - 1_000_000);
+  });
+
+  it("el patrimonio no cambia: lo recibido sin pagar es un pasivo", () => {
+    expect(netWorth(s, "me").liabilities - netWorth(snapshot, "me").liabilities).toBe(1_000_000);
+  });
+});

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowDownLeft, ArrowRightLeft, ArrowUpRight, Handshake, Lock } from "lucide-react";
+import { ArrowDownLeft, ArrowRightLeft, ArrowUpRight, Handshake, Lock, UserRound } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { useShell } from "@/components/AppShell";
 import { PeriodSwitcher, SwipePeriods } from "@/components/PeriodSwitcher";
@@ -107,7 +107,7 @@ export default function MovimientosPage() {
 }
 
 function TxRow({ tx }: { tx: Transaction }) {
-  const { me, categories, labels, memberById } = useFinance();
+  const { me, categories, labels, memberById, thirdParties } = useFinance();
   const { openTransaction } = useShell();
   const payer = memberById(tx.payer_user_id);
   const crossed = tx.splits.filter((s) => s.responsible_user_id !== tx.payer_user_id);
@@ -131,6 +131,11 @@ function TxRow({ tx }: { tx: Transaction }) {
     icon = <Handshake size={18} className="text-wood" />;
     title = "Liquidación";
     subtitle = `${payer?.display_name} → ${memberById(tx.counterparty_user_id)?.display_name}`;
+  }
+  if (tx.third_party_id) {
+    const tp = thirdParties.find((t) => t.id === tx.third_party_id);
+    icon = <UserRound size={18} className="text-wood" />;
+    subtitle = tp ? `Plata de ${tp.name} · no cuenta` : "Plata de un tercero · no cuenta";
   }
 
   return (

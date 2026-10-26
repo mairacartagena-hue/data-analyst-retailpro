@@ -15,7 +15,7 @@ export interface CategoryTotal {
 export function spendingByCategory(txs: Transaction[], categories: Category[], period: Period): CategoryTotal[] {
   const map = new Map<string, CategoryTotal>();
   for (const t of txs) {
-    if (t.kind !== "EXPENSE" || !isWithin(t.occurred_on, period)) continue;
+    if (t.kind !== "EXPENSE" || t.third_party_id || !isWithin(t.occurred_on, period)) continue;
     for (const s of t.splits) {
       const label = categoryLabel(categories, s.category_id);
       const key = s.category_id && categories.some((c) => c.id === s.category_id) ? s.category_id : s.category_id ? "private" : "none";
@@ -38,7 +38,7 @@ export function monthlyTrend(txs: Transaction[], months: string[]): MonthTotals[
   const rows = new Map(months.map((m) => [m, { month: m, income: 0, expense: 0 }]));
   for (const t of txs) {
     const r = rows.get(t.occurred_on.slice(0, 7));
-    if (!r) continue;
+    if (!r || t.third_party_id) continue;
     if (t.kind === "INCOME") r.income += t.amount;
     if (t.kind === "EXPENSE") r.expense += t.splits.reduce((a, s) => a + s.amount, 0) || t.amount;
   }
@@ -56,7 +56,7 @@ export interface PersonTotals {
 export function spendingByPerson(txs: Transaction[], categories: Category[], period: Period, members: Member[]): PersonTotals[] {
   const out = new Map(members.map((m) => [m.user_id, { userId: m.user_id, name: m.display_name, household: 0, personal: 0 }]));
   for (const t of txs) {
-    if (t.kind !== "EXPENSE" || !isWithin(t.occurred_on, period)) continue;
+    if (t.kind !== "EXPENSE" || t.third_party_id || !isWithin(t.occurred_on, period)) continue;
     for (const s of t.splits) {
       const row = out.get(s.responsible_user_id);
       if (!row) continue;
@@ -120,7 +120,12 @@ function cell(v: string | number): string {
  */
 export function toCsv(
   txs: Transaction[],
-  ctx: { categories: Category[]; labels: AccountLabel[]; memberById: (id: string | null | undefined) => Member | null },
+  ctx: {
+    categories: Category[];
+    labels: AccountLabel[];
+    memberById: (id: string | null | undefined) => Member | null;
+    thirdPartyName?: (id: string) => string;
+  },
 ): string {
   const header = ["Fecha", "Tipo", "Descripción", "Comercio", "Monto", "Categoría", "Responsable", "Pagó", "Cuenta", "Estado"];
   const rows: string[][] = [header];
@@ -135,7 +140,10 @@ export function toCsv(
       account: t.kind === "TRANSFER" ? `${accountLabel(ctx.labels, t.account_id)} → ${accountLabel(ctx.labels, t.to_account_id)}` : accountLabel(ctx.labels, t.account_id),
       status: t.status === "PENDING_REVIEW" ? "Por revisar" : "Confirmado",
     };
-    const parts = t.kind === "EXPENSE" && t.splits.length > 0
+    const tpName = t.third_party_id ? `Plata de ${ctx.thirdPartyName?.(t.third_party_id) ?? "un tercero"}` : null;
+    const parts = tpName
+      ? [{ amount: t.amount, cat: tpName, resp: base.payer }]
+      : t.kind === "EXPENSE" && t.splits.length > 0
       ? t.splits.map((s) => ({ amount: s.amount, cat: categoryLabel(ctx.categories, s.category_id).name, resp: ctx.memberById(s.responsible_user_id)?.display_name ?? "" }))
       : [{
           amount: t.amount,

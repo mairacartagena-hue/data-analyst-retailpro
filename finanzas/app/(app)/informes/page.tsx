@@ -17,7 +17,7 @@ const SERIES_1 = "var(--series-1)";
 const SERIES_2 = "var(--series-2)";
 
 export default function InformesPage() {
-  const { transactions, categories, labels, period, me, partner, memberById } = useFinance();
+  const { transactions, categories, labels, period, me, partner, memberById, thirdParties } = useFinance();
   const router = useRouter();
   const members = [me, partner].filter(Boolean) as Member[];
 
@@ -34,7 +34,7 @@ export default function InformesPage() {
 
   function download() {
     const inPeriod = transactions.filter((t) => isWithin(t.occurred_on, period));
-    const csv = toCsv(inPeriod, { categories, labels, memberById });
+    const csv = toCsv(inPeriod, { categories, labels, memberById, thirdPartyName: (id) => thirdParties.find((t) => t.id === id)?.name ?? "un tercero" });
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
     const a = document.createElement("a");
     a.href = url;
