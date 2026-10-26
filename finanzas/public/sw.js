@@ -1,11 +1,11 @@
-// Service worker de Finanzas en Pareja: caché del shell (offline básico). Push y cola offline llegan en fases siguientes.
+// Service worker de Finanzas en Pareja: caché del shell y de las pantallas para abrir la app sin conexión.
+// Los datos sin conexión salen de la copia del celular (IndexedDB) y los movimientos nuevos van a una cola.
 const VERSION = "finanzas-v1";
 const SHELL = [
   "/offline.html",
   "/manifest.webmanifest",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
-  
 ];
 
 self.addEventListener("install", (event) => {
@@ -57,9 +57,30 @@ self.addEventListener("fetch", (event) => {
           }
           return res;
         })
-        .catch(() => caches.match(req).then((hit) => hit || caches.match("/offline.html"))),
+        .catch(() =>
+          caches.match(req).then((hit) => hit || caches.match(url.pathname)).then((hit) => hit || caches.match("/offline.html")),
+        ),
     );
   }
+});
+
+// La app pide guardar sus pantallas principales para poder abrirlas sin conexión (con la sesión de la persona).
+self.addEventListener("message", (event) => {
+  const msg = event.data || {};
+  if (msg.type !== "warm" || !Array.isArray(msg.urls)) return;
+  event.waitUntil(
+    caches.open(VERSION).then((cache) =>
+      Promise.all(
+        msg.urls
+          .filter((u) => typeof u === "string" && u.startsWith("/") && !u.startsWith("//"))
+          .map((u) =>
+            fetch(u, { credentials: "same-origin" })
+              .then((res) => (res.ok && !res.redirected ? cache.put(u, res) : undefined))
+              .catch(() => {}),
+          ),
+      ),
+    ),
+  );
 });
 
 self.addEventListener("push", (event) => {

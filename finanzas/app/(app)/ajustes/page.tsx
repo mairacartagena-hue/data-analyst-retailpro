@@ -12,12 +12,13 @@ import { ErrorText, Field, Input } from "@/components/ui/input";
 import { Segmented } from "@/components/ui/segmented";
 import { getInstallPrompt, isStandalone, subscribeInstallPrompt } from "@/lib/pwa";
 import { cn, errMsg } from "@/lib/utils";
+import { clearOffline } from "@/lib/offline/store";
 
 const COLORS = ["#6b7a3a", "#a0703f", "#8c5a46", "#4f6d6a", "#7b5c8a", "#b5654a", "#5a6f8f", "#9a8a3c"];
 type Theme = "system" | "light" | "dark";
 
 export default function AjustesPage() {
-  const { me, partner, household, settings, supabase, reload, uvt } = useFinance();
+  const { me, partner, household, settings, supabase, reload, uvt, queue } = useFinance();
   const router = useRouter();
 
   const [name, setName] = useState(me.display_name);
@@ -92,6 +93,8 @@ export default function AjustesPage() {
   }
 
   async function logout() {
+    if (queue.length > 0 && !confirm(`Hay ${queue.length === 1 ? "1 movimiento" : `${queue.length} movimientos`} guardados sin conexión que no se han enviado. Si cierras sesión se pierden. ¿Cerrar sesión igual?`)) return;
+    await clearOffline();
     await supabase.auth.signOut();
     router.replace("/login");
     router.refresh();

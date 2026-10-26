@@ -13,7 +13,8 @@ PWA privada de finanzas personales y en pareja (Android y escritorio). Todo en p
 | Cierre del mes (con importación del extracto en CSV), Informes, pestañas Inicio · Movimientos · + · Presupuesto · Informes · Más | Hecho |
 | Comentarios en los movimientos (migración 0020) | Hecho |
 | Etiquetas del hogar, nombre y reglas de reembolso en la memoria de comercios, importación de extractos en Excel (migración 0021) | Hecho |
-| Fase 3 — Voz, OCR, Telegram, offline con cola | Pendiente |
+| Fase 3 — Dictar, foto del recibo y registrar sin conexión (migración 0026) | Hecho (0026 aplicada) |
+| Fase 3 — Telegram | Pendiente (necesita crear el bot en @BotFather) |
 | Organización hogar / personal, subcategorías, pago de deuda / reembolso / ajuste, presupuestos con nombre, vencimientos y metas de ahorro (migraciones 0017 y 0018) | Hecho (migraciones 0017 a 0019 aplicadas) |
 | Fase 4 — Créditos con saldo (capital e intereses), Web Push, IA | Pendiente |
 
@@ -45,7 +46,7 @@ PWA privada de finanzas personales y en pareja (Android y escritorio). Todo en p
 | Dashboard con vistas Mis finanzas / Hogar / Vista global | `app/(app)/page.tsx` |
 | RLS en todas las tablas, Realtime en ambos celulares, PWA instalable, modo claro/oscuro | `supabase/migrations` |
 
-Pendiente para fases siguientes: voz/OCR/Telegram/offline con cola (Fase 3), Web Push, IA y créditos con saldo (Fase 4). Las metas de ahorro y los compromisos ya existen (0017 y 0018).
+Pendiente para fases siguientes: Telegram (Fase 3), Web Push, IA y créditos con saldo (Fase 4). Las metas de ahorro y los compromisos ya existen (0017 y 0018).
 
 **Créditos (decidido para la Fase 4):** por ahora se registran como pasivo manual en Cuentas → “Otros activos y pasivos” (tipo Crédito o Hipoteca) y la cuota como gasto en una categoría. En la Fase 4 serán un tipo de cuenta propio:
 - Datos del crédito: saldo de capital, tasa de interés (efectiva anual, en pesos; UVR queda fuera por ahora), plazo, día de pago, seguros y otros costos.
@@ -82,6 +83,17 @@ Variables de entorno de la Fase 2 (solo servidor, en Vercel):
 GEMINI_API_KEY=...          # Google AI Studio, gratis
 GEMINI_MODEL=...            # opcional; por defecto gemini-flash-lite-latest
 ```
+
+## Fase 3 — Registro rápido y sin conexión
+
+| Incluido | Dónde |
+|---|---|
+| **Dictar** (+ → Dictar): el navegador transcribe en español (es-CO) y la frase llena el formulario: tipo, monto, descripción, fecha, cuenta y categoría. Ej. “gasté 45 mil en el Éxito con Nequi”, “ayer pagué 18.500 de transporte”, “me pagaron el salario 3 millones en ahorros”, “pasé 200 mil de Nequi a ahorros”. Si el celular no deja dictar, se escribe la frase (o se usa el micrófono del teclado) | `components/QuickCapture.tsx` |
+| La frase la lee Gemini (con la lista de cuentas y categorías, solo nombres); sin conexión la lee el celular con reglas: “45 mil”, “1,5 millones”, “1 millón 200 mil”, “20 lucas”, “ayer”, “antier” | `lib/capture/phrase.ts`, `app/api/capture` |
+| **Foto del recibo** (+ → Foto del recibo): Gemini lee el total, el comercio, la fecha y sugiere la categoría. La foto se reduce en el celular, no se guarda en ningún lado y siempre se revisa el formulario antes de guardar | `lib/capture/gemini.ts` |
+| **Sin conexión:** la app guarda en el celular una copia de los últimos datos y las pantallas principales; sin internet se abren con un aviso “Sin conexión · datos del …” | `lib/offline/store.ts`, `public/sw.js` |
+| **Cola:** un movimiento nuevo guardado sin internet queda “por enviar” y se envía solo cuando vuelve la conexión (o con “Enviar ahora”). Cada uno lleva un identificador propio: si se reenvía no se duplica (`save_transaction_once()`, migración 0026). Editar, revisar avisos y leer fotos necesitan internet | `lib/data/FinanceProvider.tsx`, `components/OfflineBanner.tsx` |
+| Al cerrar sesión se borra la copia local, la cola y las pantallas guardadas (avisa si hay movimientos sin enviar) | `app/(app)/ajustes` |
 
 ## Cierre del mes (conciliación)
 
@@ -161,7 +173,7 @@ Pestañas: **Inicio · Movimientos · + · Presupuesto · Informes · Más**. �
 ## Configuración
 
 ### 1. Base de datos (Supabase, proyecto `finanzas-pareja`)
-Las migraciones están en `supabase/migrations/` (0001 → 0019). Para aplicarlas a mano, pega cada archivo completo en **SQL Editor → Run**, en orden. Se pueden correr más de una vez.
+Las migraciones están en `supabase/migrations/` (0001 → 0026). Para aplicarlas a mano, pega cada archivo completo en **SQL Editor → Run**, en orden. Se pueden correr más de una vez.
 
 ### 2. Autenticación
 En Supabase → **Authentication → URL Configuration**:
