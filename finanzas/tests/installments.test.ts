@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addMonthsIso, cardDue, expandInstallments, installmentPlan, monthlyRate, projectCard, rateOf, splitEven, statementsDueIn, cutsBetween, statementItemsAfter, matchedWithItems } from "@/lib/finance/installments";
+import { addMonthsIso, cardDue, expandInstallments, installmentPlan, monthlyRate, projectCard, rateOf, splitEven, statementsDueIn, cutsBetween, statementItemsAfter, matchedWithItems, billingDue } from "@/lib/finance/installments";
 import type { CardStatementItem } from "@/lib/types";
 import { spendingRows } from "@/lib/finance/spaces";
 import type { Transaction } from "@/lib/types";
@@ -219,9 +219,53 @@ describe("tarjeta BBVA con los números del extracto del 20-oct", () => {
   });
 
   it("la proyección no cuenta dos veces una compra que está en el extracto y como movimiento", () => {
-    const both = projectCard(card, txs, "2026-10-26", 3, items);
-    const onlyItems = projectCard(card, [], "2026-10-26", 3, items);
+    const matched = txs.filter((t) => ["amazon", "ikea", "ali"].includes(t.id));
+    const both = projectCard(card, matched, "2026-10-26", 4, items);
+    const onlyItems = projectCard(card, [], "2026-10-26", 4, items);
     expect(both.map((m) => m.capital)).toEqual(onlyItems.map((m) => m.capital));
+  });
+
+  it("las cuotas que faltan del extracto empiezan en el primer extracto después del corte (pago del 5-dic)", () => {
+    const p = projectCard(card, [], "2026-10-26", 4, items);
+    expect(p.map((m) => m.month)).toEqual(["2026-10", "2026-11", "2026-12", "2027-01"]);
+    expect(p[0].capital).toBe(0);
+    expect(p[1].capital).toBe(0); // el pago del 5-nov es el extracto ya cerrado
+    expect(p[2].capital).toBeGreaterThan(0);
+    expect(p[3].capital).toBeGreaterThan(0);
+  });
+});
+
+describe("proyección de compras hechas después del corte", () => {
+  const card = { id: "bbva", statement_day: 20, due_day: 5, opening_at: "2026-10-21T05:00:00+00:00", interest_rate_ea: 0 };
+  const buy = (id: string, on: string, amount: number, installments = 1, status: Transaction["status"] = "CONFIRMED") =>
+    tx({ id, account_id: "bbva", occurred_on: on, amount, installments, status });
+
+  it("billingDue: una compra se paga en el primer pago después del corte que la factura", () => {
+    expect(billingDue(20, 5, "2026-10-23")).toBe("2026-12-05"); // corte 20-nov
+    expect(billingDue(20, 5, "2026-11-20")).toBe("2026-12-05"); // el día del corte entra
+    expect(billingDue(20, 5, "2026-11-21")).toBe("2027-01-05");
+    expect(billingDue(10, 25, "2026-10-05")).toBe("2026-10-25"); // pago el mismo mes del corte
+  });
+
+  it("una compra a 1 cuota entra completa en el mes de pago de su extracto", () => {
+    const p = projectCard(card, [buy("a", "2026-10-23", 18_750)], "2026-10-26", 4);
+    expect(p.map((m) => m.capital)).toEqual([0, 0, 18_750, 0]);
+  });
+
+  it("una compra a 2 cuotas se reparte en los dos meses siguientes", () => {
+    const p = projectCard(card, [buy("a", "2026-10-24", 100_000, 2)], "2026-10-26", 4);
+    expect(p.map((m) => m.capital)).toEqual([0, 0, 50_000, 50_000]);
+    expect(p[2].purchases).toBe(1);
+  });
+
+  it("las compras anteriores al extracto o pendientes no se proyectan", () => {
+    const p = projectCard(card, [buy("a", "2026-10-17", 90_000), buy("b", "2026-10-25", 40_000, 1, "PENDING_REVIEW")], "2026-10-26", 4);
+    expect(p.every((m) => m.capital === 0)).toBe(true);
+  });
+
+  it("sin día de corte y de pago solo se proyectan las compras a cuotas, como antes", () => {
+    const p = projectCard({ id: "bbva", interest_rate_ea: 0 }, [buy("a", "2026-10-23", 18_750), buy("b", "2026-10-24", 100_000, 2)], "2026-10-26", 3);
+    expect(p.map((m) => m.capital)).toEqual([50_000, 50_000, 0]); // cuota 1 en el mes de la compra
   });
 });
 

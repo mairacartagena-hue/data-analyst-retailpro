@@ -182,7 +182,7 @@ export function AccountSheet({ open, onOpenChange, account }: { open: boolean; o
           </div>
         )}
         {isCard && account && (
-          <CardProjection cardId={account.id} rate={account.interest_rate_ea ?? null} />
+          <CardProjection account={account} />
         )}
         {(isCard || isCredit) && (
           <Field label="Tasa de interés (% efectiva anual)" htmlFor="rate"
@@ -289,13 +289,15 @@ export function AssetSheet({ open, onOpenChange, asset }: { open: boolean; onOpe
 }
 
 /** Cuotas que faltan por pagar en la tarjeta, mes a mes: compras registradas en la app y compras del extracto. */
-function CardProjection({ cardId, rate }: { cardId: string; rate: number | null }) {
+function CardProjection({ account }: { account: Account }) {
+  const cardId = account.id;
   const { transactions, cardItems, supabase, reload, me } = useFinance();
   const [adding, setAdding] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [draft, setDraft] = useState({ description: "", amount: "", installments: "12", paid: "1", balance: "", rate: "" });
   const mine = cardItems.filter((i) => i.account_id === cardId);
-  const card = { id: cardId, interest_rate_ea: rate };
+  const card = { id: cardId, interest_rate_ea: account.interest_rate_ea ?? null, statement_day: account.statement_day, due_day: account.due_day, opening_at: account.opening_at };
+  const byPayment = !!(account.statement_day && account.due_day && account.opening_at);
   const rows = projectCard(card, transactions, todayBogota(), 12, mine).filter((r) => r.purchases > 0);
   const total = rows.reduce((a, r) => a + r.total, 0);
 
@@ -336,14 +338,14 @@ function CardProjection({ cardId, rate }: { cardId: string; rate: number | null 
         <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface">
           {rows.map((r) => (
             <div key={r.month} className="flex items-center justify-between px-3.5 py-2.5 text-sm">
-              <span className="capitalize">{monthName(Number(r.month.slice(5)) - 1, true)} {r.month.slice(0, 4)} <span className="text-xs text-muted">· {r.purchases} compra{r.purchases === 1 ? "" : "s"}</span></span>
+              <span className="capitalize">{byPayment ? "Pago de " : ""}{monthName(Number(r.month.slice(5)) - 1, true)} {r.month.slice(0, 4)} <span className="text-xs text-muted">· {r.purchases} compra{r.purchases === 1 ? "" : "s"}</span></span>
               <span className="num font-semibold">{formatCop(r.total)}</span>
             </div>
           ))}
         </div>
       )}
       {rows.length > 0 && (
-        <p className="text-xs text-muted">Total de estos meses: {formatCop(total)} (capital más intereses estimados). Es una estimación; el plan de pagos del banco manda.</p>
+        <p className="text-xs text-muted">Total de estos meses: {formatCop(total)} (capital más intereses estimados). Es una estimación; el plan de pagos del banco manda.{byPayment ? " Incluye lo que compres después del corte, en el extracto que lo factura." : ""}</p>
       )}
 
       <div className="space-y-2">
@@ -372,7 +374,7 @@ function CardProjection({ cardId, rate }: { cardId: string; rate: number | null 
               <AmountInput value={draft.balance} onChange={(v) => setDraft({ ...draft, balance: v })} />
             </div>
             <p className="text-xs text-muted">Valor de la compra, cuotas, cuotas ya cobradas y saldo que falta (“Saldo diferido” del extracto).</p>
-            <Input inputMode="decimal" value={draft.rate} onChange={(e) => setDraft({ ...draft, rate: e.target.value.replace(/[^\d,.]/g, "").slice(0, 6) })} placeholder={`Tasa E.A. (vacío = ${rate ?? "la de la tarjeta"})`} aria-label="Tasa" />
+            <Input inputMode="decimal" value={draft.rate} onChange={(e) => setDraft({ ...draft, rate: e.target.value.replace(/[^\d,.]/g, "").slice(0, 6) })} placeholder={`Tasa E.A. (vacío = ${account.interest_rate_ea ?? "la de la tarjeta"})`} aria-label="Tasa" />
             <ErrorText>{err}</ErrorText>
             <div className="flex gap-2">
               <Button size="sm" onClick={() => void addItem()}>Agregar</Button>
