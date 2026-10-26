@@ -1,4 +1,5 @@
 import "server-only";
+import { geminiGenerate, geminiModels } from "@/lib/ai/geminiCall";
 
 // Captura rápida con Gemini: lee una frase dictada o la foto de un recibo y propone el movimiento.
 // La persona siempre revisa el formulario antes de guardar. La foto no se guarda en ningún lado.
@@ -59,20 +60,11 @@ export async function captureWithGemini(
   const isImage = "image" in input;
   const part = isImage ? { inlineData: { mimeType: input.mime, data: input.image } } : { text: input.text.slice(0, 1000) };
 
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-goog-api-key": key },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: instructions(ctx, isImage ? "image" : "text") }] },
-      contents: [{ role: "user", parts: [part] }],
-      generationConfig: { responseMimeType: "application/json", responseSchema: schema, temperature: 0 },
-    }),
-    signal: AbortSignal.timeout(25_000),
-  });
-  if (!res.ok) throw new Error(`Gemini respondió ${res.status}`);
-  const data = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
-  const out = data.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!out) return null;
+  const out = await geminiGenerate(geminiModels(model, "gemini-flash-latest"), {
+    systemInstruction: { parts: [{ text: instructions(ctx, isImage ? "image" : "text") }] },
+    contents: [{ role: "user", parts: [part] }],
+    generationConfig: { responseMimeType: "application/json", responseSchema: schema, temperature: 0 },
+  }, { timeoutMs: 25_000, deadlineMs: 28_000 });
   return sanitizeCapture(JSON.parse(out), ctx);
 }
 

@@ -3,6 +3,7 @@ import "server-only";
 // Gemini lee el extracto de un crédito (PDF o foto). El archivo no se guarda en ningún lado.
 
 import { sanitizeCreditStatement, type CreditStatementData } from "./creditStatement";
+import { geminiGenerate, geminiModels } from "@/lib/ai/geminiCall";
 
 const DEFAULT_MODEL = "gemini-flash-latest";
 
@@ -40,28 +41,15 @@ const INSTRUCTIONS = `Lees el extracto o estado de cuenta de un crédito en Colo
 Los montos van en pesos como número: en Colombia "2.405.745,56" o "2,405,745.56" es 2405745.56. Si algo no aparece, usa null. No inventes.`;
 
 export async function readCreditStatement(file: { data: string; mime: string }): Promise<CreditStatementData> {
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) throw new Error("La IA no está configurada (falta GEMINI_API_KEY).");
-  const models = [process.env.GEMINI_ASSISTANT_MODEL || DEFAULT_MODEL, process.env.GEMINI_MODEL || "gemini-flash-lite-latest"];
-  let last: Error | null = null;
-  for (const model of [...new Set(models)]) {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-goog-api-key": key },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: INSTRUCTIONS }] },
-        contents: [{ role: "user", parts: [{ inlineData: { mimeType: file.mime, data: file.data } }] }],
-        generationConfig: { responseMimeType: "application/json", responseSchema: schema, temperature: 0 },
-      }),
-      signal: AbortSignal.timeout(50_000),
-    });
-    if (res.status === 404) { last = new Error(`Modelo ${model} no disponible`); continue; }
-    if (res.status === 429) throw new Error("La IA alcanzó el límite gratuito por ahora. Intenta en un minuto.");
-    if (!res.ok) throw new Error(`Gemini respondió ${res.status}`);
-    const data = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
-    const out = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!out) throw new Error("No se pudo leer el extracto. Prueba con una foto más nítida o el PDF del banco.");
+  const models = geminiModels(process.env.GEMINI_ASSISTANT_MODEL || DEFAULT_MODEL, process.env.GEMINI_MODEL);
+  const out = await geminiGenerate(models, {
+    systemInstruction: { parts: [{ text: INSTRUCTIONS }] },
+    contents: [{ role: "user", parts: [{ inlineData: { mimeType: file.mime, data: file.data } }] }],
+    generationConfig: { responseMimeType: "application/json", responseSchema: schema, temperature: 0 },
+  }, { timeoutMs: 40_000, deadlineMs: 55_000 });
+  try {
     return sanitizeCreditStatement(JSON.parse(out) as Record<string, unknown>);
+  } catch {
+    throw new Error("No se pudo leer el extracto. Prueba con una foto más nítida o el PDF del banco.");
   }
-  throw last ?? new Error("No se pudo leer el extracto.");
 }
