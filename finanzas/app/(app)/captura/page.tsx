@@ -17,7 +17,6 @@ import { categoryLabel } from "@/lib/finance/labels";
 import { appsScript, authHeader, notificationBody, smsBody } from "@/lib/ingest/templates";
 import { findAmount } from "@/lib/ingest/normalize";
 import { cn, errMsg } from "@/lib/utils";
-import { thirdPartyName } from "@/lib/data/thirdParty";
 
 /** Avisos que no llegaron a ser un movimiento: los cuenta el Cierre del mes y los lista esta pantalla. */
 const FAILED_RESULTS = ["UNRECOGNIZED", "ERROR", "DISCARDED"];
@@ -56,7 +55,7 @@ function Step({ n, children }: { n: number; children: React.ReactNode }) {
 }
 
 export default function CapturaPage() {
-  const { supabase, me, categories, memberById, reload, thirdParties } = useFinance();
+  const { supabase, me, categories, memberById, reload } = useFinance();
   const [origin, setOrigin] = useState("");
   const [token, setToken] = useState<{ token_hint: string; created_at: string; last_used_at: string | null } | null>(null);
   const [newToken, setNewToken] = useState<string | null>(null);
@@ -77,7 +76,7 @@ export default function CapturaPage() {
       supabase.from("ingest_tokens").select("token_hint, created_at, last_used_at").eq("user_id", me.user_id).maybeSingle(),
       supabase.from("ingest_logs").select("id, channel, source, raw_text, parser, result, reason, transaction_id, received_at")
         .eq("user_id", me.user_id).order("received_at", { ascending: false }).limit(40),
-      supabase.from("merchant_memory").select("id, identifier_type, identifier, category_id, responsible_user_id, tag, auto_apply, hits, label, scope, creates_debt, movement_kind, third_party_id")
+      supabase.from("merchant_memory").select("id, identifier_type, identifier, category_id, responsible_user_id, tag, auto_apply, hits, label, scope, creates_debt, movement_kind")
         .eq("user_id", me.user_id).order("hits", { ascending: false }),
       // Todos los avisos que no se pudieron leer (no solo los más recientes): los mismos que cuenta el Cierre del mes
       supabase.from("ingest_logs").select("id, channel, source, raw_text, parser, result, reason, transaction_id, received_at").eq("user_id", me.user_id)
@@ -295,8 +294,7 @@ export default function CapturaPage() {
                 <button className="min-w-0 flex-1 text-left" onClick={() => setEditingMemory(g)} aria-label={`Editar ${memoryTitle(m)}`}>
                   <p className="flex items-center gap-1.5 truncate font-medium">{memoryTitle(m)} <Pencil size={12} className="shrink-0 text-muted" /></p>
                   <p className="truncate text-xs text-muted">
-                    {m.third_party_id ? <>Plata de {thirdPartyName(thirdParties)} · {g.hits} uso{g.hits === 1 ? "" : "s"}</> : <>
-                    {m.movement_kind === "REFUND" ? "Reembolso de " : ""}{cat.icon} {cat.name} · {resp ? (resp.user_id === me.user_id ? "tú" : resp.display_name) : ""} · {m.scope === "HOUSEHOLD" ? "hogar" : "personal"} · {g.hits} uso{g.hits === 1 ? "" : "s"}</>}
+                    {m.movement_kind === "REFUND" ? "Reembolso de " : ""}{cat.icon} {cat.name} · {resp ? (resp.user_id === me.user_id ? "tú" : resp.display_name) : ""} · {m.scope === "HOUSEHOLD" ? "hogar" : "personal"} · {g.hits} uso{g.hits === 1 ? "" : "s"}
                     {m.label ? ` · ${m.identifier}` : ""}
                   </p>
                 </button>

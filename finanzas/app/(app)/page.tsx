@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
-import { ArrowRightLeft, ChevronDown, Info, Settings, UserRound } from "lucide-react";
+import { ArrowRightLeft, ChevronDown, Info, Settings } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { useShell } from "@/components/AppShell";
 import { PeriodSwitcher, SwipePeriods } from "@/components/PeriodSwitcher";
@@ -22,8 +22,6 @@ import { Segmented } from "@/components/ui/segmented";
 import { Sheet } from "@/components/ui/sheet";
 import { cashFlow, crossNet, limitResponsible, limitsForScope, netWorth, safeToSpendDetail, safeToSpendFor, statusesFor, type SafeToSpendDetail, type Scope } from "@/lib/finance/derive";
 import { formatCop } from "@/lib/finance/money";
-import { thirdPartyBalance } from "@/lib/finance/thirdParty";
-import { thirdPartyName } from "@/lib/data/thirdParty";
 import { categoryPath } from "@/lib/finance/spaces";
 import { categoryLabel } from "@/lib/finance/labels";
 import { cn } from "@/lib/utils";
@@ -104,8 +102,7 @@ export default function HomePage() {
         <CreditCheck />
         <PendingReview />
 
-        <SafeToSpendCard safe={safe} detail={safeDetail} tpName={thirdPartyName(state.thirdParties)} />
-        <ThirdPartyCard />
+        <SafeToSpendCard safe={safe} detail={safeDetail} />
 
         {partner ? (
           <Card className="mt-3 flex items-center gap-3">
@@ -196,26 +193,6 @@ export default function HomePage() {
   );
 }
 
-/** Saldo con el tercero (ej. Álvaro): solo aparece si hay movimientos marcados como suyos. */
-function ThirdPartyCard() {
-  const { transactions, me, thirdParties } = useFinance();
-  if (!transactions.some((t) => t.third_party_id && t.payer_user_id === me.user_id)) return null;
-  const name = thirdPartyName(thirdParties);
-  const bal = thirdPartyBalance(transactions, me.user_id);
-  return (
-    <Card className="mt-3 flex items-center gap-3">
-      <UserRound className="shrink-0 text-wood" size={22} />
-      <div className="min-w-0 flex-1">
-        <p className="text-sm text-muted">Plata de {name}</p>
-        <p className="num text-lg font-semibold">
-          {bal === 0 ? "A paz y salvo" : bal > 0 ? `Tienes ${formatCop(bal)} suyos por pagar` : `${name} te debe ${formatCop(-bal)}`}
-        </p>
-        <p className="text-xs text-muted">No cuenta en tus gastos, ingresos ni presupuesto.</p>
-      </div>
-    </Card>
-  );
-}
-
 type SafeSection = "accounts" | "obligations" | "savings" | "debts";
 
 const SECTION_INFO: Record<SafeSection, { title: string; description: string; empty: string; href: string; linkLabel: string }> = {
@@ -245,7 +222,7 @@ const SECTION_INFO: Record<SafeSection, { title: string; description: string; em
   },
 };
 
-function SafeToSpendCard({ safe, detail, tpName }: { safe: ReturnType<typeof safeToSpendFor>; detail: SafeToSpendDetail; tpName: string }) {
+function SafeToSpendCard({ safe, detail }: { safe: ReturnType<typeof safeToSpendFor>; detail: SafeToSpendDetail }) {
   const [open, setOpen] = useState(false);
   const [section, setSection] = useState<SafeSection | null>(null);
   const rows: { label: string; value: number; sign: string; section?: SafeSection; href?: string }[] = [
@@ -254,7 +231,6 @@ function SafeToSpendCard({ safe, detail, tpName }: { safe: ReturnType<typeof saf
     { label: SECTION_INFO.savings.title, value: safe.scheduledSavingsPending, sign: "−", section: "savings" },
     { label: SECTION_INFO.debts.title, value: safe.creditCardDebt, sign: "−", section: "debts" },
     { label: "Lo que le debes a tu pareja", value: safe.owedToPartner, sign: "−", href: "/cuentas?vista=cruce" },
-    ...(safe.heldForThirdParty > 0 ? [{ label: `Plata de ${tpName} por pagar`, value: safe.heldForThirdParty, sign: "−" }] : []),
   ];
   const info = section ? SECTION_INFO[section] : null;
   const lines = section ? detail[section] : [];

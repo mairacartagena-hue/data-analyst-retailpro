@@ -30,7 +30,7 @@ export function spendingByCategory(txs: Transaction[], categories: Category[], p
   const map = new Map<string, CategoryTotal>();
   for (const t of txs) {
     const sign = consumptionSign(t.kind);
-    if (!sign || t.third_party_id || !isWithin(t.occurred_on, period)) continue;
+    if (!sign || !isWithin(t.occurred_on, period)) continue;
     for (const s of t.splits) {
       const known = !!s.category_id && categories.some((c) => c.id === s.category_id);
       const id = known && byParent ? rootOf(categories, s.category_id!) : s.category_id;
@@ -58,7 +58,7 @@ export function monthlyTrend(txs: Transaction[], months: string[]): MonthTotals[
   const rows = new Map(months.map((m) => [m, { month: m, income: 0, expense: 0 }]));
   for (const t of txs) {
     const r = rows.get(t.occurred_on.slice(0, 7));
-    if (!r || t.third_party_id) continue;
+    if (!r) continue;
     if (t.kind === "INCOME") r.income += t.amount;
     const sign = consumptionSign(t.kind);
     if (sign) r.expense += sign * (t.splits.reduce((a, s) => a + s.amount, 0) || t.amount);
@@ -78,7 +78,7 @@ export function spendingByPerson(txs: Transaction[], _categories: Category[], pe
   const out = new Map(members.map((m) => [m.user_id, { userId: m.user_id, name: m.display_name, household: 0, personal: 0 }]));
   for (const t of txs) {
     const sign = consumptionSign(t.kind);
-    if (!sign || t.third_party_id || !isWithin(t.occurred_on, period)) continue;
+    if (!sign || !isWithin(t.occurred_on, period)) continue;
     for (const s of t.splits) {
       const row = out.get(s.responsible_user_id);
       if (!row) continue;
@@ -147,7 +147,7 @@ function cell(v: string | number): string {
  */
 export function toCsv(
   txs: Transaction[],
-  ctx: { categories: Category[]; labels: AccountLabel[]; memberById: (id: string | null | undefined) => Member | null; /** Nombres de las etiquetas de un movimiento (si se da, se agrega la columna). */ tagsOf?: (txId: string) => string[]; thirdPartyName?: (id: string) => string },
+  ctx: { categories: Category[]; labels: AccountLabel[]; memberById: (id: string | null | undefined) => Member | null; /** Nombres de las etiquetas de un movimiento (si se da, se agrega la columna). */ tagsOf?: (txId: string) => string[] },
 ): string {
   const header = ["Fecha", "Tipo", "Ámbito", "Descripción", "Comercio", "Monto", "Categoría", "Responsable", "Pagó", "Cuenta", "Estado", ...(ctx.tagsOf ? ["Etiquetas"] : [])];
   const rows: string[][] = [header];
@@ -166,10 +166,7 @@ export function toCsv(
     };
     const sign = t.kind === "TRANSFER" || t.kind === "SETTLEMENT" ? -1 : accountSign(t);
     const catName = (id: string | null) => (id && ctx.categories.some((c) => c.id === id) ? categoryPath(ctx.categories, id) : categoryLabel(ctx.categories, id).name);
-    const tpName = t.third_party_id ? `Plata de ${ctx.thirdPartyName?.(t.third_party_id) ?? "un tercero"}` : null;
-    const parts = tpName
-      ? [{ amount: t.amount, cat: tpName, resp: base.payer }]
-      : hasSplits(t.kind) && t.splits.length > 0
+    const parts = hasSplits(t.kind) && t.splits.length > 0
       ? t.splits.map((s) => ({ amount: s.amount, cat: catName(s.category_id), resp: ctx.memberById(s.responsible_user_id)?.display_name ?? "" }))
       : [{
           amount: t.amount,

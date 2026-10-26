@@ -190,6 +190,13 @@ Pestañas: **Inicio · Movimientos · + · Presupuesto · Informes · Más**. �
 - **Avisos sin reconocer:** el Cierre del mes y Captura automática cuentan lo mismo; Captura los lista todos (no solo los últimos) y un solo botón reintenta todos.
 - **Categorías de ingresos** (`categories.kind = INCOME`): personales y sin presupuesto; se crean desde el formulario con “+ Nueva”.
 
+## Pagos que se hacen por otra persona
+
+Ej. un pago mensual que se hace por un familiar que luego envía la plata: se usa una categoría propia (ej. “Alvaro”) y reembolsos.
+- El pago es un gasto en esa categoría; la plata que llega es un **reembolso** de la misma categoría, así que en el mes queda en $0 y no cuenta como ingreso.
+- Para que llegue sola como reembolso: regla de reembolso en la memoria de comercios (`merchant_memory.movement_kind = 'REFUND'`) para quien envía la plata.
+- La migración 0037 (`third_parties`) quedó en la base de datos sin uso: se probó un interruptor “Plata de un tercero” y se reemplazó por este esquema.
+
 ## Seguridad
 
 - RLS en todas las tablas; las funciones `SECURITY DEFINER` tienen `search_path` fijo y validan `auth.uid()`.
@@ -213,7 +220,7 @@ Pestañas: **Inicio · Movimientos · + · Presupuesto · Informes · Más**. �
 ## Configuración
 
 ### 1. Base de datos (Supabase, proyecto `finanzas-pareja`)
-Las migraciones están en `supabase/migrations/` (0001 → 0036). Para aplicarlas a mano, pega cada archivo completo en **SQL Editor → Run**, en orden. Se pueden correr más de una vez.
+Las migraciones están en `supabase/migrations/` (0001 → 0037). Para aplicarlas a mano, pega cada archivo completo en **SQL Editor → Run**, en orden. Se pueden correr más de una vez.
 
 ### 2. Autenticación
 En Supabase → **Authentication → URL Configuration**:
