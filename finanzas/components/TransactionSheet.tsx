@@ -598,12 +598,11 @@ export function TransactionSheet({
 
           {isCardPurchase && (
             <Field label="Cuotas" htmlFor="cuotas" hint={installmentHint}>
-              <div className="flex flex-wrap items-center gap-2">
-                <ChipGroup value={["1", "3", "6", "12", "24", "36"].includes(installments) ? installments : null} onChange={setInstallments}
-                  options={["1", "3", "6", "12", "24", "36"].map((n) => ({ value: n, label: n === "1" ? "1 (sin cuotas)" : n }))} />
-                <Input id="cuotas" inputMode="numeric" value={installments} className="w-20"
-                  onChange={(e) => setInstallments(e.target.value.replace(/\D/g, "").slice(0, 2))} aria-label="Número de cuotas" />
-              </div>
+              <Select id="cuotas" value={String(installmentCount)} onChange={(e) => setInstallments(e.target.value)} aria-label="Número de cuotas">
+                {Array.from({ length: MAX_INSTALLMENTS }, (_, i) => i + 1).map((n) => (
+                  <option key={n} value={n}>{n === 1 ? "1 cuota (sin cuotas)" : `${n} cuotas`}</option>
+                ))}
+              </Select>
               {installmentCount > 1 && (
                 <div className="mt-2">
                   <Input inputMode="decimal" value={purchaseRate} placeholder={`Tasa E.A. de esta compra (vacío = ${payAccount?.interest_rate_ea ?? "la de la tarjeta"})`}
