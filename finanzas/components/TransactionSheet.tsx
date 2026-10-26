@@ -28,7 +28,7 @@ import { unassigned, validateSplits, type SplitDraft } from "@/lib/finance/cross
 import { accountLabel, categoryLabel } from "@/lib/finance/labels";
 import { categoryPath, hasSplits } from "@/lib/finance/spaces";
 import { errMsg } from "@/lib/utils";
-import { installmentPlan, MAX_INSTALLMENTS } from "@/lib/finance/installments";
+import { installmentPlan, MAX_INSTALLMENTS, rateOf } from "@/lib/finance/installments";
 import { isNetworkError } from "@/lib/offline/store";
 import { newClientId, type QueuedTx } from "@/lib/offline/queue";
 
@@ -137,6 +137,8 @@ export function TransactionSheet({
   const [createsDebt, setCreatesDebt] = useState(true);
   /** Compras con tarjeta de crédito: número de cuotas. */
   const [installments, setInstallments] = useState("1");
+  /** Tasa E.A. de esta compra (la del extracto); vacío = la de la tarjeta. */
+  const [purchaseRate, setPurchaseRate] = useState("");
   const [tagIds, setTagIds] = useState<string[]>([]);
   const [incomeCategoryId, setIncomeCategoryId] = useState("");
   const [scheduled, setScheduled] = useState<{ id: string; for: string } | null>(null);
@@ -166,6 +168,7 @@ export function TransactionSheet({
       setDirection(editing.direction ?? "OUT");
       setCreatesDebt(editing.creates_debt ?? true);
       setInstallments(String(editing.installments ?? 1));
+      setPurchaseRate(editing.interest_rate_ea ? String(editing.interest_rate_ea).replace(".", ",") : "");
       setIncomeCategoryId(editing.income_category_id ?? "");
       setScheduled(editing.scheduled_payment_id && editing.scheduled_for ? { id: editing.scheduled_payment_id, for: editing.scheduled_for } : null);
       const sp = editing.splits;
@@ -210,6 +213,7 @@ export function TransactionSheet({
     setSplits([]);
     setCreatesDebt(true);
     setInstallments("1");
+    setPurchaseRate("");
     setIncomeCategoryId("");
     setScheduled(preset?.scheduledPaymentId && preset.scheduledFor ? { id: preset.scheduledPaymentId, for: preset.scheduledFor } : null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -220,14 +224,16 @@ export function TransactionSheet({
   const payAccount = accounts.find((a) => a.id === accountId) ?? null;
   const isCardPurchase = kind === "EXPENSE" && payAccount?.kind === "CREDIT_CARD" && !partnerEdit;
   const installmentCount = Math.min(MAX_INSTALLMENTS, Math.max(1, Number.parseInt(installments, 10) || 1));
+  const parsedPurchaseRate = purchaseRate.trim() ? Number(purchaseRate.replace(",", ".")) : null;
+  const effectiveRate = rateOf({ interest_rate_ea: parsedPurchaseRate ?? null }, { interest_rate_ea: payAccount?.interest_rate_ea ?? null });
   const installmentHint = (() => {
     if (!isCardPurchase || installmentCount <= 1) return "Cada mes cuenta su cuota en el presupuesto.";
-    const plan = installmentPlan(total, installmentCount, date, payAccount?.interest_rate_ea);
+    const plan = installmentPlan(total, installmentCount, date, effectiveRate);
     const interest = plan.reduce((a, c) => a + c.interest, 0);
     const first = plan[0];
     const base = `${installmentCount} cuotas de ${formatCop(plan[plan.length - 1]?.capital ?? 0)} de capital; en el presupuesto cuenta una por mes.`;
-    if (!payAccount?.interest_rate_ea) return `${base} Escribe la tasa de la tarjeta en Cuentas para estimar los intereses.`;
-    return `${base} Primera cuota ≈ ${formatCop(first?.total ?? 0)} con intereses; intereses estimados en total ≈ ${formatCop(interest)} (${payAccount.interest_rate_ea} % E.A.).`;
+    if (!effectiveRate) return `${base} Escribe la tasa de la tarjeta en Cuentas o la de esta compra para estimar los intereses.`;
+    return `${base} Primera cuota ≈ ${formatCop(first?.total ?? 0)} con intereses; intereses estimados en total ≈ ${formatCop(interest)} (${effectiveRate} % E.A.).`;
   })();
   const selectedCategory = usable.find((c) => c.id === categoryId) ?? null;
   const withSplits = hasSplits(kind);
@@ -442,6 +448,7 @@ export function TransactionSheet({
         to_account_id: kind === "TRANSFER" ? toAccountId : null,
         direction: kind === "ADJUSTMENT" ? direction : null,
         installments: isCardPurchase ? installmentCount : 1,
+        interest_rate_ea: isCardPurchase && installmentCount > 1 ? parsedPurchaseRate : null,
         creates_debt: createsDebt,
         is_shared: kind === "INCOME" && scope === "HOUSEHOLD",
         income_category_id: kind === "INCOME" ? incomeCategoryId || null : null,
@@ -597,6 +604,12 @@ export function TransactionSheet({
                 <Input id="cuotas" inputMode="numeric" value={installments} className="w-20"
                   onChange={(e) => setInstallments(e.target.value.replace(/\D/g, "").slice(0, 2))} aria-label="Número de cuotas" />
               </div>
+              {installmentCount > 1 && (
+                <div className="mt-2">
+                  <Input inputMode="decimal" value={purchaseRate} placeholder={`Tasa E.A. de esta compra (vacío = ${payAccount?.interest_rate_ea ?? "la de la tarjeta"})`}
+                    onChange={(e) => setPurchaseRate(e.target.value.replace(/[^\d,.]/g, "").slice(0, 6))} aria-label="Tasa efectiva anual de esta compra" />
+                </div>
+              )}
             </Field>
           )}
 

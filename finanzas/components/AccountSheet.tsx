@@ -9,6 +9,9 @@ import type { AccountKind } from "@/lib/finance/safeToSpend";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { ErrorText, Field, Input, Select } from "@/components/ui/input";
+import { projectCard } from "@/lib/finance/installments";
+import { formatCop } from "@/lib/finance/money";
+import { monthName, todayBogota } from "@/lib/finance/periods";
 import { SwitchRow } from "@/components/ui/switch";
 import { AmountInput } from "@/components/AmountInput";
 import { parseCop } from "@/lib/finance/money";
@@ -161,6 +164,9 @@ export function AccountSheet({ open, onOpenChange, account }: { open: boolean; o
             <Field label="Día de pago" htmlFor="dd"><Input id="dd" inputMode="numeric" value={dueDay} onChange={(e) => setDueDay(e.target.value.replace(/\D/g, "").slice(0, 2))} /></Field>
           </div>
         )}
+        {isCard && account && (
+          <CardProjection cardId={account.id} rate={account.interest_rate_ea ?? null} />
+        )}
         {isCard && (
           <Field label="Tasa de interés (% efectiva anual)" htmlFor="rate"
             hint="Sale en el extracto de la tarjeta. Sirve para estimar los intereses de las compras a cuotas; las de 1 cuota no pagan intereses.">
@@ -262,5 +268,30 @@ export function AssetSheet({ open, onOpenChange, asset }: { open: boolean; onOpe
         </div>
       </div>
     </Sheet>
+  );
+}
+
+/** Cuotas que faltan por pagar en la tarjeta, mes a mes (de las compras a cuotas registradas en la app). */
+function CardProjection({ cardId, rate }: { cardId: string; rate: number | null }) {
+  const { transactions } = useFinance();
+  const card = { id: cardId, interest_rate_ea: rate };
+  const rows = projectCard(card, transactions, todayBogota(), 12).filter((r) => r.purchases > 0);
+  if (rows.length === 0) {
+    return <p className="rounded-2xl bg-surface-2 px-3 py-2.5 text-sm text-muted">No hay cuotas pendientes registradas en esta tarjeta.</p>;
+  }
+  const total = rows.reduce((a, r) => a + r.total, 0);
+  return (
+    <div className="space-y-2">
+      <p className="text-sm font-medium">Cuotas de los próximos meses</p>
+      <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface">
+        {rows.map((r) => (
+          <div key={r.month} className="flex items-center justify-between px-3.5 py-2.5 text-sm">
+            <span className="capitalize">{monthName(Number(r.month.slice(5)) - 1, true)} {r.month.slice(0, 4)} <span className="text-xs text-muted">· {r.purchases} compra{r.purchases === 1 ? "" : "s"}</span></span>
+            <span className="num font-semibold">{formatCop(r.total)}</span>
+          </div>
+        ))}
+      </div>
+      <p className="text-xs text-muted">Total de estos meses: {formatCop(total)} (capital más intereses estimados). Es una estimación con la tasa de cada compra; el plan de pagos del banco manda.</p>
+    </div>
   );
 }

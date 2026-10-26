@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addMonthsIso, cardDue, expandInstallments, installmentPlan, monthlyRate, splitEven } from "@/lib/finance/installments";
+import { addMonthsIso, cardDue, expandInstallments, installmentPlan, monthlyRate, projectCard, rateOf, splitEven } from "@/lib/finance/installments";
 import { spendingRows } from "@/lib/finance/spaces";
 import type { Transaction } from "@/lib/types";
 
@@ -82,5 +82,37 @@ describe("tarjeta: lo que toca pagar en el periodo", () => {
   it("al mes siguiente toca la segunda cuota", () => {
     const d = cardDue({ id: "visa" }, -1_100_000, [tx({})], { start: "2026-11-01", end: "2026-11-30" });
     expect(d.due).toBe(100_000);
+  });
+});
+
+describe("tasa por compra y proyección", () => {
+  it("cada compra usa su propia tasa; si no trae, la de la tarjeta", () => {
+    const card = { id: "visa", interest_rate_ea: 28.5 };
+    const own = tx({ interest_rate_ea: 29.63 });
+    const none = tx({ id: "t3", interest_rate_ea: null });
+    expect(rateOf(own, card)).toBe(29.63);
+    expect(rateOf(none, card)).toBe(28.5);
+    expect(cardDue(card, -1_200_000, [own], { start: "2026-10-01", end: "2026-10-31" }).interest)
+      .toBe(Math.round(1_200_000 * monthlyRate(29.63)));
+  });
+
+  it("proyecta las cuotas que faltan mes a mes, sin meses pasados", () => {
+    const card = { id: "visa", interest_rate_ea: 28 };
+    const rows = projectCard(card, [tx({ occurred_on: "2026-10-15", installments: 3, amount: 300_000, interest_rate_ea: null })], "2026-10-26", 5);
+    expect(rows.map((r) => r.month)).toEqual(["2026-10", "2026-11", "2026-12", "2027-01", "2027-02"]);
+    expect(rows.map((r) => r.purchases)).toEqual([1, 1, 1, 0, 0]);
+    expect(rows[0].capital).toBe(100_000);
+    expect(rows[2].capital).toBe(100_000);
+    expect(rows[3].total).toBe(0);
+  });
+
+  it("suma varias compras en el mismo mes", () => {
+    const card = { id: "visa", interest_rate_ea: 28 };
+    const rows = projectCard(card, [
+      tx({ id: "a", occurred_on: "2026-10-15", installments: 2, amount: 200_000 }),
+      tx({ id: "b", occurred_on: "2026-09-20", installments: 12, amount: 1_200_000 }),
+    ], "2026-11-01", 2);
+    expect(rows[0].purchases).toBe(2);
+    expect(rows[0].capital).toBe(100_000 + 100_000);
   });
 });
