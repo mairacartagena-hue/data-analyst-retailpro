@@ -91,6 +91,8 @@ export interface Account {
   term_months?: number | null;
   /** Créditos: cuotas ya pagadas a la fecha paid_installments_on (desde ahí suma cada día de pago). */
   paid_installments?: number | null;
+  /** Créditos: valor inicial (lo que prestó el banco). */
+  original_amount?: number | null;
   paid_installments_on?: string | null;
   monthly_costs?: number;
   archived: boolean;

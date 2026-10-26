@@ -74,6 +74,12 @@ export function remainingInstallments(a: CreditTerms, today: string): number {
   return Math.max(1, term - (paid ?? 0));
 }
 
+/** Parte del capital ya pagada: (valor inicial − lo que se debe) / valor inicial. null sin valor inicial. */
+export function capitalPaidRatio(original: number | null | undefined, owed: number): number | null {
+  if (!original || original <= 0) return null;
+  return Math.min(1, Math.max(0, (original - owed) / original));
+}
+
 /** "Cuota 38 de 240": la próxima que toca pagar. null si no hay plazo. */
 export function installmentLabel(a: CreditTerms, today: string): string | null {
   const paid = installmentsPaid(a, today);

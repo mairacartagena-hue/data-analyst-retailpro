@@ -129,3 +129,13 @@ describe("en qué cuota va el crédito", () => {
     expect(b).toBeGreaterThan(a); // menos cuotas por delante → cuota mayor para el mismo saldo
   });
 });
+
+import { capitalPaidRatio } from "@/lib/finance/credit";
+
+describe("valor inicial del crédito", () => {
+  it("parte del capital ya pagada", () => {
+    expect(capitalPaidRatio(200_000_000, 150_000_000)).toBe(0.25);
+    expect(capitalPaidRatio(null, 150_000_000)).toBeNull();
+    expect(capitalPaidRatio(100, 120)).toBe(0); // deuda mayor que el valor inicial (intereses capitalizados)
+  });
+});

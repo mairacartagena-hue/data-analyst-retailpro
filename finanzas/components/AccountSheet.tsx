@@ -10,7 +10,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { ErrorText, Field, Input, Select } from "@/components/ui/input";
 import { projectCard } from "@/lib/finance/installments";
-import { installmentLabel, installmentsPaid, nextCuota, suggestSplit } from "@/lib/finance/credit";
+import { capitalPaidRatio, installmentLabel, installmentsPaid, nextCuota, suggestSplit } from "@/lib/finance/credit";
 import { formatCop } from "@/lib/finance/money";
 import { monthName, todayBogota } from "@/lib/finance/periods";
 import { SwitchRow } from "@/components/ui/switch";
@@ -40,6 +40,7 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
   const [term, setTerm] = useState("");
   const [costs, setCosts] = useState("");
   const [currentInst, setCurrentInst] = useState("");
+  const [original, setOriginal] = useState("");
   const [responsible, setResponsible] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -64,6 +65,7 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
     setRate(account?.interest_rate_ea ? String(account.interest_rate_ea).replace(".", ",") : "");
     setTerm(account?.term_months ? String(account.term_months) : "");
     setCosts(account?.monthly_costs ? String(account.monthly_costs) : "");
+    setOriginal(account?.original_amount ? String(account.original_amount) : "");
     const paidNow = account?.kind === "CREDIT" ? installmentsPaid(account, todayBogota()) : null;
     setCurrentInst(paidNow != null && account?.term_months ? String(Math.min(paidNow + 1, account.term_months)) : "");
     setResponsible(account?.responsible_user_id && account.responsible_user_id !== account.owner_user_id ? account.responsible_user_id : "");
@@ -107,6 +109,7 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
       interest_rate_ea: isCard || isCredit ? rateValue : null,
       term_months: isCredit ? Math.min(600, Math.max(1, Number.parseInt(term, 10) || 0)) || null : null,
       monthly_costs: isCredit ? parseCop(costs) ?? 0 : 0,
+      original_amount: isCredit ? (parseCop(original) || null) : null,
       // "Voy en la cuota 38": quedan 37 pagadas a hoy; cada día de pago que pase suma una
       ...(isCredit && currentInst ? { paid_installments: instN - 1, paid_installments_on: todayBogota() } : {}),
       responsible_user_id: isDebt && responsible && responsible !== me.user_id ? responsible : null,
@@ -179,6 +182,7 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
         )}
         {isCredit && (
           <div className="grid grid-cols-2 gap-3">
+            <Field label="Valor inicial del crédito" hint="Lo que te prestó el banco al empezar."><AmountInput value={original} onChange={setOriginal} /></Field>
             <Field label="Número de cuotas" htmlFor="term" hint="Plazo total en meses."><Input id="term" inputMode="numeric" value={term} onChange={(e) => setTerm(e.target.value.replace(/\D/g, "").slice(0, 3))} /></Field>
             <Field label="¿En qué cuota vas?" htmlFor="cur-inst" hint="La próxima que vas a pagar. Desde aquí suma una cada día de pago.">
               <Input id="cur-inst" inputMode="numeric" value={currentInst} placeholder={term ? `1 a ${term}` : ""} onChange={(e) => setCurrentInst(e.target.value.replace(/\D/g, "").slice(0, 3))} />
@@ -437,6 +441,7 @@ function CreditPayments({ account }: { account: Account }) {
   const costsN = parseCop(costsPaid) ?? 0;
   const capitalN = Math.max(0, totalN - interestN - costsN);
   const progress = installmentLabel(account, today);
+  const paidRatio = capitalPaidRatio(account.original_amount, owed);
 
   function openForm() {
     setOpen(true);
@@ -483,6 +488,14 @@ function CreditPayments({ account }: { account: Account }) {
       <p className="text-xs text-muted">
         Debe {formatCop(owed)} · cuota estimada {formatCop(next)}{progress ? ` · ${progress}` : ""}
       </p>
+      {paidRatio !== null && account.original_amount ? (
+        <div className="space-y-1">
+          <div className="h-2 overflow-hidden rounded-full bg-surface-2" role="progressbar" aria-valuenow={Math.round(paidRatio * 100)} aria-valuemin={0} aria-valuemax={100}>
+            <div className="h-full rounded-full bg-olive" style={{ width: `${paidRatio * 100}%` }} />
+          </div>
+          <p className="text-xs text-muted">Has pagado {formatCop(Math.max(0, account.original_amount - owed))} de {formatCop(account.original_amount)} ({Math.round(paidRatio * 100)} % del capital)</p>
+        </div>
+      ) : null}
       {!open ? (
         <Button size="sm" variant="outline" onClick={openForm} disabled={owed <= 0}>Registrar cuota</Button>
       ) : (
