@@ -14,7 +14,7 @@ PWA privada de finanzas personales y en pareja (Android y escritorio). Todo en p
 | Comentarios en los movimientos (migración 0020) | Hecho |
 | Etiquetas del hogar, nombre y reglas de reembolso en la memoria de comercios, importación de extractos en Excel (migración 0021) | Hecho |
 | Fase 3 — Dictar, foto del recibo y registrar sin conexión (migración 0026) | Hecho (0026 aplicada) |
-| Fase 3 — Telegram | Pendiente (necesita crear el bot en @BotFather) |
+| Fase 3 — Telegram | Descartado (no se implementa) |
 | Organización hogar / personal, subcategorías, pago de deuda / reembolso / ajuste, presupuestos con nombre, vencimientos y metas de ahorro (migraciones 0017 y 0018) | Hecho (migraciones 0017 a 0019 aplicadas) |
 | Fase 4 — Créditos con saldo (capital e intereses), Web Push, IA | Pendiente |
 
@@ -46,7 +46,7 @@ PWA privada de finanzas personales y en pareja (Android y escritorio). Todo en p
 | Dashboard con vistas Mis finanzas / Hogar / Vista global | `app/(app)/page.tsx` |
 | RLS en todas las tablas, Realtime en ambos celulares, PWA instalable, modo claro/oscuro | `supabase/migrations` |
 
-Pendiente para fases siguientes: Telegram (Fase 3), Web Push, IA y créditos con saldo (Fase 4). Las metas de ahorro y los compromisos ya existen (0017 y 0018).
+Pendiente para fases siguientes: Web Push e IA (Fase 4). Las metas de ahorro y los compromisos ya existen (0017 y 0018).
 
 **Créditos (decidido para la Fase 4):** por ahora se registran como pasivo manual en Cuentas → “Otros activos y pasivos” (tipo Crédito o Hipoteca) y la cuota como gasto en una categoría. En la Fase 4 serán un tipo de cuenta propio:
 - Datos del crédito: saldo de capital, tasa de interés (efectiva anual, en pesos; UVR queda fuera por ahora), plazo, día de pago, seguros y otros costos.
