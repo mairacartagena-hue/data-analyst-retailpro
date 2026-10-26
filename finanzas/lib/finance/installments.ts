@@ -88,12 +88,15 @@ export function expandInstallments(txs: Transaction[]): Transaction[] {
 export interface CardDue {
   /** Deuda total de la tarjeta. */
   debt: number;
-  /** Capital de cuotas que vencen después del periodo (no se paga ahora). */
+  /** Capital que no se paga en el periodo: cuotas que vencen después y compras de extractos siguientes. */
   laterCapital: number;
   /** Intereses estimados de las cuotas del periodo. */
   interest: number;
-  /** Lo que toca pagar en el periodo: deuda − capital de cuotas futuras + intereses estimados. */
+  /** Lo que toca pagar en el periodo: el extracto que vence en el periodo (o, sin fechas de corte y pago, la deuda sin las cuotas futuras) + intereses estimados. */
   due: number;
+  /** Fecha de pago del extracto que vence en el periodo y su corte (solo si la tarjeta tiene día de corte y de pago). */
+  dueDate?: string;
+  cutDate?: string;
 }
 
 /** Lo que toca pagar de una tarjeta en el periodo, según sus compras a cuotas. */
@@ -102,8 +105,33 @@ export function rateOf(t: { interest_rate_ea?: number | null }, card: { interest
   return t.interest_rate_ea ?? card.interest_rate_ea ?? null;
 }
 
+const pad = (n: number) => String(n).padStart(2, "0");
+const lastDayOf = (y: number, m: number) => new Date(Date.UTC(y, m, 0)).getUTCDate();
+/** Día `day` del mes (si el mes es más corto, el último día). */
+const dayOfMonth = (y: number, m: number, day: number) => `${y}-${pad(m)}-${pad(Math.min(day, lastDayOf(y, m)))}`;
+
+/**
+ * Fechas de pago de la tarjeta que caen dentro del periodo y el corte del extracto que se paga ese día
+ * (el último corte anterior a la fecha de pago). Ej.: corte el 20 y pago el 5 → el extracto del 20-sep se paga el 5-oct.
+ */
+export function statementsDueIn(statementDay: number, dueDay: number, period: Period): { due: string; cut: string }[] {
+  const out: { due: string; cut: string }[] = [];
+  let [y, m] = period.start.split("-").map(Number);
+  const [ey, em] = period.end.split("-").map(Number);
+  while (y < ey || (y === ey && m <= em)) {
+    const due = dayOfMonth(y, m, dueDay);
+    if (due >= period.start && due <= period.end) {
+      let cut = dayOfMonth(y, m, statementDay);
+      if (cut >= due) cut = m === 1 ? dayOfMonth(y - 1, 12, statementDay) : dayOfMonth(y, m - 1, statementDay);
+      out.push({ due, cut });
+    }
+    if (m === 12) { y++; m = 1; } else m++;
+  }
+  return out;
+}
+
 export function cardDue(
-  card: { id: string; interest_rate_ea?: number | null },
+  card: { id: string; interest_rate_ea?: number | null; statement_day?: number | null; due_day?: number | null },
   balance: number,
   txs: Transaction[],
   period: Period,
@@ -111,17 +139,57 @@ export function cardDue(
   const debt = Math.max(0, -balance);
   let laterCapital = 0;
   let interest = 0;
+  const laterOf = new Map<string, number>(); // capital de cuotas que vencen después del periodo, por compra
   for (const t of txs) {
     if (t.account_id !== card.id) continue;
     const n = installmentsOf(t);
     if (n === 1) continue;
+    let later = 0;
     for (const c of installmentPlan(t.amount, n, t.occurred_on, rateOf(t, card))) {
-      if (c.date > period.end) laterCapital += c.capital;
+      if (c.date > period.end) later += c.capital;
       else if (c.date >= period.start) interest += c.interest;
     }
+    laterCapital += later;
+    laterOf.set(t.id, later);
   }
-  const capitalNow = Math.max(0, debt - laterCapital);
-  return { debt, laterCapital: Math.min(laterCapital, debt), interest: debt > 0 ? interest : 0, due: capitalNow + (debt > 0 ? interest : 0) };
+
+  // Sin día de corte y de pago no se sabe qué extracto vence: se aparta la deuda menos las cuotas futuras
+  if (!card.statement_day || !card.due_day) {
+    const capitalNow = Math.max(0, debt - laterCapital);
+    return { debt, laterCapital: Math.min(laterCapital, debt), interest: debt > 0 ? interest : 0, due: capitalNow + (debt > 0 ? interest : 0) };
+  }
+
+  // Con ellos solo se aparta el extracto que vence en el periodo. La deuda actual se compone de las compras más
+  // recientes (lo que se pagó cubre primero lo más viejo); las posteriores al corte van en extractos siguientes.
+  const statements = statementsDueIn(card.statement_day, card.due_day, period);
+  const lastCut = statements.reduce((acc, x) => (x.cut > acc ? x.cut : acc), "");
+  const charges = txs
+    .filter((t) => t.account_id === card.id && t.kind === "EXPENSE" && t.status !== "PENDING_REVIEW")
+    .sort((a, b) => (a.occurred_on < b.occurred_on ? 1 : a.occurred_on > b.occurred_on ? -1 : 0));
+  let remaining = debt;
+  let billed = 0;
+  let billedLater = 0;
+  for (const t of charges) {
+    if (remaining <= 0) break;
+    const take = Math.min(t.amount, remaining);
+    remaining -= take;
+    if (lastCut && t.occurred_on <= lastCut) {
+      billed += take;
+      // lo pagado de una compra a cuotas cubre sus primeras cuotas: lo que sigue debiéndose son las últimas
+      billedLater += Math.min(laterOf.get(t.id) ?? 0, take);
+    }
+  }
+  if (lastCut) billed += remaining; // deuda anterior a todo lo registrado: ya estaba facturada
+  const capitalDue = Math.max(0, Math.round(billed - billedLater));
+  const first = statements[0];
+  return {
+    debt,
+    laterCapital: Math.max(0, debt - capitalDue),
+    interest: debt > 0 ? interest : 0,
+    due: capitalDue + (debt > 0 ? interest : 0),
+    dueDate: first?.due,
+    cutDate: lastCut || undefined,
+  };
 }
 
 export interface MonthProjection {

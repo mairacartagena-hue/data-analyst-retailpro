@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addMonthsIso, cardDue, expandInstallments, installmentPlan, monthlyRate, projectCard, rateOf, splitEven } from "@/lib/finance/installments";
+import { addMonthsIso, cardDue, expandInstallments, installmentPlan, monthlyRate, projectCard, rateOf, splitEven, statementsDueIn } from "@/lib/finance/installments";
 import type { CardStatementItem } from "@/lib/types";
 import { spendingRows } from "@/lib/finance/spaces";
 import type { Transaction } from "@/lib/types";
@@ -83,6 +83,62 @@ describe("tarjeta: lo que toca pagar en el periodo", () => {
   it("al mes siguiente toca la segunda cuota", () => {
     const d = cardDue({ id: "visa" }, -1_100_000, [tx({})], { start: "2026-11-01", end: "2026-11-30" });
     expect(d.due).toBe(100_000);
+  });
+});
+
+describe("tarjeta con día de corte y de pago: solo el extracto que vence en el periodo", () => {
+  // Corta el 20 y se paga el 5 del mes siguiente: el extracto del 20-sep se paga el 5-oct y el del 20-oct el 5-nov
+  const card = { id: "visa", statement_day: 20, due_day: 5 };
+  const oct = { start: "2026-10-01", end: "2026-10-31" };
+  const nov = { start: "2026-11-01", end: "2026-11-30" };
+  const buy = (id: string, on: string, amount: number) => tx({ id, occurred_on: on, amount, installments: 1 });
+
+  it("encuentra el pago y el corte que le corresponde", () => {
+    expect(statementsDueIn(20, 5, oct)).toEqual([{ due: "2026-10-05", cut: "2026-09-20" }]);
+    expect(statementsDueIn(20, 5, nov)).toEqual([{ due: "2026-11-05", cut: "2026-10-20" }]);
+    expect(statementsDueIn(20, 5, { start: "2027-01-01", end: "2027-01-31" })).toEqual([{ due: "2027-01-05", cut: "2026-12-20" }]);
+    // pago el 25 del mismo mes del corte (el 10): el corte es el del mismo mes
+    expect(statementsDueIn(10, 25, oct)).toEqual([{ due: "2026-10-25", cut: "2026-10-10" }]);
+  });
+
+  it("las compras posteriores al corte del 20-sep no son de octubre", () => {
+    // Deuda de 1.000.000 hecha entre el 15 y el 26 de octubre: va en los extractos de noviembre y diciembre
+    const txs = [buy("a", "2026-10-15", 400_000), buy("b", "2026-10-22", 600_000)];
+    const d = cardDue(card, -1_000_000, txs, oct);
+    expect(d.due).toBe(0);
+    expect(d.laterCapital).toBe(1_000_000);
+    expect(d.dueDate).toBe("2026-10-05");
+    expect(d.cutDate).toBe("2026-09-20");
+  });
+
+  it("en noviembre toca lo comprado hasta el corte del 20-oct, no lo posterior", () => {
+    const txs = [buy("a", "2026-10-15", 400_000), buy("b", "2026-10-22", 600_000)];
+    const d = cardDue(card, -1_000_000, txs, nov);
+    expect(d.due).toBe(400_000);
+    expect(d.laterCapital).toBe(600_000);
+  });
+
+  it("lo que se pagó cubre primero las compras más viejas", () => {
+    // Antes del corte se compró 700.000; se pagaron 300.000 y se compró 200.000 después: debe 600.000
+    const txs = [buy("viejo", "2026-10-10", 700_000), buy("nuevo", "2026-10-25", 200_000)];
+    const d = cardDue(card, -600_000, txs, nov);
+    expect(d.due).toBe(400_000); // 700.000 − 300.000 pagados, solo lo anterior al 20-oct
+  });
+
+  it("deuda anterior a lo registrado se considera ya facturada", () => {
+    const d = cardDue(card, -900_000, [buy("a", "2026-10-22", 400_000)], oct);
+    expect(d.due).toBe(500_000); // 900.000 − 400.000 de octubre (posterior al corte)
+  });
+
+  it("de una compra a cuotas antes del corte solo toca la cuota del mes", () => {
+    // ya se pagó la cuota de octubre: debe 1.100.000 y en noviembre toca solo la segunda cuota
+    const d = cardDue({ ...card, interest_rate_ea: 0 }, -1_100_000, [tx({ occurred_on: "2026-10-10" })], nov);
+    expect(d.due).toBe(100_000);
+  });
+
+  it("sin día de corte y de pago sigue apartando la deuda menos las cuotas futuras", () => {
+    const d = cardDue({ id: "visa" }, -1_000_000, [buy("a", "2026-10-22", 1_000_000)], oct);
+    expect(d.due).toBe(1_000_000);
   });
 });
 
