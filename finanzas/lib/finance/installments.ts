@@ -130,11 +130,51 @@ export function statementsDueIn(statementDay: number, dueDay: number, period: Pe
   return out;
 }
 
+/** Cuántos cortes (día `statementDay`) hay después de `after` y hasta `upTo`, ambos AAAA-MM-DD. */
+export function cutsBetween(statementDay: number, after: string, upTo: string): number {
+  let n = 0;
+  let [y, m] = after.split("-").map(Number);
+  const [ey, em] = upTo.split("-").map(Number);
+  while (y < ey || (y === ey && m <= em)) {
+    const d = dayOfMonth(y, m, statementDay);
+    if (d > after && d <= upTo) n++;
+    if (m === 12) { y++; m = 1; } else m++;
+  }
+  return n;
+}
+
+/**
+ * Compras a cuotas del extracto (no son movimientos). Su saldo pendiente todavía no se factura: cada corte que pasa
+ * factura una cuota (el saldo en partes iguales, con interés sobre lo que queda). `cuts` = cuántos cortes se
+ * facturan antes del pago que se está calculando. Devuelve el capital que sigue sin facturar y los intereses de esos cortes.
+ */
+export function statementItemsAfter(items: CardStatementItem[], cuts: number, fallbackRate?: number | null): { later: number; interest: number; capitalDue: number } {
+  let later = 0;
+  let interest = 0;
+  let capitalDue = 0;
+  for (const it of items) {
+    const left = it.installments - it.paid_installments;
+    if (left <= 0 || it.remaining_balance <= 0) continue;
+    const r = monthlyRate(it.rate_ea ?? fallbackRate);
+    const part = Math.round(it.remaining_balance / left);
+    let bal = it.remaining_balance;
+    for (let k = 0; k < Math.min(cuts, left) && bal > 0; k++) {
+      const capital = k === left - 1 ? bal : Math.min(bal, part);
+      interest += Math.round(bal * r);
+      bal -= capital;
+      capitalDue += capital;
+    }
+    later += bal;
+  }
+  return { later, interest, capitalDue };
+}
+
 export function cardDue(
-  card: { id: string; interest_rate_ea?: number | null; statement_day?: number | null; due_day?: number | null },
+  card: { id: string; interest_rate_ea?: number | null; statement_day?: number | null; due_day?: number | null; opening_at?: string },
   balance: number,
   txs: Transaction[],
   period: Period,
+  statementItems: CardStatementItem[] = [],
 ): CardDue {
   const debt = Math.max(0, -balance);
   let laterCapital = 0;
@@ -154,9 +194,12 @@ export function cardDue(
   }
 
   // Sin día de corte y de pago no se sabe qué extracto vence: se aparta la deuda menos las cuotas futuras
+  const items = statementItems.filter((i) => i.account_id === card.id);
   if (!card.statement_day || !card.due_day) {
-    const capitalNow = Math.max(0, debt - laterCapital);
-    return { debt, laterCapital: Math.min(laterCapital, debt), interest: debt > 0 ? interest : 0, due: capitalNow + (debt > 0 ? interest : 0) };
+    // Las compras a cuotas del extracto todavía no se facturan: su saldo no se paga ahora
+    const later = laterCapital + statementItemsAfter(items, 0).later;
+    const capitalNow = Math.max(0, debt - later);
+    return { debt, laterCapital: Math.min(later, debt), interest: debt > 0 ? interest : 0, due: capitalNow + (debt > 0 ? interest : 0) };
   }
 
   // Con ellos solo se aparta el extracto que vence en el periodo. La deuda actual se compone de las compras más
@@ -180,7 +223,12 @@ export function cardDue(
     }
   }
   if (lastCut) billed += remaining; // deuda anterior a todo lo registrado: ya estaba facturada
-  const capitalDue = Math.max(0, Math.round(billed - billedLater));
+  // Compras a cuotas del extracto: lo que sigue sin facturar no se paga en este extracto
+  // (cada corte después de la apertura de la tarjeta factura una cuota).
+  const cuts = lastCut && card.opening_at ? cutsBetween(card.statement_day, card.opening_at.slice(0, 10), lastCut) : 0;
+  const fromItems = statementItemsAfter(items, cuts, card.interest_rate_ea);
+  const capitalDue = Math.max(0, Math.round(billed - billedLater - (lastCut ? fromItems.later : 0)));
+  interest += lastCut ? fromItems.interest : 0;
   const first = statements[0];
   return {
     debt,

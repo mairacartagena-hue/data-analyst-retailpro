@@ -23,20 +23,20 @@ export interface CardDue {
 
 /** Vencimientos visibles del periodo (hogar + mis personales) y fechas de pago de mis tarjetas con deuda. */
 export function useUpcoming(period: Period) {
-  const { commitments, transactions, accounts, balances, me } = useFinance();
+  const { commitments, transactions, accounts, balances, me, cardItems } = useFinance();
   return useMemo(() => {
     const today = todayBogota();
     const occ = occurrencesIn(commitments, transactions, period, today);
     const cards: CardDue[] = [];
     for (const a of accounts) {
       if (a.owner_user_id !== me.user_id || a.archived || a.kind !== "CREDIT_CARD" || !a.due_day) continue;
-      const d = cardDue(a, balances[a.id] ?? 0, transactions, period);
+      const d = cardDue(a, balances[a.id] ?? 0, transactions, period, cardItems);
       if (d.due <= 0) continue;
       const fake = { frequency: "MONTHLY", day_of_month: a.due_day, start_date: period.start, end_date: null, due_date: null } as ScheduledPayment;
       for (const due of dueDatesBetween(fake, period.start, period.end)) cards.push({ accountId: a.id, due, amount: d.due, debt: d.debt, interest: d.interest });
     }
     return { occurrences: occ, cards, today };
-  }, [commitments, transactions, accounts, balances, me.user_id, period]);
+  }, [commitments, transactions, accounts, balances, me.user_id, period, cardItems]);
 }
 
 function whenLabel(due: string, today: string, paid: boolean): { text: string; tone: "ok" | "warn" | "danger" | "muted" } {

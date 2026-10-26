@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addMonthsIso, cardDue, expandInstallments, installmentPlan, monthlyRate, projectCard, rateOf, splitEven, statementsDueIn } from "@/lib/finance/installments";
+import { addMonthsIso, cardDue, expandInstallments, installmentPlan, monthlyRate, projectCard, rateOf, splitEven, statementsDueIn, cutsBetween, statementItemsAfter } from "@/lib/finance/installments";
 import type { CardStatementItem } from "@/lib/types";
 import { spendingRows } from "@/lib/finance/spaces";
 import type { Transaction } from "@/lib/types";
@@ -139,6 +139,50 @@ describe("tarjeta con día de corte y de pago: solo el extracto que vence en el 
   it("sin día de corte y de pago sigue apartando la deuda menos las cuotas futuras", () => {
     const d = cardDue({ id: "visa" }, -1_000_000, [buy("a", "2026-10-22", 1_000_000)], oct);
     expect(d.due).toBe(1_000_000);
+  });
+});
+
+describe("tarjeta con compras a cuotas del extracto", () => {
+  // Extracto del 20-oct: debe 8.153.194, de los cuales 6.339.143 es capital de cuotas que todavía no se factura
+  const card = { id: "visa", statement_day: 20, due_day: 5, opening_at: "2026-10-20", interest_rate_ea: 0 };
+  const item = (over: Partial<CardStatementItem> = {}): CardStatementItem => ({
+    id: "i1", account_id: "visa", description: "Compra", purchase_date: "2026-08-23", amount: 7_000_000,
+    installments: 12, paid_installments: 2, remaining_balance: 6_339_143, rate_ea: 0, ...over,
+  });
+  const period = { start: "2026-10-22", end: "2026-11-21" };
+
+  it("cuenta los cortes entre dos fechas", () => {
+    expect(cutsBetween(20, "2026-10-20", "2026-10-20")).toBe(0);
+    expect(cutsBetween(20, "2026-10-20", "2026-11-20")).toBe(1);
+    expect(cutsBetween(20, "2026-10-19", "2026-12-20")).toBe(3);
+  });
+
+  it("el saldo de las cuotas sin facturar no se paga en el extracto que vence", () => {
+    const d = cardDue(card, -8_153_194, [], period, [item()]);
+    expect(d.due).toBe(8_153_194 - 6_339_143);
+    expect(d.laterCapital).toBe(6_339_143);
+  });
+
+  it("un extracto después factura una cuota por compra", () => {
+    const next = { start: "2026-11-22", end: "2026-12-21" }; // vence el 5-dic, corte del 20-nov: 1 corte desde la apertura
+    const d = cardDue(card, -8_153_194, [], next, [item()]);
+    expect(d.due).toBe(8_153_194 - 6_339_143 + Math.round(6_339_143 / 10)); // 10 cuotas restantes
+  });
+
+  it("sin día de corte y de pago tampoco se aparta el saldo a cuotas del extracto", () => {
+    const d = cardDue({ id: "visa" }, -8_153_194, [], period, [item()]);
+    expect(d.due).toBe(8_153_194 - 6_339_143);
+  });
+
+  it("las compras de otra tarjeta no cuentan", () => {
+    const d = cardDue(card, -1_000_000, [], period, [item({ account_id: "otra" })]);
+    expect(d.due).toBe(1_000_000);
+  });
+
+  it("intereses de los cortes que se facturan antes del pago", () => {
+    const r = statementItemsAfter([item({ rate_ea: 28 })], 1);
+    expect(r.interest).toBe(Math.round(6_339_143 * monthlyRate(28)));
+    expect(r.capitalDue + r.later).toBe(6_339_143);
   });
 });
 
