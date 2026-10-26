@@ -1,7 +1,7 @@
 // Une los datos que llegan de Supabase con las funciones puras de presupuesto, cruce y Saldo Seguro.
 
 import type {
-  Account, Category, CategoryBudgetRow, CategoryLimit, LedgerRow, ManualAsset, Member, PeriodSettingsRow, SavingsContribution, SavingsGoal, Transaction,
+  Account, CardStatementItem, Category, CategoryBudgetRow, CategoryLimit, LedgerRow, ManualAsset, Member, PeriodSettingsRow, SavingsContribution, SavingsGoal, Transaction,
 } from "@/lib/types";
 import { categoryStatus, pendingObligationsFor, type BudgetCategory, type CategoryStatus, type Members, type SpendingRow } from "./budget";
 import { netFor, owedToPartner, type LedgerEntry } from "./crossLedger";
@@ -31,6 +31,8 @@ export interface Snapshot {
   limits: CategoryLimit[];
   goals?: SavingsGoal[];
   contributions?: SavingsContribution[];
+  /** Compras a cuotas de los extractos de las tarjetas. */
+  cardItems?: CardStatementItem[];
 }
 
 export function toPeriodSettings(row: PeriodSettingsRow | null | undefined): PeriodSettings {
@@ -146,7 +148,7 @@ export function safeToSpendFor(s: Snapshot, period: Period, statuses = statusesF
         ? Math.max(0, -s.balances[a.id])
         : a.kind === "CREDIT"
           ? nextCuota(-s.balances[a.id], a.interest_rate_ea, a.term_months, a.opening_at, a.monthly_costs ?? 0, todayBogota())
-          : cardDue(a, s.balances[a.id], s.transactions, period).due), 0),
+          : cardDue(a, s.balances[a.id], s.transactions, period, s.cardItems ?? []).due), 0),
     owedToPartner: owedToPartner(me, ledgerEntries(s.ledger)),
   });
 }
