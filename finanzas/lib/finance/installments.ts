@@ -130,6 +130,22 @@ export function statementsDueIn(statementDay: number, dueDay: number, period: Pe
   return out;
 }
 
+const daysApart = (a: string, b: string) => Math.abs(Date.parse(`${a}T00:00:00Z`) - Date.parse(`${b}T00:00:00Z`)) / 86_400_000;
+
+/**
+ * Compras del extracto que ya están registradas como movimiento (misma tarjeta, mismo valor con $1 de diferencia y
+ * fecha con 1 día de diferencia). El extracto trae el saldo y las cuotas reales, así que manda sobre el movimiento:
+ * el movimiento no se cuenta otra vez en cuotas futuras ni en la proyección.
+ */
+export function matchedWithItems(txs: Transaction[], items: CardStatementItem[]): Set<string> {
+  const out = new Set<string>();
+  for (const t of txs) {
+    if (t.kind !== "EXPENSE") continue;
+    if (items.some((i) => i.account_id === t.account_id && Math.abs(i.amount - t.amount) <= 1 && daysApart(i.purchase_date, t.occurred_on) <= 1)) out.add(t.id);
+  }
+  return out;
+}
+
 /** Cuántos cortes (día `statementDay`) hay después de `after` y hasta `upTo`, ambos AAAA-MM-DD. */
 export function cutsBetween(statementDay: number, after: string, upTo: string): number {
   let n = 0;
@@ -180,8 +196,9 @@ export function cardDue(
   let laterCapital = 0;
   let interest = 0;
   const laterOf = new Map<string, number>(); // capital de cuotas que vencen después del periodo, por compra
+  const inExtract = matchedWithItems(txs.filter((t) => t.account_id === card.id), statementItems.filter((i) => i.account_id === card.id));
   for (const t of txs) {
-    if (t.account_id !== card.id) continue;
+    if (t.account_id !== card.id || inExtract.has(t.id)) continue;
     const n = installmentsOf(t);
     if (n === 1) continue;
     let later = 0;
@@ -268,8 +285,9 @@ export function projectCard(
     return { month: d.toISOString().slice(0, 7), capital: 0, interest: 0, total: 0, purchases: 0 };
   });
   const index = new Map(out.map((r, i) => [r.month, i]));
+  const inExtract = matchedWithItems(txs.filter((t) => t.account_id === card.id), statementItems.filter((i) => i.account_id === card.id));
   for (const t of txs) {
-    if (t.account_id !== card.id) continue;
+    if (t.account_id !== card.id || inExtract.has(t.id)) continue;
     const n = installmentsOf(t);
     if (n === 1) continue;
     const seen = new Set<string>();
