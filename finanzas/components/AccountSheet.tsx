@@ -12,7 +12,13 @@ import { ErrorText, Field, Input, Select } from "@/components/ui/input";
 import { projectCard } from "@/lib/finance/installments";
 import { capitalPaidRatio, installmentLabel, installmentsPaid, nextCuota, suggestSplit } from "@/lib/finance/credit";
 import { formatCop } from "@/lib/finance/money";
-import { monthName, todayBogota } from "@/lib/finance/periods";
+import { monthName, periodFor, todayBogota } from "@/lib/finance/periods";
+import { CategoryOptions } from "@/components/CategoryPicker";
+import { ensureCategory } from "@/lib/finance/ensureCategory";
+import { responsibleOf, toBudgetCategories } from "@/lib/finance/derive";
+import { budgetVersionAt } from "@/lib/finance/budget";
+import { categoryPath } from "@/lib/finance/spaces";
+import { normalizeMerchant } from "@/lib/ingest/normalize";
 import { SwitchRow } from "@/components/ui/switch";
 import { AmountInput } from "@/components/AmountInput";
 import { parseCop } from "@/lib/finance/money";
@@ -219,6 +225,7 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
             <Field label="Seguros y otros costos al mes" hint="Seguro de vida, de inmueble, cuotas de administración del crédito."><AmountInput value={costs} onChange={setCosts} /></Field>
           </div>
         )}
+        {isCredit && account && <CreditBudget account={account} />}
         {isCredit && account && <CreditPayments account={account} />}
         {isCard && (
           <div className="grid grid-cols-3 gap-3">
@@ -480,7 +487,7 @@ function CreditPayments({ account }: { account: Account }) {
     setInterest(String(s.interest || ""));
     setCostsPaid(String(account.monthly_costs ?? ""));
     setPayFrom(payAccounts[0]?.id ?? "");
-    setCategoryId("");
+    setCategoryId(account.budget_category_id ?? "");
   }
 
   async function save() {
@@ -499,7 +506,9 @@ function CreditPayments({ account }: { account: Account }) {
     }
     if (interestN + costsN > 0) {
       const r = await supabase.rpc("save_transaction", { p: {
-        kind: "EXPENSE", scope: "PERSONAL", amount: interestN + costsN, occurred_on: date,
+        // Con presupuesto del crédito, los intereses van al hogar para que cuenten en él
+        kind: "EXPENSE", scope: account.budget_category_id && categoryId === account.budget_category_id ? "HOUSEHOLD" : "PERSONAL",
+        amount: interestN + costsN, occurred_on: date,
         description: `Cuota crédito · intereses y costos (${account.name})`, account_id: payFrom, tags: [],
         splits: [{ amount: interestN + costsN, category_id: categoryId, responsible_user_id: me.user_id, origin: "NORMAL" }],
       } });
@@ -557,6 +566,117 @@ function CreditPayments({ account }: { account: Account }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Categoría existente que parece la del crédito ("Hipotecario" para "Crédito hipotecario"), o "" para crear una. */
+function guessCategory(name: string, categories: { id: string; name: string; archived: boolean; kind?: string }[]): string {
+  const n = normalizeMerchant(name) ?? "";
+  const hit = categories.find((c) => {
+    if (c.archived || (c.kind ?? "EXPENSE") !== "EXPENSE") return false;
+    const cn = normalizeMerchant(c.name) ?? "";
+    return cn.length >= 4 && (n === cn || n.split(" ").includes(cn) || cn.split(" ").includes(n));
+  });
+  return hit?.id ?? "";
+}
+
+/**
+ * Interruptor "Incluir la cuota en Presupuestos": el crédito queda con un presupuesto del hogar por su cuota
+ * (no es obligación: la cuota ya se aparta en el Saldo Seguro) y los pagos que lleguen solos se cruzan con él.
+ */
+function CreditBudget({ account }: { account: Account }) {
+  const state = useFinance();
+  const { me, partner, settings, balances, categories, limits, budgets, supabase, reload } = state;
+  const linked = account.budget_category_id ? categories.find((c) => c.id === account.budget_category_id) ?? null : null;
+  const currentStart = periodFor(settings, todayBogota()).start;
+  const estimate = nextCuota(Math.max(0, -(balances[account.id] ?? 0)), account, todayBogota());
+  const limit = linked ? limits.find((l) => l.category_id === linked.id && l.scope === "HOUSEHOLD") ?? null : null;
+  const limitAmount = limit ? budgetVersionAt(toBudgetCategories([limit], budgets)[0].budgets, currentStart)?.amount ?? null : null;
+  const [editing, setEditing] = useState(false);
+  const [categoryId, setCategoryId] = useState("");
+  const [amount, setAmount] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const options = categories.filter((c) => !c.archived && c.kind !== "INCOME");
+
+  function startEdit() {
+    setErr(null);
+    setCategoryId(account.budget_category_id ?? guessCategory(account.name, categories));
+    setAmount(String(limitAmount ?? estimate ?? ""));
+    setEditing(true);
+  }
+
+  async function save() {
+    setErr(null);
+    const value = parseCop(amount) ?? 0;
+    if (value <= 0) return setErr("Escribe el valor de la cuota.");
+    setBusy(true);
+    try {
+      const catId = categoryId || await ensureCategory(state, supabase, account.name, "🏦");
+      const existing = limits.find((l) => l.category_id === catId && l.scope === "HOUSEHOLD") ?? null;
+      const slot = [me, partner].find((m) => m?.user_id === responsibleOf(account))?.slot ?? me.slot;
+      const r = await supabase.rpc("save_category_limit", { p: {
+        id: existing?.id ?? null, category_id: catId, scope: "HOUSEHOLD",
+        responsibility: slot === "B" ? "MEMBER_B_100" : "MEMBER_A_100",
+        is_household_obligation: false, rollover_enabled: existing?.rollover_enabled ?? false, shared_with_partner: false,
+        budget: { valid_from: currentStart, amount: value, fixed_amount_a: null, fixed_amount_b: null },
+      } });
+      if (r.error) throw r.error;
+      const u = await supabase.from("accounts").update({ budget_category_id: catId }).eq("id", account.id);
+      if (u.error) throw u.error;
+      setEditing(false);
+      void reload();
+    } catch (e) {
+      setErr(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function unlink() {
+    setBusy(true);
+    const { error } = await supabase.from("accounts").update({ budget_category_id: null }).eq("id", account.id);
+    setBusy(false);
+    if (error) return setErr(errMsg(error));
+    setEditing(false);
+    void reload();
+  }
+
+  return (
+    <div className="space-y-2 rounded-2xl border border-border px-3 pb-3">
+      <SwitchRow label="Incluir la cuota en Presupuestos"
+        hint="Crea un presupuesto del hogar con la cuota. Cuando llegue solo un pago con ese valor, se marca como pago de este crédito."
+        checked={!!linked || editing} disabled={busy}
+        onCheckedChange={(v) => (v ? startEdit() : linked ? void unlink() : setEditing(false))} />
+      {linked && !editing && (
+        <div className="flex items-center justify-between gap-3 text-sm">
+          <span className="text-muted">
+            Presupuesto <strong className="text-text">{categoryPath(categories, linked.id)}</strong>
+            {limitAmount != null ? <> · <span className="num">{formatCop(limitAmount)}</span> por periodo</> : null}
+          </span>
+          <Button size="sm" variant="ghost" onClick={startEdit}>Cambiar</Button>
+        </div>
+      )}
+      {editing && (
+        <div className="space-y-2">
+          <Field label="Categoría del presupuesto">
+            <Select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+              <option value="">Nueva categoría: {account.name}</option>
+              <CategoryOptions categories={options} />
+            </Select>
+          </Field>
+          <Field label="Cuota por periodo" hint={`Estimada por la app: ${formatCop(estimate)} (incluye seguros). Puedes cambiarla; cada pago queda con su valor real.`}>
+            <AmountInput value={amount} onChange={setAmount} />
+          </Field>
+          <ErrorText>{err}</ErrorText>
+          <div className="flex gap-2">
+            <Button size="sm" onClick={save} disabled={busy}>Guardar</Button>
+            <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>Cancelar</Button>
+          </div>
+        </div>
+      )}
+      {!editing && <ErrorText>{err}</ErrorText>}
     </div>
   );
 }

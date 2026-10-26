@@ -9,6 +9,7 @@ import { TransactionSheet, type TxPreset } from "@/components/TransactionSheet";
 import { SettleSheet } from "@/components/SettleSheet";
 import { OfflineBanner } from "@/components/OfflineBanner";
 import { PushScheduler } from "@/components/PushScheduler";
+import { CreditAutoPay } from "@/components/CreditAutoPay";
 import { cn } from "@/lib/utils";
 
 interface ShellApi {
@@ -73,6 +74,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div className="mx-auto min-h-dvh w-full max-w-2xl pb-nav">
         <OfflineBanner />
         <PushScheduler />
+        <CreditAutoPay />
         {children}
       </div>
 

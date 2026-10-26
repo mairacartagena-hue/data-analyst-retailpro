@@ -9,11 +9,11 @@ import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { SwitchRow } from "@/components/ui/switch";
 import { errMsg } from "@/lib/utils";
-import type { Category, CategoryLimit } from "@/lib/types";
+import type { Category, CategoryLimit, Split, Transaction } from "@/lib/types";
 import type { CategoryStatus } from "@/lib/finance/budget";
 import { formatCop } from "@/lib/finance/money";
 import { formatDay, isWithin } from "@/lib/finance/periods";
-import { categoryPath, consumptionSign, withDescendants } from "@/lib/finance/spaces";
+import { categoryPath, consumptionSign, creditBudgetMap, withDescendants } from "@/lib/finance/spaces";
 import { limitResponsible } from "@/lib/finance/derive";
 
 const SOURCE: Record<string, { label: string; icon: typeof Mail }> = {
@@ -30,7 +30,7 @@ export function BudgetDetailSheet({ limit, status, onClose, onEdit }: {
   onClose: () => void;
   onEdit: (l: CategoryLimit) => void;
 }) {
-  const { consumption: transactions, period, memberById, me, partner, categories, supabase, reload } = useFinance();
+  const { consumption: transactions, accounts, period, memberById, me, partner, categories, supabase, reload } = useFinance();
   const { openTransaction, openPayment } = useShell();
   const [obligation, setObligation] = useState<boolean | null>(null);
   const [obligationError, setObligationError] = useState<string | null>(null);
@@ -43,10 +43,21 @@ export function BudgetDetailSheet({ limit, status, onClose, onEdit }: {
   const ids = withDescendants(categories, [category.id]);
   const counts = (scope: string, responsible: string) =>
     limit.scope === "HOUSEHOLD" ? scope === "HOUSEHOLD" : scope === "PERSONAL" && responsible === limit.owner_user_id;
+  // Créditos con presupuesto: lo transferido al crédito es la cuota pagada; sus intereses ya van ahí dentro
+  const credits = creditBudgetMap(accounts);
   const items = transactions
-    .filter((t) => consumptionSign(t.kind) !== 0 && isWithin(t.occurred_on, period))
-    .flatMap((t) => t.splits.filter((s) => s.category_id && ids.has(s.category_id) && counts(t.scope, s.responsible_user_id))
-      .map((s) => ({ t, s, sign: consumptionSign(t.kind) })))
+    .filter((t) => isWithin(t.occurred_on, period))
+    .flatMap((t): { t: Transaction; s: Split; sign: number }[] => {
+      const creditCat = t.kind === "TRANSFER" && t.to_account_id ? credits.get(t.to_account_id) : undefined;
+      if (creditCat) {
+        return limit.scope === "HOUSEHOLD" && ids.has(creditCat)
+          ? [{ t, s: { id: t.id, transaction_id: t.id, amount: t.amount, category_id: creditCat, responsible_user_id: t.payer_user_id, origin: "NORMAL", note: null }, sign: 1 }]
+          : [];
+      }
+      if (consumptionSign(t.kind) === 0 || (t.account_id && credits.has(t.account_id))) return [];
+      return t.splits.filter((s) => s.category_id && ids.has(s.category_id) && counts(t.scope, s.responsible_user_id))
+        .map((s) => ({ t, s, sign: consumptionSign(t.kind) }));
+    })
     .sort((a, b) => b.t.occurred_on.localeCompare(a.t.occurred_on));
   const visible = items.reduce((a, i) => a + i.sign * i.s.amount, 0);
   const spent = status?.totalSpent ?? visible;
