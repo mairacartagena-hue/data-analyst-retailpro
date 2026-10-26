@@ -17,8 +17,6 @@ import { fold } from "@/lib/ingest/normalize";
 import { SUBSCRIPTION_TAG } from "@/lib/finance/subscriptions";
 import type { Space } from "@/lib/types";
 import { formatDay } from "@/lib/finance/periods";
-import { suggestThirdParty } from "@/lib/finance/thirdParty";
-import { thirdPartyName } from "@/lib/data/thirdParty";
 import { errMsg } from "@/lib/utils";
 
 /** Cola de pendientes del inicio: movimientos que llegaron solos y esperan revisión. */
@@ -42,10 +40,7 @@ export function PendingReview() {
 }
 
 function PendingCard({ tx }: { tx: Transaction }) {
-  const { me, categories, labels, supabase, reload, memberById, transactions, thirdParties, thirdPartyMemory } = useFinance();
-  // Comercio o remitente que ya se marcó antes como plata del tercero (ej. Álvaro)
-  const thirdId = (tx.kind === "EXPENSE" || tx.kind === "INCOME") && tx.account_id ? suggestThirdParty(tx, thirdPartyMemory) : null;
-  const tpName = thirdPartyName(thirdParties);
+  const { me, categories, labels, supabase, reload, memberById, transactions } = useFinance();
   const { openTransaction } = useShell();
   const [always, setAlways] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -70,19 +65,9 @@ function PendingCard({ tx }: { tx: Transaction }) {
       .maybeSingle().then(({ data }) => { if (alive && data?.scope) setScope(data.scope as Space); });
     return () => { alive = false; };
   }, [supabase, tx.merchant_norm]);
-  const canConfirm = tx.kind === "EXPENSE" && !!suggested && !thirdId && !!tx.account_id && tx.movement_type !== "CARD_PAYMENT";
+  const canConfirm = tx.kind === "EXPENSE" && !!suggested && !!tx.account_id && tx.movement_type !== "CARD_PAYMENT";
   const name = tx.merchant || tx.description || "comercio sin nombre";
   const twin = findManualTwin(tx, transactions, categories);
-
-  async function markThirdParty() {
-    if (!thirdId) return;
-    setBusy(true);
-    setError(null);
-    const { error } = await supabase.rpc("set_third_party", { p_transaction_id: tx.id, p_third_party_id: thirdId, p_remember: true });
-    setBusy(false);
-    if (error) return setError(errMsg(error));
-    void reload();
-  }
 
   async function mergeWithTwin() {
     if (!twin) return;
@@ -168,14 +153,7 @@ function PendingCard({ tx }: { tx: Transaction }) {
         </div>
       )}
 
-      {thirdId && (
-        <div className="space-y-2 rounded-xl bg-wood-soft px-3 py-2 text-sm">
-          <p>¿Es plata de <strong>{tpName}</strong>? No cuenta como {tx.kind === "INCOME" ? "ingreso" : "gasto"} ni en el presupuesto.</p>
-          <Button size="sm" variant="secondary" className="w-full" onClick={markThirdParty} disabled={busy}>Sí, es de {tpName}</Button>
-        </div>
-      )}
-
-      {suggested && !thirdId && (
+      {suggested && (
         <p className="flex items-start gap-1.5 rounded-xl bg-olive-soft px-3 py-2 text-sm">
           <Sparkles size={15} className="mt-0.5 shrink-0 text-olive" />
           <span>

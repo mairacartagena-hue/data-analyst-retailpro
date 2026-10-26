@@ -20,7 +20,7 @@ const SERIES_1 = "var(--series-1)";
 const SERIES_2 = "var(--series-2)";
 
 export default function InformesPage() {
-  const { transactions: all, consumption: allConsumption, categories, labels, period, me, partner, memberById, tags, txTags, thirdParties } = useFinance();
+  const { transactions: all, consumption: allConsumption, categories, labels, period, me, partner, memberById, tags, txTags } = useFinance();
   const router = useRouter();
   const members = [me, partner].filter(Boolean) as Member[];
   const [space, setSpace] = useState<ReportSpace>("all");
@@ -42,7 +42,7 @@ export default function InformesPage() {
 
   function download() {
     const inPeriod = transactions.filter((t) => isWithin(t.occurred_on, period));
-    const csv = toCsv(inPeriod, { categories, labels, memberById, thirdPartyName: (id) => thirdParties.find((t) => t.id === id)?.name ?? "un tercero", tagsOf: (id) => (txTags[id] ?? []).map((x) => tags.find((t) => t.id === x)?.name).filter((n): n is string => !!n) });
+    const csv = toCsv(inPeriod, { categories, labels, memberById, tagsOf: (id) => (txTags[id] ?? []).map((x) => tags.find((t) => t.id === x)?.name).filter((n): n is string => !!n) });
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
     const a = document.createElement("a");
     a.href = url;
