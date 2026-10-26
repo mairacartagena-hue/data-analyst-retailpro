@@ -5,7 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabase } from "@/lib/supabase/client";
 import type {
   Account, AccountLabel, BudgetPlan, CategoryLimit, BudgetPlanCategory, Category, CategoryBudgetRow, CustomPeriodRow, Household, LedgerRow,
-  ManualAsset, Member, PeriodSettingsRow, Reconciliation, SavingsContribution, SavingsGoal, ScheduledPayment, Split, Tag, Transaction,
+  CardStatementItem, ManualAsset, Member, PeriodSettingsRow, Reconciliation, SavingsContribution, SavingsGoal, ScheduledPayment, Split, Tag, Transaction,
 } from "@/lib/types";
 import { toPeriodSettings, type Snapshot } from "@/lib/finance/derive";
 import type { SpendingRow } from "@/lib/finance/budget";
@@ -19,6 +19,8 @@ export interface FinanceState extends Snapshot {
   /** Etiquetas del hogar y, por movimiento, los ids de las que tiene. */
   tags: Tag[];
   txTags: Record<string, string[]>;
+  /** Compras del extracto de mis tarjetas que no son movimientos (solo para proyectar cuotas). */
+  cardItems: CardStatementItem[];
   /** Movimientos para presupuestos e informes: las compras a cuotas, una copia por cuota en su mes. */
   consumption: Transaction[];
   household: Household;
@@ -135,6 +137,8 @@ async function loadAll(sb: SupabaseClient, userId: string): Promise<Loaded> {
 
   const transactions: Transaction[] = txs.map((t) => ({ ...t, amount: Number(t.amount), installments: Number(t.installments ?? 1), interest_rate_ea: num(t.interest_rate_ea) as number | null, splits: splitsByTx.get(t.id) ?? [] }));
   const consumption = expandInstallments(transactions);
+  const cardItemRows = await sb.from("card_statement_items").select("id, account_id, description, purchase_date, amount, installments, paid_installments, remaining_balance, rate_ea").eq("owner_user_id", userId);
+  if (cardItemRows.error) throw cardItemRows.error;
   const sharedSpending: SpendingRow[] = ((shared.data ?? []) as { owner_user_id: string; category_id: string; occurred_on: string; total: number }[])
     .map((r) => ({ categoryId: r.category_id, responsibleUserId: r.owner_user_id, occurredOn: r.occurred_on, total: Number(r.total), scope: "PERSONAL" }));
   const memberRows = (members.data ?? []) as Member[];
@@ -178,6 +182,11 @@ async function loadAll(sb: SupabaseClient, userId: string): Promise<Loaded> {
     // de sus presupuestos personales que me compartió (solo de movimientos que no puedo abrir)
     spending: [...spendingRows(consumption), ...sharedSpending],
     consumption,
+    cardItems: ((cardItemRows.data ?? []) as Record<string, unknown>[]).map((r) => ({
+      id: String(r.id), account_id: String(r.account_id), description: String(r.description), purchase_date: String(r.purchase_date),
+      amount: Number(r.amount), installments: Number(r.installments), paid_installments: Number(r.paid_installments),
+      remaining_balance: Number(r.remaining_balance), rate_ea: num(r.rate_ea) as number | null,
+    })),
     sharedSpending,
     plans: ((plans.data ?? []) as BudgetPlan[]).map((b) => ({ ...b, amount: Number(b.amount), alert_pct: Number(b.alert_pct), shared_with_partner: !!b.shared_with_partner })),
     planCategories: ((planCategories.data ?? []) as BudgetPlanCategory[]).map((c) => ({ ...c, amount: num(c.amount) as number | null })),

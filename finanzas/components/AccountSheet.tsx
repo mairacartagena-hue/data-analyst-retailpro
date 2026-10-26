@@ -271,27 +271,101 @@ export function AssetSheet({ open, onOpenChange, asset }: { open: boolean; onOpe
   );
 }
 
-/** Cuotas que faltan por pagar en la tarjeta, mes a mes (de las compras a cuotas registradas en la app). */
+/** Cuotas que faltan por pagar en la tarjeta, mes a mes: compras registradas en la app y compras del extracto. */
 function CardProjection({ cardId, rate }: { cardId: string; rate: number | null }) {
-  const { transactions } = useFinance();
+  const { transactions, cardItems, supabase, reload, me } = useFinance();
+  const [adding, setAdding] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [draft, setDraft] = useState({ description: "", amount: "", installments: "12", paid: "1", balance: "", rate: "" });
+  const mine = cardItems.filter((i) => i.account_id === cardId);
   const card = { id: cardId, interest_rate_ea: rate };
-  const rows = projectCard(card, transactions, todayBogota(), 12).filter((r) => r.purchases > 0);
-  if (rows.length === 0) {
-    return <p className="rounded-2xl bg-surface-2 px-3 py-2.5 text-sm text-muted">No hay cuotas pendientes registradas en esta tarjeta.</p>;
-  }
+  const rows = projectCard(card, transactions, todayBogota(), 12, mine).filter((r) => r.purchases > 0);
   const total = rows.reduce((a, r) => a + r.total, 0);
+
+  async function addItem() {
+    setErr(null);
+    const amount = parseCop(draft.amount) ?? 0;
+    const n = Number.parseInt(draft.installments, 10) || 0;
+    const paid = Number.parseInt(draft.paid, 10) || 0;
+    const balance = parseCop(draft.balance) ?? amount;
+    const rateValue = draft.rate.trim() ? Number(draft.rate.replace(",", ".")) : null;
+    if (!draft.description.trim()) return setErr("Escribe la descripción de la compra.");
+    if (amount <= 0 || n < 1 || n > 48 || paid < 0 || paid >= n) return setErr("Revisa el valor, las cuotas y la cuota actual.");
+    if (balance < 0 || balance > amount) return setErr("El saldo pendiente no puede ser mayor que el valor de la compra.");
+    const { error } = await supabase.from("card_statement_items").insert({
+      account_id: cardId, description: draft.description.trim(), purchase_date: todayBogota(), amount, installments: n,
+      paid_installments: paid, remaining_balance: balance, rate_ea: rateValue,
+      household_id: me.household_id,
+      owner_user_id: me.user_id,
+    });
+    if (error) return setErr(errMsg(error));
+    setDraft({ description: "", amount: "", installments: "12", paid: "1", balance: "", rate: "" });
+    setAdding(false);
+    void reload();
+  }
+
+  async function removeItem(id: string) {
+    if (!confirm("¿Quitar esta compra de la proyección? No borra ningún movimiento.")) return;
+    await supabase.from("card_statement_items").delete().eq("id", id);
+    void reload();
+  }
+
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       <p className="text-sm font-medium">Cuotas de los próximos meses</p>
-      <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface">
-        {rows.map((r) => (
-          <div key={r.month} className="flex items-center justify-between px-3.5 py-2.5 text-sm">
-            <span className="capitalize">{monthName(Number(r.month.slice(5)) - 1, true)} {r.month.slice(0, 4)} <span className="text-xs text-muted">· {r.purchases} compra{r.purchases === 1 ? "" : "s"}</span></span>
-            <span className="num font-semibold">{formatCop(r.total)}</span>
+      {rows.length === 0 ? (
+        <p className="rounded-2xl bg-surface-2 px-3 py-2.5 text-sm text-muted">No hay cuotas pendientes en esta tarjeta.</p>
+      ) : (
+        <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface">
+          {rows.map((r) => (
+            <div key={r.month} className="flex items-center justify-between px-3.5 py-2.5 text-sm">
+              <span className="capitalize">{monthName(Number(r.month.slice(5)) - 1, true)} {r.month.slice(0, 4)} <span className="text-xs text-muted">· {r.purchases} compra{r.purchases === 1 ? "" : "s"}</span></span>
+              <span className="num font-semibold">{formatCop(r.total)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {rows.length > 0 && (
+        <p className="text-xs text-muted">Total de estos meses: {formatCop(total)} (capital más intereses estimados). Es una estimación; el plan de pagos del banco manda.</p>
+      )}
+
+      <div className="space-y-2">
+        <p className="text-sm font-medium">Compras del extracto que no registraste</p>
+        <p className="text-xs text-muted">Solo suman a la proyección. No aparecen en Movimientos, presupuestos ni informes.</p>
+        {mine.length > 0 && (
+          <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface">
+            {mine.map((i) => (
+              <div key={i.id} className="flex items-center gap-2 px-3.5 py-2.5 text-sm">
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate">{i.description}</span>
+                  <span className="text-xs text-muted">Cuota {i.paid_installments} de {i.installments} · debe {formatCop(i.remaining_balance)}</span>
+                </span>
+                <button className="text-xs text-danger underline" onClick={() => void removeItem(i.id)}>Quitar</button>
+              </div>
+            ))}
           </div>
-        ))}
+        )}
+        {adding ? (
+          <div className="space-y-2 rounded-2xl border border-border p-3">
+            <Input value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} placeholder="Descripción (comercio)" aria-label="Descripción" />
+            <div className="grid grid-cols-2 gap-2">
+              <AmountInput value={draft.amount} onChange={(v) => setDraft({ ...draft, amount: v })} />
+              <Input inputMode="numeric" value={draft.installments} onChange={(e) => setDraft({ ...draft, installments: e.target.value.replace(/\D/g, "").slice(0, 2) })} placeholder="Cuotas" aria-label="Cuotas" />
+              <Input inputMode="numeric" value={draft.paid} onChange={(e) => setDraft({ ...draft, paid: e.target.value.replace(/\D/g, "").slice(0, 2) })} placeholder="Cuota actual pagada" aria-label="Cuotas pagadas" />
+              <AmountInput value={draft.balance} onChange={(v) => setDraft({ ...draft, balance: v })} />
+            </div>
+            <p className="text-xs text-muted">Valor de la compra, cuotas, cuotas ya cobradas y saldo que falta (“Saldo diferido” del extracto).</p>
+            <Input inputMode="decimal" value={draft.rate} onChange={(e) => setDraft({ ...draft, rate: e.target.value.replace(/[^\d,.]/g, "").slice(0, 6) })} placeholder={`Tasa E.A. (vacío = ${rate ?? "la de la tarjeta"})`} aria-label="Tasa" />
+            <ErrorText>{err}</ErrorText>
+            <div className="flex gap-2">
+              <Button size="sm" onClick={() => void addItem()}>Agregar</Button>
+              <Button size="sm" variant="ghost" onClick={() => setAdding(false)}>Cancelar</Button>
+            </div>
+          </div>
+        ) : (
+          <Button size="sm" variant="outline" onClick={() => setAdding(true)}>+ Agregar compra del extracto</Button>
+        )}
       </div>
-      <p className="text-xs text-muted">Total de estos meses: {formatCop(total)} (capital más intereses estimados). Es una estimación con la tasa de cada compra; el plan de pagos del banco manda.</p>
     </div>
   );
 }

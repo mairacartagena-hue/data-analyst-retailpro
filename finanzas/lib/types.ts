@@ -267,6 +267,19 @@ export interface ManualAsset {
   visibility: "PUBLIC" | "PRIVATE";
 }
 
+/** Compra del extracto de una tarjeta que no se registra como movimiento (solo para proyectar cuotas). */
+export interface CardStatementItem {
+  id: string;
+  account_id: string;
+  description: string;
+  purchase_date: string;
+  amount: number;
+  installments: number;
+  paid_installments: number;
+  remaining_balance: number;
+  rate_ea: number | null;
+}
+
 export const ACCOUNT_KIND_LABEL: Record<AccountKind, string> = {
   DEPOSIT: "Cuenta de ahorros o corriente",
   WALLET: "Billetera digital",
