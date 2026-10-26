@@ -15,7 +15,7 @@ import { ASSET_TYPE_LABEL, VISIBILITY_LABEL } from "@/lib/types";
 import { formatCop } from "@/lib/finance/money";
 import { responsibleOf } from "@/lib/finance/derive";
 import { cn } from "@/lib/utils";
-import { isCreditKind, nextCuota } from "@/lib/finance/credit";
+import { installmentLabel, isCreditKind, nextCuota } from "@/lib/finance/credit";
 import { todayBogota } from "@/lib/finance/periods";
 
 type View = "cuentas" | "creditos" | "cruce";
@@ -49,7 +49,7 @@ export default function CuentasPage() {
   const cuotaTotal = mine.reduce((sum, a) => sum + creditCuota(a), 0);
   function creditCuota(a: Account): number {
     if (a.kind !== "CREDIT") return 0;
-    return nextCuota(Math.max(0, -(balances[a.id] ?? 0)), a.interest_rate_ea, a.term_months, a.opening_at, a.monthly_costs ?? 0, today);
+    return nextCuota(Math.max(0, -(balances[a.id] ?? 0)), a, today);
   }
   const myAssets = assets.filter((a) => a.owner_user_id === me.user_id);
   const theirAssets = assets.filter((a) => a.owner_user_id !== me.user_id);
@@ -71,6 +71,7 @@ export default function CuentasPage() {
             {a.visibility === "PRIVATE" && <Lock size={11} />}
             {editable ? VISIBILITY_LABEL[a.visibility].split(":")[0] : a.institution ?? ""}
             {(isCard || a.kind === "CREDIT") && a.due_day ? ` · paga el ${a.due_day}` : ""}
+            {a.kind === "CREDIT" && installmentLabel(a, today) ? ` · ${installmentLabel(a, today)}` : ""}
             {payerName ? ` · responsable: ${payerName}` : ""}
           </span>
         </span>

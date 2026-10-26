@@ -85,7 +85,7 @@ export function buildReminders(s: ReminderInput): Reminder[] {
     // 3. Cuota del crédito (el día antes) y confirmar el saldo con el extracto (el día después del pago)
     if (a.kind === "CREDIT" && owed > 0) {
       if (a.due_day) {
-        const cuota = nextCuota(owed, a.interest_rate_ea, a.term_months, a.opening_at, a.monthly_costs ?? 0, today);
+        const cuota = nextCuota(owed, a, today);
         for (const { due } of statementsDueIn(a.statement_day ?? a.due_day, a.due_day, window)) {
           if (creditReserve(a, balance, s.transactions, { start: due, end: due }, today) <= 0) continue; // ya abonada
           push({ key: `credito:${a.id}:${due}`, send_on: addDays(due, -1), title: `Mañana se paga la cuota de ${a.name}`, body: `Cuota estimada ${formatCop(cuota)}.`, url: "/cuentas?vista=creditos" });

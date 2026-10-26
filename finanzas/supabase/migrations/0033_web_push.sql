@@ -1,4 +1,4 @@
--- 0032 · Notificaciones Web Push.
+-- 0033 · Notificaciones Web Push.
 --  · push_subscriptions: cada celular o navegador donde la persona activó las notificaciones.
 --  · push_schedule: recordatorios que la app calcula (vencimientos, tarjetas, cuotas de créditos, cierre del mes)
 --    y deja programados para una fecha. Los reemplaza cada vez que se abre la app.

@@ -19,8 +19,8 @@ describe("cuota de un crédito", () => {
     expect(remainingMonths(3, "2020-01-01", "2026-10-26")).toBe(1);
   });
   it("la cuota estimada suma los costos mensuales", () => {
-    const base = nextCuota(5_000_000, 12, 60, "2026-01-01", 0, "2026-10-26");
-    expect(nextCuota(5_000_000, 12, 60, "2026-01-01", 45_000, "2026-10-26")).toBe(base + 45_000);
+    const base = nextCuota(5_000_000, { interest_rate_ea: 12, term_months: 60, opening_at: "2026-01-01", monthly_costs: 0 }, "2026-10-26");
+    expect(nextCuota(5_000_000, { interest_rate_ea: 12, term_months: 60, opening_at: "2026-01-01", monthly_costs: 45_000 }, "2026-10-26")).toBe(base + 45_000);
   });
 });
 
@@ -51,12 +51,12 @@ describe("cuota del crédito que falta reservar en el periodo", () => {
   } as unknown as Transaction);
 
   it("la cuota estimada se parece a la del extracto ($1.952.068)", () => {
-    const cuota = nextCuota(-balance, 12.28, 180, "2025-07-01", 68_002.4, today);
+    const cuota = nextCuota(-balance, { interest_rate_ea: 12.28, term_months: 180, opening_at: "2025-07-01", monthly_costs: 68_002.4 }, today);
     expect(Math.abs(cuota - 1_952_068)).toBeLessThan(15_000);
   });
 
   it("sin pagos registrados se reserva la cuota completa", () => {
-    expect(creditReserve(credit, balance, [], period, today)).toBe(nextCuota(-balance, 12.28, 180, "2025-07-01", 68_002.4, today));
+    expect(creditReserve(credit, balance, [], period, today)).toBe(nextCuota(-balance, { interest_rate_ea: 12.28, term_months: 180, opening_at: "2025-07-01", monthly_costs: 68_002.4 }, today));
   });
 
   it("si ya se abonó capital después del corte del 20-oct, la cuota del 4-nov está pagada", () => {
@@ -88,7 +88,7 @@ describe("cuota del crédito que falta reservar en el periodo", () => {
 
   it("sin día de pago se reserva la cuota completa, como antes", () => {
     expect(creditReserve({ ...credit, due_day: null }, balance, [toCredit(932_583, "2026-10-23")], period, today))
-      .toBe(nextCuota(-balance, 12.28, 180, "2025-07-01", 68_002.4, today));
+      .toBe(nextCuota(-balance, { interest_rate_ea: 12.28, term_months: 180, opening_at: "2025-07-01", monthly_costs: 68_002.4 }, today));
   });
 });
 
@@ -104,5 +104,28 @@ describe("aviso mensual del saldo del crédito", () => {
   it("sin día de pago aparece desde el día 1; no aparece el mes en que se creó", () => {
     expect(creditCheckDue({ ...acc, due_day: null }, [], "2026-10-01")).toBe(true);
     expect(creditCheckDue({ ...acc, opening_at: "2026-10-02" }, [], "2026-10-20")).toBe(false);
+  });
+});
+
+import { installmentLabel, installmentsPaid, remainingInstallments } from "@/lib/finance/credit";
+
+describe("en qué cuota va el crédito", () => {
+  const hip = { term_months: 240, due_day: 4, paid_installments: 37, paid_installments_on: "2026-10-26", opening_at: "2025-07-01" };
+  it("parte de lo que dijo la persona y suma cada día de pago que pasa", () => {
+    expect(installmentLabel(hip, "2026-10-26")).toBe("Cuota 38 de 240");
+    expect(installmentLabel(hip, "2026-11-03")).toBe("Cuota 38 de 240");
+    expect(installmentLabel(hip, "2026-11-04")).toBe("Cuota 39 de 240");
+    expect(installmentsPaid(hip, "2027-01-10")).toBe(40);
+    expect(remainingInstallments(hip, "2026-10-26")).toBe(203);
+  });
+  it("sin la cuota indicada cuenta los meses desde el saldo inicial; al final no pasa del plazo", () => {
+    expect(installmentsPaid({ term_months: 120, opening_at: "2026-01-15" }, "2026-10-26")).toBe(9);
+    expect(installmentLabel({ ...hip, term_months: 38 }, "2027-06-01")).toBe("38 de 38 cuotas pagadas");
+    expect(installmentLabel({ term_months: null }, "2026-10-26")).toBeNull();
+  });
+  it("la cuota estimada usa las cuotas que faltan", () => {
+    const a = nextCuota(100_000_000, { ...hip, interest_rate_ea: 12 }, "2026-10-26");
+    const b = nextCuota(100_000_000, { ...hip, interest_rate_ea: 12, paid_installments: 200 }, "2026-10-26");
+    expect(b).toBeGreaterThan(a); // menos cuotas por delante → cuota mayor para el mismo saldo
   });
 });
