@@ -136,10 +136,13 @@ export function safeToSpendFor(s: Snapshot, period: Period, statuses = statusesF
     realBalance: realBalanceOf(me, accounts),
     householdObligationsPending: pendingObligationsFor(me, toBudgetCategories(s.limits, s.budgets), [...statuses.values()]),
     scheduledSavingsPending: pendingSavingsFor(me, s.goals ?? [], s.contributions ?? [], period),
-    // Tarjetas: solo lo que toca pagar en el periodo (las cuotas que vencen después no se apartan)
+    // Tarjetas: solo lo que toca pagar en el periodo (las cuotas que vencen después no se apartan).
+    // Préstamos: se aparta todo lo que se debe.
     creditCardDebt: s.accounts
-      .filter((a) => a.owner_user_id === me && a.kind === "CREDIT_CARD" && s.balances[a.id] !== undefined)
-      .reduce((acc, a) => acc + cardDue(a, s.balances[a.id], s.transactions, period).due, 0),
+      .filter((a) => a.owner_user_id === me && (a.kind === "CREDIT_CARD" || a.kind === "LOAN") && s.balances[a.id] !== undefined)
+      .reduce((acc, a) => acc + (a.kind === "LOAN"
+        ? Math.max(0, -s.balances[a.id])
+        : cardDue(a, s.balances[a.id], s.transactions, period).due), 0),
     owedToPartner: owedToPartner(me, ledgerEntries(s.ledger)),
   });
 }

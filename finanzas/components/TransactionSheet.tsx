@@ -625,10 +625,10 @@ export function TransactionSheet({
 
           {kind === "TRANSFER" && toPartner && partner && (
             <div className="space-y-3">
-              {labels.some((l) => l.owner_user_id === partner.user_id && l.kind !== "CREDIT_CARD") && (
+              {labels.some((l) => l.owner_user_id === partner.user_id && !["CREDIT_CARD", "LOAN"].includes(l.kind)) && (
                 <Field label={`Llega a la cuenta de ${partner.display_name} (opcional)`}>
                   <ChipGroup value={toAccountId} onChange={(v) => setToAccountId(v === toAccountId ? "" : v)}
-                    options={labels.filter((l) => l.owner_user_id === partner.user_id && l.kind !== "CREDIT_CARD").map((l) => ({ value: l.id, label: accountLabel(labels, l.id) }))} />
+                    options={labels.filter((l) => l.owner_user_id === partner.user_id && !["CREDIT_CARD", "LOAN"].includes(l.kind)).map((l) => ({ value: l.id, label: accountLabel(labels, l.id) }))} />
                 </Field>
               )}
               <div className="rounded-2xl border border-border bg-surface px-3">

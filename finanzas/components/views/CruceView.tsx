@@ -178,7 +178,7 @@ function ResolveDebtSheet({ resolving, onClose, maxTotal }: { resolving: { debt:
   const [date, setDate] = useState(todayBogota());
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const myAccounts = accounts.filter((a) => a.owner_user_id === me.user_id && !a.archived && a.kind !== "CREDIT_CARD");
+  const myAccounts = accounts.filter((a) => a.owner_user_id === me.user_id && !a.archived && !["CREDIT_CARD", "LOAN"].includes(a.kind));
 
   useEffect(() => {
     if (!resolving) return;

@@ -14,7 +14,7 @@ import { AmountInput } from "@/components/AmountInput";
 import { parseCop } from "@/lib/finance/money";
 import { cn, errMsg } from "@/lib/utils";
 
-const KINDS: AccountKind[] = ["DEPOSIT", "WALLET", "CASH", "CREDIT_CARD"];
+const KINDS: AccountKind[] = ["DEPOSIT", "WALLET", "CASH", "CREDIT_CARD", "LOAN"];
 const VISIBILITIES: Visibility[] = ["PRIVATE", "BALANCE_ONLY", "PUBLIC"];
 
 export function AccountSheet({ open, onOpenChange, account }: { open: boolean; onOpenChange: (v: boolean) => void; account: Account | null }) {
@@ -57,6 +57,8 @@ export function AccountSheet({ open, onOpenChange, account }: { open: boolean; o
   }, [open, account]);
 
   const isCard = kind === "CREDIT_CARD";
+  // Tarjetas y préstamos: el saldo inicial es lo que se debe hoy
+  const isDebt = isCard || kind === "LOAN";
 
   async function save() {
     setError(null);
@@ -80,7 +82,7 @@ export function AccountSheet({ open, onOpenChange, account }: { open: boolean; o
       visibility,
       reveal_in_shared: visibility === "PRIVATE" ? reveal : false,
       // En tarjetas el saldo inicial es la deuda actual (se guarda negativa)
-      opening_balance: isCard ? -base : base,
+      opening_balance: isDebt ? -base : base,
       credit_limit: isCard ? parseCop(limit) : null,
       statement_day: isCard ? day(statementDay) : null,
       due_day: isCard ? day(dueDay) : null,
@@ -134,7 +136,7 @@ export function AccountSheet({ open, onOpenChange, account }: { open: boolean; o
           hint="Últimos 4 dígitos de otras tarjetas o productos que llegan en los avisos de esta cuenta, separados por comas. Ej.: la tarjeta débito de tu cuenta de ahorros.">
           <Input id="aliases" value={aliases} onChange={(e) => setAliases(e.target.value.replace(/[^\d,\s]/g, ""))} inputMode="numeric" placeholder="7473, 1234" />
         </Field>
-        <Field label={isCard ? "Deuda actual de la tarjeta" : "Saldo actual"} hint={account ? "Es el saldo con el que empezó la cuenta en la app; los movimientos se suman aparte." : "El saldo de hoy. Desde aquí la app suma y resta los movimientos."}>
+        <Field label={isCard ? "Deuda actual de la tarjeta" : kind === "LOAN" ? "Cuánto se debe hoy" : "Saldo actual"} hint={account ? "Es el saldo con el que empezó la cuenta en la app; los movimientos se suman aparte." : "El saldo de hoy. Desde aquí la app suma y resta los movimientos."}>
           <AmountInput value={opening} onChange={setOpening} />
         </Field>
         {account && (

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, CreditCard, Landmark, Lock, Plus, Smartphone, Wallet } from "lucide-react";
+import { ArrowLeft, CreditCard, Handshake, Landmark, Lock, Plus, Smartphone, Wallet } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { AccountSheet, AssetSheet } from "@/components/AccountSheet";
 import { MemberBadge } from "@/components/MemberBadge";
@@ -15,7 +15,7 @@ import { ASSET_TYPE_LABEL, VISIBILITY_LABEL } from "@/lib/types";
 import { formatCop } from "@/lib/finance/money";
 import { cn } from "@/lib/utils";
 
-const ICONS = { DEPOSIT: Landmark, WALLET: Smartphone, CASH: Wallet, CREDIT_CARD: CreditCard };
+const ICONS = { DEPOSIT: Landmark, WALLET: Smartphone, CASH: Wallet, CREDIT_CARD: CreditCard, LOAN: Handshake };
 
 export default function CuentasPage() {
   const { accounts, balances, me, partner, assets } = useFinance();
@@ -59,8 +59,8 @@ export default function CuentasPage() {
             <span className="text-xs text-muted">Saldo oculto</span>
           ) : (
             <>
-              <span className={cn("num block font-semibold", isCard && bal < 0 && "text-danger")}>
-                {isCard ? (bal < 0 ? `Debe ${formatCop(-bal)}` : formatCop(bal)) : formatCop(bal)}
+              <span className={cn("num block font-semibold", (isCard || a.kind === "LOAN") && bal < 0 && "text-danger")}>
+                {isCard || a.kind === "LOAN" ? (bal < 0 ? `Debe ${formatCop(-bal)}` : formatCop(bal)) : formatCop(bal)}
               </span>
               {isCard && a.credit_limit ? <span className="num block text-xs text-muted">Disponible {formatCop(a.credit_limit + Math.min(0, bal))}</span> : null}
             </>
