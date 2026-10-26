@@ -190,6 +190,8 @@ export interface Transaction {
   income_category_id?: string | null;
   /** Compras con tarjeta de crédito: número de cuotas (1 = una sola). */
   installments?: number;
+  /** Tasa efectiva anual (%) de esta compra a cuotas; si no hay, la de la tarjeta. */
+  interest_rate_ea?: number | null;
   /** Solo en las copias por cuota que usan presupuestos e informes: número de la cuota y el movimiento original. */
   installment_no?: number;
   installment_of?: Transaction;

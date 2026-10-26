@@ -48,6 +48,15 @@ describe("cuotas de tarjeta de crédito", () => {
     await db.exec(`delete from transactions`);
   });
 
+  it("guarda la tasa de cada compra solo en compras a cuotas con tarjeta", async () => {
+    const id = await rpc<string>(db, MAY, "save_transaction", { ...expense(card, 12), interest_rate_ea: 29.63 });
+    const row = (await db.query<{ r: string | null }>(`select interest_rate_ea::text r from transactions where id = $1`, [id])).rows[0];
+    expect(Number(row.r)).toBe(29.63);
+    const contado = await rpc<string>(db, MAY, "save_transaction", { ...expense(card, 1), interest_rate_ea: 29.63 });
+    expect((await db.query<{ r: string | null }>(`select interest_rate_ea::text r from transactions where id = $1`, [contado])).rows[0].r).toBeNull();
+    await db.exec(`delete from transactions`);
+  });
+
   it("la pareja ve el total de un presupuesto personal compartido repartido en cuotas", async () => {
     await as(db, MAY, `select public.save_category_limit($1::jsonb)`, [JSON.stringify({ category_id: ropa, scope: "PERSONAL", amount: 500_000, shared_with_partner: true })]).catch(async () => {
       // Si save_category_limit cambia de forma, se marca directo

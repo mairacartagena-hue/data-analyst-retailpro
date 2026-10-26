@@ -97,6 +97,11 @@ export interface CardDue {
 }
 
 /** Lo que toca pagar de una tarjeta en el periodo, según sus compras a cuotas. */
+/** Tasa de una compra: la que trae (del extracto) o, si no, la de la tarjeta. */
+export function rateOf(t: { interest_rate_ea?: number | null }, card: { interest_rate_ea?: number | null }): number | null {
+  return t.interest_rate_ea ?? card.interest_rate_ea ?? null;
+}
+
 export function cardDue(
   card: { id: string; interest_rate_ea?: number | null },
   balance: number,
@@ -110,11 +115,58 @@ export function cardDue(
     if (t.account_id !== card.id) continue;
     const n = installmentsOf(t);
     if (n === 1) continue;
-    for (const c of installmentPlan(t.amount, n, t.occurred_on, card.interest_rate_ea)) {
+    for (const c of installmentPlan(t.amount, n, t.occurred_on, rateOf(t, card))) {
       if (c.date > period.end) laterCapital += c.capital;
       else if (c.date >= period.start) interest += c.interest;
     }
   }
   const capitalNow = Math.max(0, debt - laterCapital);
   return { debt, laterCapital: Math.min(laterCapital, debt), interest: debt > 0 ? interest : 0, due: capitalNow + (debt > 0 ? interest : 0) };
+}
+
+export interface MonthProjection {
+  /** Mes AAAA-MM. */
+  month: string;
+  capital: number;
+  interest: number;
+  total: number;
+  /** Compras que tienen cuota ese mes. */
+  purchases: number;
+}
+
+/**
+ * Cuotas que faltan por pagar, mes a mes, de las compras a cuotas registradas en la tarjeta.
+ * Empieza en el mes de `from` y sigue `months` meses. Solo cuenta las cuotas que aún no vencen.
+ */
+export function projectCard(
+  card: { id: string; interest_rate_ea?: number | null },
+  txs: Transaction[],
+  from: string,
+  months: number,
+): MonthProjection[] {
+  const start = from.slice(0, 7);
+  const out = Array.from({ length: months }, (_, i) => {
+    const [y, m] = start.split("-").map(Number);
+    const d = new Date(Date.UTC(y, m - 1 + i, 1));
+    return { month: d.toISOString().slice(0, 7), capital: 0, interest: 0, total: 0, purchases: 0 };
+  });
+  const index = new Map(out.map((r, i) => [r.month, i]));
+  for (const t of txs) {
+    if (t.account_id !== card.id) continue;
+    const n = installmentsOf(t);
+    if (n === 1) continue;
+    const seen = new Set<string>();
+    for (const c of installmentPlan(t.amount, n, t.occurred_on, rateOf(t, card))) {
+      const i = index.get(c.date.slice(0, 7));
+      if (i === undefined || c.date < from.slice(0, 7) + "-01") continue;
+      out[i].capital += c.capital;
+      out[i].interest += c.interest;
+      out[i].total += c.total;
+      if (!seen.has(out[i].month)) {
+        seen.add(out[i].month);
+        out[i].purchases++;
+      }
+    }
+  }
+  return out;
 }

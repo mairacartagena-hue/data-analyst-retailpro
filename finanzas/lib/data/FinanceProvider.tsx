@@ -133,7 +133,7 @@ async function loadAll(sb: SupabaseClient, userId: string): Promise<Loaded> {
     splitsByTx.set(s.transaction_id, list);
   }
 
-  const transactions: Transaction[] = txs.map((t) => ({ ...t, amount: Number(t.amount), installments: Number(t.installments ?? 1), splits: splitsByTx.get(t.id) ?? [] }));
+  const transactions: Transaction[] = txs.map((t) => ({ ...t, amount: Number(t.amount), installments: Number(t.installments ?? 1), interest_rate_ea: num(t.interest_rate_ea) as number | null, splits: splitsByTx.get(t.id) ?? [] }));
   const consumption = expandInstallments(transactions);
   const sharedSpending: SpendingRow[] = ((shared.data ?? []) as { owner_user_id: string; category_id: string; occurred_on: string; total: number }[])
     .map((r) => ({ categoryId: r.category_id, responsibleUserId: r.owner_user_id, occurredOn: r.occurred_on, total: Number(r.total), scope: "PERSONAL" }));
