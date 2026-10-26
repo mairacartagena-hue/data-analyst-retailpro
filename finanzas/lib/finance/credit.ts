@@ -1,9 +1,14 @@
 // Créditos con saldo (hipoteca, libre inversión): cuota, reparto de cada pago y cuota estimada.
 // Cada pago se divide en capital (baja la deuda, no es gasto), intereses y costos (seguros, otros: son gastos).
 
-import type { Transaction } from "@/lib/types";
+import type { Account, Transaction } from "@/lib/types";
 import { addMonthsIso, monthlyRate, statementsDueIn } from "./installments";
 import type { Period } from "./periods";
+
+/** Créditos con cuotas y préstamos: se muestran y concilian aparte de las cuentas y tarjetas. */
+export function isCreditKind(kind: Account["kind"]): boolean {
+  return kind === "CREDIT" || kind === "LOAN";
+}
 
 /** Cuota fija (sistema francés) para un saldo, una tasa mensual y n cuotas. */
 export function annuityPayment(balance: number, monthly: number, n: number): number {

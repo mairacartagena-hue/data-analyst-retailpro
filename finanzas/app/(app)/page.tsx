@@ -14,6 +14,7 @@ import { PendingReview } from "@/components/PendingReview";
 import { BudgetDetailSheet } from "@/components/BudgetDetailSheet";
 import type { CategoryLimit } from "@/lib/types";
 import { CloseReminder } from "@/components/CloseReminder";
+import { CreditCheck } from "@/components/CreditCheck";
 import { UpcomingList, useUpcoming } from "@/components/Upcoming";
 import { Card, SectionTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -96,6 +97,7 @@ export default function HomePage() {
 
       <SwipePeriods>
         <CloseReminder />
+        <CreditCheck />
         <PendingReview />
 
         <SafeToSpendCard safe={safe} />

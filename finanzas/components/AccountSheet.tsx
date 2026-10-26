@@ -21,7 +21,7 @@ import { cn, errMsg } from "@/lib/utils";
 const KINDS: AccountKind[] = ["DEPOSIT", "WALLET", "CASH", "CREDIT_CARD", "LOAN", "CREDIT"];
 const VISIBILITIES: Visibility[] = ["PRIVATE", "BALANCE_ONLY", "PUBLIC"];
 
-export function AccountSheet({ open, onOpenChange, account }: { open: boolean; onOpenChange: (v: boolean) => void; account: Account | null }) {
+export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOSIT" }: { open: boolean; onOpenChange: (v: boolean) => void; account: Account | null; defaultKind?: AccountKind }) {
   const { me, supabase, reload, partner } = useFinance();
   const [name, setName] = useState("");
   const [kind, setKind] = useState<AccountKind>("DEPOSIT");
@@ -47,7 +47,7 @@ export function AccountSheet({ open, onOpenChange, account }: { open: boolean; o
     if (!open) return;
     setError(null);
     setName(account?.name ?? "");
-    setKind(account?.kind ?? "DEPOSIT");
+    setKind(account?.kind ?? defaultKind);
     setInstitution(account?.institution ?? "");
     setLast4(account?.last4 ?? "");
     setAliases((account?.alias_last4 ?? []).join(", "));
