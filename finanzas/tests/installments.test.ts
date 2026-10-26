@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { addMonthsIso, cardDue, expandInstallments, installmentPlan, monthlyRate, projectCard, rateOf, splitEven } from "@/lib/finance/installments";
+import type { CardStatementItem } from "@/lib/types";
 import { spendingRows } from "@/lib/finance/spaces";
 import type { Transaction } from "@/lib/types";
 
@@ -114,5 +115,33 @@ describe("tasa por compra y proyección", () => {
     ], "2026-11-01", 2);
     expect(rows[0].purchases).toBe(2);
     expect(rows[0].capital).toBe(100_000 + 100_000);
+  });
+});
+
+describe("compras del extracto (no son movimientos)", () => {
+  const card = { id: "visa", interest_rate_ea: 28 };
+  const item = (over: Partial<CardStatementItem>): CardStatementItem => ({
+    id: "i1", account_id: "visa", description: "REST CAFE NIN", purchase_date: "2026-08-23", amount: 75_982.87,
+    installments: 36, paid_installments: 1, remaining_balance: 74_484.93, rate_ea: 29.63, ...over,
+  });
+
+  it("aparecen en la proyección desde el mes siguiente, con el saldo repartido en las cuotas que faltan", () => {
+    const rows = projectCard(card, [], "2026-10-26", 4, [item({})]);
+    expect(rows[0].purchases).toBe(0);
+    expect(rows[1].purchases).toBe(1);
+    expect(rows[1].capital).toBe(Math.round(74_484.93 / 35));
+    expect(rows[1].interest).toBe(Math.round(74_484.93 * monthlyRate(29.63)));
+  });
+
+  it("no cuentan más cuotas de las que faltan y el último mes cierra el saldo", () => {
+    const rows = projectCard(card, [], "2026-10-26", 40, [item({ installments: 3, paid_installments: 1, remaining_balance: 1000 })]);
+    const capital = rows.reduce((a, r) => a + r.capital, 0);
+    expect(capital).toBe(1000);
+    expect(rows.filter((r) => r.purchases > 0)).toHaveLength(2);
+  });
+
+  it("una compra ya pagada no aparece", () => {
+    const rows = projectCard(card, [], "2026-10-26", 3, [item({ paid_installments: 36, remaining_balance: 0 })]);
+    expect(rows.every((r) => r.total === 0)).toBe(true);
   });
 });

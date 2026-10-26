@@ -4,7 +4,7 @@
 //   saldo que queda, con la tasa mensual equivalente a la efectiva anual de la tarjeta. A 1 cuota no hay intereses.
 // - Saldo Seguro y aviso de pago: se aparta lo que toca pagar en el periodo, no toda la deuda.
 
-import type { Transaction } from "@/lib/types";
+import type { CardStatementItem, Transaction } from "@/lib/types";
 import type { Period } from "./periods";
 
 export const MAX_INSTALLMENTS = 48;
@@ -143,6 +143,7 @@ export function projectCard(
   txs: Transaction[],
   from: string,
   months: number,
+  statementItems: CardStatementItem[] = [],
 ): MonthProjection[] {
   const start = from.slice(0, 7);
   const out = Array.from({ length: months }, (_, i) => {
@@ -162,6 +163,29 @@ export function projectCard(
       out[i].capital += c.capital;
       out[i].interest += c.interest;
       out[i].total += c.total;
+      if (!seen.has(out[i].month)) {
+        seen.add(out[i].month);
+        out[i].purchases++;
+      }
+    }
+  }
+  // Compras del extracto (no son movimientos): el saldo que falta se reparte en partes iguales
+  // por cuota restante, con interés sobre el saldo. Empiezan el mes siguiente al de `from`.
+  for (const it of statementItems) {
+    const left = it.installments - it.paid_installments;
+    if (left <= 0 || it.remaining_balance <= 0) continue;
+    const r = monthlyRate(it.rate_ea ?? card.interest_rate_ea);
+    let bal = it.remaining_balance;
+    const seen = new Set<string>();
+    for (let k = 0; k < left && bal > 0; k++) {
+      const i = k + 1;
+      if (i >= out.length) break;
+      const capital = k === left - 1 ? bal : Math.min(bal, Math.round(it.remaining_balance / left));
+      const interest = Math.round(bal * r);
+      bal -= capital;
+      out[i].capital += capital;
+      out[i].interest += interest;
+      out[i].total += capital + interest;
       if (!seen.has(out[i].month)) {
         seen.add(out[i].month);
         out[i].purchases++;
