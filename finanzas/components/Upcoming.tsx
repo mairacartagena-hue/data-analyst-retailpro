@@ -10,6 +10,7 @@ import { formatCop } from "@/lib/finance/money";
 import { formatDay, todayBogota, type Period } from "@/lib/finance/periods";
 import { accountLabel } from "@/lib/finance/labels";
 import { cardDue } from "@/lib/finance/installments";
+import { responsibleOf } from "@/lib/finance/derive";
 import { cn } from "@/lib/utils";
 
 export interface CardDue {
@@ -29,7 +30,7 @@ export function useUpcoming(period: Period) {
     const occ = occurrencesIn(commitments, transactions, period, today);
     const cards: CardDue[] = [];
     for (const a of accounts) {
-      if (a.owner_user_id !== me.user_id || a.archived || a.kind !== "CREDIT_CARD" || !a.due_day) continue;
+      if (responsibleOf(a) !== me.user_id || a.archived || a.kind !== "CREDIT_CARD" || !a.due_day) continue;
       const d = cardDue(a, balances[a.id] ?? 0, transactions, period, cardItems);
       if (d.due <= 0) continue;
       const fake = { frequency: "MONTHLY", day_of_month: a.due_day, start_date: period.start, end_date: null, due_date: null } as ScheduledPayment;

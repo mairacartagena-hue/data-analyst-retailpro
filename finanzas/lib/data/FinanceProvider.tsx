@@ -137,7 +137,7 @@ async function loadAll(sb: SupabaseClient, userId: string): Promise<Loaded> {
 
   const transactions: Transaction[] = txs.map((t) => ({ ...t, amount: Number(t.amount), installments: Number(t.installments ?? 1), interest_rate_ea: num(t.interest_rate_ea) as number | null, splits: splitsByTx.get(t.id) ?? [] }));
   const consumption = expandInstallments(transactions);
-  const cardItemRows = await sb.from("card_statement_items").select("id, account_id, description, purchase_date, amount, installments, paid_installments, remaining_balance, rate_ea").eq("owner_user_id", userId);
+  const cardItemRows = await sb.from("card_statement_items").select("id, account_id, description, purchase_date, amount, installments, paid_installments, remaining_balance, rate_ea");
   if (cardItemRows.error) throw cardItemRows.error;
   const sharedSpending: SpendingRow[] = ((shared.data ?? []) as { owner_user_id: string; category_id: string; occurred_on: string; total: number }[])
     .map((r) => ({ categoryId: r.category_id, responsibleUserId: r.owner_user_id, occurredOn: r.occurred_on, total: Number(r.total), scope: "PERSONAL" }));

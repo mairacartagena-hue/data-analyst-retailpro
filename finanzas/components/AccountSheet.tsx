@@ -39,6 +39,7 @@ export function AccountSheet({ open, onOpenChange, account }: { open: boolean; o
   const [rate, setRate] = useState("");
   const [term, setTerm] = useState("");
   const [costs, setCosts] = useState("");
+  const [responsible, setResponsible] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -62,6 +63,7 @@ export function AccountSheet({ open, onOpenChange, account }: { open: boolean; o
     setRate(account?.interest_rate_ea ? String(account.interest_rate_ea).replace(".", ",") : "");
     setTerm(account?.term_months ? String(account.term_months) : "");
     setCosts(account?.monthly_costs ? String(account.monthly_costs) : "");
+    setResponsible(account?.responsible_user_id && account.responsible_user_id !== account.owner_user_id ? account.responsible_user_id : "");
   }, [open, account]);
 
   const isCard = kind === "CREDIT_CARD";
@@ -78,6 +80,7 @@ export function AccountSheet({ open, onOpenChange, account }: { open: boolean; o
     const rateValue = rate.trim() ? Number(rate.replace(",", ".")) : null;
     if (isCredit && (!Number.isFinite(Number.parseInt(term, 10)) || Number.parseInt(term, 10) < 1)) return setError("Escribe el plazo en meses.");
     if ((isCard || isCredit) && rateValue != null && (!Number.isFinite(rateValue) || rateValue < 0 || rateValue > 200)) return setError("La tasa debe ser un porcentaje entre 0 y 200 (ej. 28,5).");
+    if (isDebt && responsible && responsible !== me.user_id && visibility === "PRIVATE") return setError(`Para que ${partner?.display_name ?? "tu pareja"} vea la deuda, la cuenta no puede ser privada: elige que vea el saldo o todo.`);
     const day = (v: string) => (v ? Math.min(31, Math.max(1, Number(v))) : null);
     const base = parseCop(opening) ?? 0;
     const row = {
@@ -99,6 +102,7 @@ export function AccountSheet({ open, onOpenChange, account }: { open: boolean; o
       interest_rate_ea: isCard || isCredit ? rateValue : null,
       term_months: isCredit ? Math.min(600, Math.max(1, Number.parseInt(term, 10) || 0)) || null : null,
       monthly_costs: isCredit ? parseCop(costs) ?? 0 : 0,
+      responsible_user_id: isDebt && responsible && responsible !== me.user_id ? responsible : null,
     };
     setBusy(true);
     const { error } = account
@@ -188,6 +192,17 @@ export function AccountSheet({ open, onOpenChange, account }: { open: boolean; o
           <Field label="Tasa de interés (% efectiva anual)" htmlFor="rate"
             hint="Sale en el extracto de la tarjeta. Sirve para estimar los intereses de las compras a cuotas; las de 1 cuota no pagan intereses.">
             <Input id="rate" inputMode="decimal" value={rate} placeholder="ej. 28,5" onChange={(e) => setRate(e.target.value.replace(/[^\d,.]/g, "").slice(0, 6))} />
+          </Field>
+        )}
+        {isDebt && partner && (
+          <Field label={`¿Quién paga ${isCard ? "esta tarjeta" : "este crédito"}?`}
+            hint={responsible && responsible !== me.user_id
+              ? `El Saldo Seguro de ${partner.display_name} aparta la cuota y la deuda, no el tuyo. ${partner.display_name} verá los movimientos y el saldo de esta cuenta.`
+              : "El Saldo Seguro de quien pague aparta la cuota y la deuda."}>
+            <Select value={responsible || me.user_id} onChange={(e) => setResponsible(e.target.value === me.user_id ? "" : e.target.value)} aria-label="Responsable del pago">
+              <option value={me.user_id}>Yo ({me.display_name})</option>
+              <option value={partner.user_id}>{partner.display_name}</option>
+            </Select>
           </Field>
         )}
         <Field label={`¿Qué puede ver ${partner?.display_name ?? "tu pareja"}?`}

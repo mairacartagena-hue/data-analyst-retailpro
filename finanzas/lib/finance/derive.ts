@@ -127,6 +127,11 @@ export function ledgerEntries(rows: LedgerRow[]): LedgerEntry[] {
   }));
 }
 
+/** Quién paga la tarjeta o el crédito: el responsable elegido o, si no hay, el dueño de la cuenta. */
+export function responsibleOf(a: Pick<Account, "owner_user_id" | "responsible_user_id">): string {
+  return a.responsible_user_id ?? a.owner_user_id;
+}
+
 export function balanceAccounts(s: Snapshot) {
   return s.accounts
     .filter((a) => s.balances[a.id] !== undefined)
@@ -143,7 +148,7 @@ export function safeToSpendFor(s: Snapshot, period: Period, statuses = statusesF
     // Tarjetas: solo lo que toca pagar en el periodo (las cuotas que vencen después no se apartan).
     // Préstamos: se aparta todo lo que se debe. Créditos: solo la cuota del próximo pago.
     creditCardDebt: s.accounts
-      .filter((a) => a.owner_user_id === me && (a.kind === "CREDIT_CARD" || a.kind === "LOAN" || a.kind === "CREDIT") && s.balances[a.id] !== undefined)
+      .filter((a) => responsibleOf(a) === me && (a.kind === "CREDIT_CARD" || a.kind === "LOAN" || a.kind === "CREDIT") && s.balances[a.id] !== undefined)
       .reduce((acc, a) => acc + (a.kind === "LOAN"
         ? Math.max(0, -s.balances[a.id])
         : a.kind === "CREDIT"

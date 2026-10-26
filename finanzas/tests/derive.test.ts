@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cashFlow, crossNet, limitsForScope, netWorth, safeToSpendFor, type Snapshot } from "@/lib/finance/derive";
+import { cashFlow, crossNet, limitsForScope, netWorth, responsibleOf, safeToSpendFor, type Snapshot } from "@/lib/finance/derive";
 import { periodFor, DEFAULT_PERIOD_SETTINGS } from "@/lib/finance/periods";
 import type { Account, Category, CategoryLimit, Member } from "@/lib/types";
 
@@ -71,5 +71,23 @@ describe("derivados del inicio", () => {
 
   it("flujo de caja vacío", () => {
     expect(cashFlow(snapshot, oct, "me")).toEqual({ income: 0, expense: 0, net: 0 });
+  });
+});
+
+describe("responsable de la tarjeta o del crédito", () => {
+  const withResponsible = (responsible: string | null): Snapshot => ({
+    ...snapshot,
+    accounts: snapshot.accounts.map((a) => (a.id === "visa" ? { ...a, responsible_user_id: responsible } : a)),
+  });
+
+  it("sin responsable, la deuda la aparta el dueño de la cuenta", () => {
+    expect(responsibleOf(withResponsible(null).accounts[2])).toBe(A);
+    expect(safeToSpendFor(withResponsible(null), oct).creditCardDebt).toBe(500_000);
+  });
+
+  it("con otro responsable, el dueño ya no la aparta y la aparta el responsable", () => {
+    const s = withResponsible(B);
+    expect(safeToSpendFor(s, oct).creditCardDebt).toBe(0);
+    expect(safeToSpendFor({ ...s, me: partner, partner: me }, oct).creditCardDebt).toBe(500_000);
   });
 });
