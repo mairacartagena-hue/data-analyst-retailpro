@@ -95,6 +95,8 @@ export interface Account {
   original_amount?: number | null;
   /** Créditos: cuota fija del extracto (capital + intereses, sin seguros). */
   installment_amount?: number | null;
+  /** Créditos: categoría de su presupuesto del hogar (la cuota se cuenta ahí y sus pagos se cruzan solos). */
+  budget_category_id?: string | null;
   paid_installments_on?: string | null;
   monthly_costs?: number;
   archived: boolean;
