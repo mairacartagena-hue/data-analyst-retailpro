@@ -50,13 +50,15 @@ async function shrink(file: File): Promise<{ data: string; mime: string }> {
 }
 
 export function QuickCapture({
-  accounts, categories, incomeCategories, offline, onResult,
+  accounts, categories, incomeCategories, offline, onResult, autoStart = false,
 }: {
   accounts: CaptureOption[];
   categories: CaptureOption[];
   incomeCategories: CaptureOption[];
   offline: boolean;
   onResult: (r: CaptureResult, source: "voice" | "photo") => void;
+  /** Empieza a escuchar apenas se abre (botón del micrófono). */
+  autoStart?: boolean;
 }) {
   const [mode, setMode] = useState<"idle" | "listening" | "typing">("idle");
   const [text, setText] = useState("");
@@ -169,6 +171,15 @@ export function QuickCapture({
       setMode("typing");
     }
   }
+
+  // Abierto con el botón del micrófono: escucha de una vez
+  const started = useRef(false);
+  useEffect(() => {
+    if (!autoStart || started.current) return;
+    started.current = true;
+    listen();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoStart]);
 
   function stop() {
     rec.current?.stop();

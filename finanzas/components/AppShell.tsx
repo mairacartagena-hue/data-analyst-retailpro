@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Home, List, Menu, PieChart, Plus } from "lucide-react";
+import { BarChart3, Home, List, Menu, Mic, PieChart, Plus } from "lucide-react";
 import type { Transaction } from "@/lib/types";
 import { TransactionSheet, type TxPreset } from "@/components/TransactionSheet";
 import { SettleSheet } from "@/components/SettleSheet";
@@ -72,6 +72,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div className="mx-auto min-h-dvh w-full max-w-2xl pb-nav">
         <OfflineBanner />
         {children}
+      </div>
+
+      {/* Registrar por voz: siempre a la mano, encima de la barra */}
+      <div className="pointer-events-none fixed inset-x-0 bottom-[calc(76px+env(safe-area-inset-bottom))] z-30">
+        <div className="mx-auto flex max-w-2xl justify-end px-4">
+          <button onClick={() => openPayment({ voice: true })} aria-label="Registrar por voz"
+            className="pointer-events-auto flex h-14 w-14 items-center justify-center rounded-full bg-wood text-on-olive shadow-soft ring-4 ring-bg active:scale-95">
+            <Mic size={26} />
+          </button>
+        </div>
       </div>
 
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur">

@@ -88,6 +88,8 @@ export interface TxPreset {
   scheduledFor?: string;
   /** Aviso de ingest_logs que se marca como registrado al guardar. */
   logId?: string;
+  /** Abrir escuchando (botón del micrófono). */
+  voice?: boolean;
 }
 
 /** ¿Puedo editar este movimiento? Quien lo registró siempre; la pareja, si es del hogar y ya está confirmado. */
@@ -545,6 +547,7 @@ export function TransactionSheet({
               categories={usable.map((c) => ({ id: c.id, name: categoryPath(categories, c.id) }))}
               incomeCategories={incomeCategories.map((c) => ({ id: c.id, name: c.name }))}
               onResult={applyCapture}
+              autoStart={!!preset?.voice}
             />
           )}
 
