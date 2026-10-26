@@ -27,8 +27,6 @@ import { fixedAmountsExcess } from "@/lib/finance/budget";
 import { unassigned, validateSplits, type SplitDraft } from "@/lib/finance/crossLedger";
 import { accountLabel, categoryLabel } from "@/lib/finance/labels";
 import { categoryPath, hasSplits } from "@/lib/finance/spaces";
-import { suggestThirdParty } from "@/lib/finance/thirdParty";
-import { ensureThirdParty, thirdPartyName } from "@/lib/data/thirdParty";
 import { errMsg } from "@/lib/utils";
 import { installmentPlan, MAX_INSTALLMENTS, rateOf } from "@/lib/finance/installments";
 import { isNetworkError } from "@/lib/offline/store";
@@ -108,8 +106,7 @@ export function TransactionSheet({
 }: { open: boolean; onOpenChange: (v: boolean) => void; editing: Transaction | null; preset?: TxPreset | null }) {
   const state = useFinance();
   const router = useRouter();
-  const { me, partner, accounts, categories, labels, supabase, reload, memberById, thirdParties, thirdPartyMemory } = state;
-  const tpName = thirdPartyName(thirdParties);
+  const { me, partner, accounts, categories, labels, supabase, reload, memberById } = state;
 
   const myAccounts = accounts.filter((a) => a.owner_user_id === me.user_id && !a.archived);
   const usable = categories.filter((c) => !c.archived && c.kind !== "INCOME");
@@ -144,7 +141,6 @@ export function TransactionSheet({
   const [purchaseRate, setPurchaseRate] = useState("");
   const [tagIds, setTagIds] = useState<string[]>([]);
   const [incomeCategoryId, setIncomeCategoryId] = useState("");
-  const [isThird, setIsThird] = useState(false);
   const [scheduled, setScheduled] = useState<{ id: string; for: string } | null>(null);
   const [newCategory, setNewCategory] = useState<"EXPENSE" | "INCOME" | null>(null);
   const [fixedPrompt, setFixedPrompt] = useState<FixedPrompt | null>(null);
@@ -174,8 +170,6 @@ export function TransactionSheet({
       setInstallments(String(editing.installments ?? 1));
       setPurchaseRate(editing.interest_rate_ea ? String(editing.interest_rate_ea).replace(".", ",") : "");
       setIncomeCategoryId(editing.income_category_id ?? "");
-      setIsThird(!!editing.third_party_id
-        || (editing.status === "PENDING_REVIEW" && !!suggestThirdParty(editing, thirdPartyMemory)));
       setScheduled(editing.scheduled_payment_id && editing.scheduled_for ? { id: editing.scheduled_payment_id, for: editing.scheduled_for } : null);
       const sp = editing.splits;
       if (sp.length > 1) {
@@ -221,7 +215,6 @@ export function TransactionSheet({
     setInstallments("1");
     setPurchaseRate("");
     setIncomeCategoryId("");
-    setIsThird(false);
     setScheduled(preset?.scheduledPaymentId && preset.scheduledFor ? { id: preset.scheduledPaymentId, for: preset.scheduledFor } : null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, editing, preset]);
@@ -243,9 +236,7 @@ export function TransactionSheet({
     return `${base} Primera cuota ≈ ${formatCop(first?.total ?? 0)} con intereses; intereses estimados en total ≈ ${formatCop(interest)} (${effectiveRate} % E.A.).`;
   })();
   const selectedCategory = usable.find((c) => c.id === categoryId) ?? null;
-  // Plata de un tercero (ej. Álvaro): sin categoría, responsable ni espacio del hogar
-  const third = isThird && (kind === "EXPENSE" || kind === "INCOME") && !partnerEdit;
-  const withSplits = hasSplits(kind) && !third;
+  const withSplits = hasSplits(kind);
   // Los comentarios van justo después de la categoría; sin categoría (transferencias, ajustes) quedan al final
   const showsCategory = withSplits || (kind === "INCOME" && !partnerEdit);
   const commentsBlock = editing ? <TransactionComments txId={editing.id} /> : null;
@@ -406,9 +397,7 @@ export function TransactionSheet({
     if (kind !== "TRANSFER" && !accountId) return setError("Elige la cuenta.");
 
     let payloadSplits: (SplitDraft & { origin?: string })[] = [];
-    if (third && kind === "EXPENSE") {
-      payloadSplits = [{ amount: total, categoryId: null, responsibleUserId: me.user_id }];
-    } else if (withSplits) {
+    if (withSplits) {
       payloadSplits = splitDrafts;
       const v = validateSplits(total, payloadSplits);
       if (v) return setError(v);
@@ -449,7 +438,7 @@ export function TransactionSheet({
     const sent = await submit(editing?.id ?? null, {
         id: editing?.id ?? null,
         kind,
-        scope: third ? "PERSONAL" : scope,
+        scope,
         amount: total,
         occurred_on: date,
         description,
@@ -460,33 +449,21 @@ export function TransactionSheet({
         direction: kind === "ADJUSTMENT" ? direction : null,
         installments: isCardPurchase ? installmentCount : 1,
         interest_rate_ea: isCardPurchase && installmentCount > 1 ? parsedPurchaseRate : null,
-        creates_debt: third ? true : createsDebt,
-        is_shared: kind === "INCOME" && !third && scope === "HOUSEHOLD",
-        income_category_id: kind === "INCOME" && !third ? incomeCategoryId || null : null,
+        creates_debt: createsDebt,
+        is_shared: kind === "INCOME" && scope === "HOUSEHOLD",
+        income_category_id: kind === "INCOME" ? incomeCategoryId || null : null,
         scheduled_payment_id: scheduled && (kind === "EXPENSE" || kind === "DEBT_PAYMENT") ? scheduled.id : null,
         scheduled_for: scheduled && (kind === "EXPENSE" || kind === "DEBT_PAYMENT") ? scheduled.for : null,
-        splits: withSplits || third ? payloadSplits.map((s) => ({
+        splits: withSplits ? payloadSplits.map((s) => ({
           amount: s.amount,
           category_id: s.categoryId,
           responsible_user_id: s.responsibleUserId,
           origin: s.origin ?? "NORMAL",
         })) : [],
-    }, tagIds, !editing && !third);
+    }, tagIds, !editing);
     if (sent.queued) return finishQueued();
     const { data: savedId, error } = sent;
-    const txId = (savedId as string | null) ?? editing?.id ?? null;
-    if (!error && txId && (third || editing?.third_party_id)) {
-      try {
-        const tpId = third ? await ensureThirdParty(supabase, me, thirdParties) : null;
-        const r = await supabase.rpc("set_third_party", { p_transaction_id: txId, p_third_party_id: tpId, p_remember: third });
-        if (r.error) throw r.error;
-      } catch (e) {
-        setBusy(false);
-        void reload();
-        return setError(errMsg(e));
-      }
-    }
-    if (!error && !third && isPendingReview && kind === "EXPENSE" && !splitMode && remember && (editing?.merchant_norm || (editing?.splits.length ?? 0) > 0)) {
+    if (!error && isPendingReview && kind === "EXPENSE" && !splitMode && remember && (editing?.merchant_norm || (editing?.splits.length ?? 0) > 0)) {
       await supabase.rpc("remember_merchant", { p_transaction_id: editing!.id, p_auto_apply: autoApply });
     }
     if (!error && savedId) {
@@ -619,16 +596,6 @@ export function TransactionSheet({
             </Field>
           )}
 
-          {(kind === "EXPENSE" || kind === "INCOME") && !partnerEdit && (
-            <div className="rounded-2xl border border-border bg-surface px-3">
-              <SwitchRow label={`Plata de ${tpName}`}
-                hint={kind === "INCOME"
-                  ? `${tpName} te envía la plata para un pago: no cuenta como ingreso y se aparta del Saldo Seguro hasta que pagues.`
-                  : `Pago que haces por ${tpName}: no cuenta como gasto ni consume presupuesto.`}
-                checked={isThird} onCheckedChange={setIsThird} />
-            </div>
-          )}
-
           {isCardPurchase && (
             <Field label="Cuotas" htmlFor="cuotas" hint={installmentHint}>
               <Select id="cuotas" value={String(installmentCount)} onChange={(e) => setInstallments(e.target.value)} aria-label="Número de cuotas">
@@ -693,7 +660,7 @@ export function TransactionSheet({
             ]} />
           )}
 
-          {kind === "INCOME" && !partnerEdit && !third && (
+          {kind === "INCOME" && !partnerEdit && (
             <Field label="Categoría del ingreso (opcional)">
               <div className="flex flex-wrap gap-2">
                 {incomeCategories.map((c) => (
@@ -788,7 +755,7 @@ export function TransactionSheet({
           )}
           {withSplits && splitMode && commentsBlock}
 
-          {crossedAmount > 0 && otherId && !third && (
+          {crossedAmount > 0 && otherId && (
             <div className="space-y-2 rounded-2xl bg-wood-soft px-3 py-2.5 text-sm">
               <p className="flex items-center gap-2">
                 <ArrowRightLeft size={16} className="shrink-0 text-wood" />
@@ -805,9 +772,7 @@ export function TransactionSheet({
             </div>
           )}
 
-          {third ? (
-            <p className="flex items-center gap-1.5 text-xs text-muted"><Lock size={13} /> Solo lo ves tú. No entra en gastos, ingresos, presupuestos ni informes.</p>
-          ) : !partnerEdit ? (
+          {!partnerEdit ? (
             <Field label="¿De qué espacio es?">
               <Segmented value={scope} onChange={chooseScope} options={[
                 { value: "HOUSEHOLD", label: "Hogar" },
@@ -823,7 +788,7 @@ export function TransactionSheet({
             <p className="flex items-center gap-1.5 text-xs text-muted"><Home size={13} /> Movimiento del hogar</p>
           )}
 
-          {isPendingReview && kind === "EXPENSE" && !third && !splitMode && (
+          {isPendingReview && kind === "EXPENSE" && !splitMode && (
             <div className="rounded-2xl border border-border bg-surface px-3">
               <SwitchRow label="Recordar este comercio" hint="La próxima vez te sugiero la misma categoría, responsable y espacio."
                 checked={remember} onCheckedChange={setRemember} />

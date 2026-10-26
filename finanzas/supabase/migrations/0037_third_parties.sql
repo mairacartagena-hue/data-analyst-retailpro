@@ -2,6 +2,8 @@
 -- (ej. un familiar envía la plata y la persona hace el pago por él).
 -- Esos movimientos mueven el saldo real de la cuenta, pero no cuentan como gasto ni ingreso.
 -- Se puede correr más de una vez.
+-- SIN USO EN LA APP: se decidió manejar estos pagos con una categoría y reembolsos (ver README). La tabla y la
+-- columna quedan en la base de datos, vacías; no hace falta correr este archivo en una base nueva.
 
 create table if not exists public.third_parties (
   id uuid primary key default gen_random_uuid(),
