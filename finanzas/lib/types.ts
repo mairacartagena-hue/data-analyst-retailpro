@@ -85,6 +85,9 @@ export interface Account {
   due_day: number | null;
   /** Tarjetas: tasa de interés efectiva anual (%) para estimar los intereses de las cuotas. */
   interest_rate_ea?: number | null;
+  /** Créditos: plazo en meses y costos mensuales (seguros, otros). */
+  term_months?: number | null;
+  monthly_costs?: number;
   archived: boolean;
 }
 
@@ -286,6 +289,7 @@ export const ACCOUNT_KIND_LABEL: Record<AccountKind, string> = {
   CASH: "Efectivo",
   CREDIT_CARD: "Tarjeta de crédito",
   LOAN: "Préstamo (me deben pagar o debo a alguien)",
+  CREDIT: "Crédito con cuotas (hipoteca, libre inversión)",
 };
 
 export const VISIBILITY_LABEL: Record<Visibility, string> = {

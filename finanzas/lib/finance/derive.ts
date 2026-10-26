@@ -8,6 +8,8 @@ import { netFor, owedToPartner, type LedgerEntry } from "./crossLedger";
 import { DEFAULT_PERIOD_SETTINGS, isWithin, type Period, type PeriodSettings } from "./periods";
 import { computeSafeToSpend, realBalanceOf, type SafeToSpendResult } from "./safeToSpend";
 import { cardDue } from "./installments";
+import { nextCuota } from "./credit";
+import { todayBogota } from "./periods";
 import { pendingSavingsFor } from "./goals";
 import { consumptionSign } from "./spaces";
 
@@ -137,12 +139,14 @@ export function safeToSpendFor(s: Snapshot, period: Period, statuses = statusesF
     householdObligationsPending: pendingObligationsFor(me, toBudgetCategories(s.limits, s.budgets), [...statuses.values()]),
     scheduledSavingsPending: pendingSavingsFor(me, s.goals ?? [], s.contributions ?? [], period),
     // Tarjetas: solo lo que toca pagar en el periodo (las cuotas que vencen después no se apartan).
-    // Préstamos: se aparta todo lo que se debe.
+    // Préstamos: se aparta todo lo que se debe. Créditos: solo la cuota del próximo pago.
     creditCardDebt: s.accounts
-      .filter((a) => a.owner_user_id === me && (a.kind === "CREDIT_CARD" || a.kind === "LOAN") && s.balances[a.id] !== undefined)
+      .filter((a) => a.owner_user_id === me && (a.kind === "CREDIT_CARD" || a.kind === "LOAN" || a.kind === "CREDIT") && s.balances[a.id] !== undefined)
       .reduce((acc, a) => acc + (a.kind === "LOAN"
         ? Math.max(0, -s.balances[a.id])
-        : cardDue(a, s.balances[a.id], s.transactions, period).due), 0),
+        : a.kind === "CREDIT"
+          ? nextCuota(-s.balances[a.id], a.interest_rate_ea, a.term_months, a.opening_at, a.monthly_costs ?? 0, todayBogota())
+          : cardDue(a, s.balances[a.id], s.transactions, period).due), 0),
     owedToPartner: owedToPartner(me, ledgerEntries(s.ledger)),
   });
 }
