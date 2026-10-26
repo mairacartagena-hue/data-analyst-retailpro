@@ -3,15 +3,16 @@
 import type {
   Account, CardStatementItem, Category, CategoryBudgetRow, CategoryLimit, LedgerRow, ManualAsset, Member, PeriodSettingsRow, SavingsContribution, SavingsGoal, Transaction,
 } from "@/lib/types";
-import { categoryStatus, pendingObligationsFor, type BudgetCategory, type CategoryStatus, type Members, type SpendingRow } from "./budget";
+import { categoryStatus, type BudgetCategory, type CategoryStatus, type Members, type SpendingRow } from "./budget";
 import { netFor, owedToPartner, type LedgerEntry } from "./crossLedger";
 import { DEFAULT_PERIOD_SETTINGS, isWithin, type Period, type PeriodSettings } from "./periods";
-import { computeSafeToSpend, realBalanceOf, type SafeToSpendResult } from "./safeToSpend";
+import { computeSafeToSpend, type SafeToSpendResult } from "./safeToSpend";
 import { cardDue } from "./installments";
 import { creditReserve } from "./credit";
 import { todayBogota } from "./periods";
-import { pendingSavingsFor } from "./goals";
-import { consumptionSign } from "./spaces";
+import { pendingSavingsByGoal } from "./goals";
+import { categoryPath, consumptionSign } from "./spaces";
+import { formatCop } from "./money";
 
 export interface Snapshot {
   me: Member;
@@ -138,22 +139,80 @@ export function balanceAccounts(s: Snapshot) {
     .map((a) => ({ ownerUserId: a.owner_user_id, kind: a.kind, balance: s.balances[a.id] }));
 }
 
-export function safeToSpendFor(s: Snapshot, period: Period, statuses = statusesFor(s, period)): SafeToSpendResult {
+/** Una línea del detalle del Saldo Seguro: qué cuenta, presupuesto o meta aporta y cuánto. */
+export interface SafeLine {
+  id: string;
+  label: string;
+  amount: number;
+  note?: string;
+}
+
+export interface SafeToSpendDetail {
+  accounts: SafeLine[];
+  obligations: SafeLine[];
+  savings: SafeLine[];
+  debts: SafeLine[];
+}
+
+const CASH_KINDS = ["DEPOSIT", "WALLET", "CASH"];
+
+/** De dónde sale cada línea del Saldo Seguro (las sumas son exactamente las del total). */
+export function safeToSpendDetail(s: Snapshot, period: Period, statuses = statusesFor(s, period)): SafeToSpendDetail {
   const me = s.me.user_id;
-  const accounts = balanceAccounts(s);
+  const accounts = s.accounts
+    .filter((a) => a.owner_user_id === me && CASH_KINDS.includes(a.kind) && s.balances[a.id] !== undefined)
+    .map((a) => ({ id: a.id, label: a.name, amount: s.balances[a.id] }));
+
+  const obligations: SafeLine[] = [];
+  for (const c of toBudgetCategories(s.limits, s.budgets)) {
+    if (!c.isHouseholdObligation) continue;
+    const st = statuses.get(c.id);
+    const a = st?.allocations.find((x) => x.userId === me);
+    if (!a || a.remaining <= 0) continue;
+    const limit = s.limits.find((l) => l.id === c.id);
+    obligations.push({
+      id: c.id,
+      label: limit ? categoryPath(s.categories, limit.category_id) : "Presupuesto",
+      amount: a.remaining,
+      note: `Pagado ${formatCop(a.spent)} de ${formatCop(a.available)}`,
+    });
+  }
+
+  const savings = pendingSavingsByGoal(me, s.goals ?? [], s.contributions ?? [], period)
+    .map(({ goal, pending }) => ({ id: goal.id, label: goal.name, amount: pending, note: `Aporte por periodo ${formatCop(goal.planned_amount ?? 0)}` }));
+
+  // Tarjetas: solo lo que toca pagar en el periodo (las cuotas que vencen después no se apartan).
+  // Préstamos: se aparta todo lo que se debe. Créditos: solo la cuota del próximo pago.
+  const debts: SafeLine[] = [];
+  for (const a of s.accounts) {
+    const bal = s.balances[a.id];
+    if (responsibleOf(a) !== me || bal === undefined) continue;
+    const owed = Math.max(0, -bal);
+    if (a.kind === "LOAN") {
+      if (owed > 0) debts.push({ id: a.id, label: a.name, amount: owed, note: "Préstamo: se aparta todo lo que debes" });
+    } else if (a.kind === "CREDIT") {
+      const cuota = creditReserve(a, bal, s.transactions, period, todayBogota());
+      if (cuota > 0) debts.push({ id: a.id, label: a.name, amount: cuota, note: `Próxima cuota (debes ${formatCop(owed)} en total)` });
+    } else if (a.kind === "CREDIT_CARD") {
+      const d = cardDue(a, bal, s.transactions, period, s.cardItems ?? []);
+      if (d.due > 0) debts.push({
+        id: a.id, label: a.name, amount: d.due,
+        note: `Vence este periodo (deuda total ${formatCop(d.debt)}${d.laterCapital > 0 ? `; ${formatCop(d.laterCapital)} en cuotas que vencen después` : ""})`,
+      });
+    }
+  }
+  return { accounts, obligations, savings, debts };
+}
+
+const sum = (xs: SafeLine[]) => xs.reduce((a, x) => a + x.amount, 0);
+
+export function safeToSpendFor(s: Snapshot, period: Period, statuses = statusesFor(s, period), detail = safeToSpendDetail(s, period, statuses)): SafeToSpendResult {
+  const me = s.me.user_id;
   return computeSafeToSpend({
-    realBalance: realBalanceOf(me, accounts),
-    householdObligationsPending: pendingObligationsFor(me, toBudgetCategories(s.limits, s.budgets), [...statuses.values()]),
-    scheduledSavingsPending: pendingSavingsFor(me, s.goals ?? [], s.contributions ?? [], period),
-    // Tarjetas: solo lo que toca pagar en el periodo (las cuotas que vencen después no se apartan).
-    // Préstamos: se aparta todo lo que se debe. Créditos: solo la cuota del próximo pago.
-    creditCardDebt: s.accounts
-      .filter((a) => responsibleOf(a) === me && (a.kind === "CREDIT_CARD" || a.kind === "LOAN" || a.kind === "CREDIT") && s.balances[a.id] !== undefined)
-      .reduce((acc, a) => acc + (a.kind === "LOAN"
-        ? Math.max(0, -s.balances[a.id])
-        : a.kind === "CREDIT"
-          ? creditReserve(a, s.balances[a.id], s.transactions, period, todayBogota())
-          : cardDue(a, s.balances[a.id], s.transactions, period, s.cardItems ?? []).due), 0),
+    realBalance: sum(detail.accounts),
+    householdObligationsPending: sum(detail.obligations),
+    scheduledSavingsPending: sum(detail.savings),
+    creditCardDebt: sum(detail.debts),
     owedToPartner: owedToPartner(me, ledgerEntries(s.ledger)),
   });
 }

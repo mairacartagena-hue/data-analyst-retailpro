@@ -1,11 +1,14 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Mail, MessageSquareText, PenLine, Pencil, Plus, Smartphone } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { useShell } from "@/components/AppShell";
 import { MemberBadge } from "@/components/MemberBadge";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
+import { SwitchRow } from "@/components/ui/switch";
+import { errMsg } from "@/lib/utils";
 import type { Category, CategoryLimit } from "@/lib/types";
 import type { CategoryStatus } from "@/lib/finance/budget";
 import { formatCop } from "@/lib/finance/money";
@@ -27,8 +30,11 @@ export function BudgetDetailSheet({ limit, status, onClose, onEdit }: {
   onClose: () => void;
   onEdit: (l: CategoryLimit) => void;
 }) {
-  const { consumption: transactions, period, memberById, me, partner, categories } = useFinance();
+  const { consumption: transactions, period, memberById, me, partner, categories, supabase, reload } = useFinance();
   const { openTransaction, openPayment } = useShell();
+  const [obligation, setObligation] = useState<boolean | null>(null);
+  const [obligationError, setObligationError] = useState<string | null>(null);
+  useEffect(() => { setObligation(null); setObligationError(null); }, [limit?.id]);
   const category: Category | null = limit ? categories.find((c) => c.id === limit.category_id) ?? null : null;
   if (!limit || !category) return null;
   const partners = limit.scope === "PERSONAL" && limit.owner_user_id !== me.user_id;
@@ -48,6 +54,25 @@ export function BudgetDetailSheet({ limit, status, onClose, onEdit }: {
   const hidden = Math.max(0, spent - visible);
   const mine = status?.allocations.find((a) => a.userId === me.user_id);
   const left = available - spent;
+  const isObligation = obligation ?? limit.is_household_obligation;
+
+  // Solo cambia la marca: sin "budget", el monto del presupuesto queda igual
+  async function toggleObligation(v: boolean) {
+    if (!limit) return;
+    setObligation(v);
+    setObligationError(null);
+    const { error } = await supabase.rpc("save_category_limit", {
+      p: {
+        id: limit.id, category_id: limit.category_id, scope: limit.scope, responsibility: limit.responsibility,
+        is_household_obligation: v, rollover_enabled: limit.rollover_enabled, shared_with_partner: limit.shared_with_partner,
+      },
+    });
+    if (error) {
+      setObligation(!v);
+      return setObligationError(errMsg(error));
+    }
+    void reload();
+  }
 
   return (
     <Sheet open={!!category} onOpenChange={(v) => !v && onClose()} title={`${category.icon ?? ""} ${category.name}${limit.scope === "PERSONAL" ? " (personal)" : ""}`.trim()}
@@ -57,6 +82,15 @@ export function BudgetDetailSheet({ limit, status, onClose, onEdit }: {
           Cuenta aquí un pago {limit.scope === "HOUSEHOLD" ? "del hogar" : partners ? `personal de ${memberById(limit.owner_user_id)?.display_name ?? "tu pareja"}` : "personal tuyo"} en <strong>{category.name}</strong>
           {" "}(o sus subcategorías): lo registras a mano, lo confirmas en “Por revisar” o llega solo si el comercio tiene “Aplicar siempre”.
         </p>
+
+        {limit.scope === "HOUSEHOLD" && (
+          <div className="rounded-2xl border border-border px-3">
+            <SwitchRow label="Obligación del hogar"
+              hint={isObligation ? "Lo que falte por pagar se aparta de tu Saldo Seguro." : "No afecta tu Saldo Seguro: es un gasto opcional."}
+              checked={isObligation} onCheckedChange={(v) => void toggleObligation(v)} />
+            {obligationError && <p className="pb-2 text-xs text-danger">{obligationError}</p>}
+          </div>
+        )}
 
         {items.length === 0 && hidden === 0 ? (
           <p className="text-sm text-muted">Aún no hay pagos en este periodo.</p>
