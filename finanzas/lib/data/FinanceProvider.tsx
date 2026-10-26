@@ -10,6 +10,7 @@ import type {
 import { toPeriodSettings, type Snapshot } from "@/lib/finance/derive";
 import type { SpendingRow } from "@/lib/finance/budget";
 import { spendingRows } from "@/lib/finance/spaces";
+import { expandInstallments } from "@/lib/finance/installments";
 import { periodFor, todayBogota, type Period } from "@/lib/finance/periods";
 import { getItem, isNetworkError, queueKey, setItem, snapshotKey } from "@/lib/offline/store";
 import type { QueuedTx } from "@/lib/offline/queue";
@@ -18,6 +19,8 @@ export interface FinanceState extends Snapshot {
   /** Etiquetas del hogar y, por movimiento, los ids de las que tiene. */
   tags: Tag[];
   txTags: Record<string, string[]>;
+  /** Movimientos para presupuestos e informes: las compras a cuotas, una copia por cuota en su mes. */
+  consumption: Transaction[];
   household: Household;
   /** Totales (sin detalle) de lo que la pareja lleva en sus presupuestos personales compartidos conmigo. */
   sharedSpending: SpendingRow[];
@@ -130,7 +133,8 @@ async function loadAll(sb: SupabaseClient, userId: string): Promise<Loaded> {
     splitsByTx.set(s.transaction_id, list);
   }
 
-  const transactions: Transaction[] = txs.map((t) => ({ ...t, amount: Number(t.amount), splits: splitsByTx.get(t.id) ?? [] }));
+  const transactions: Transaction[] = txs.map((t) => ({ ...t, amount: Number(t.amount), installments: Number(t.installments ?? 1), splits: splitsByTx.get(t.id) ?? [] }));
+  const consumption = expandInstallments(transactions);
   const sharedSpending: SpendingRow[] = ((shared.data ?? []) as { owner_user_id: string; category_id: string; occurred_on: string; total: number }[])
     .map((r) => ({ categoryId: r.category_id, responsibleUserId: r.owner_user_id, occurredOn: r.occurred_on, total: Number(r.total), scope: "PERSONAL" }));
   const memberRows = (members.data ?? []) as Member[];
@@ -156,6 +160,7 @@ async function loadAll(sb: SupabaseClient, userId: string): Promise<Loaded> {
       ...a,
       opening_balance: Number(a.opening_balance),
       credit_limit: num(a.credit_limit) as number | null,
+      interest_rate_ea: num(a.interest_rate_ea) as number | null,
     })),
     labels: (labels.data ?? []) as AccountLabel[],
     balances: balanceMap,
@@ -171,7 +176,8 @@ async function loadAll(sb: SupabaseClient, userId: string): Promise<Loaded> {
     assets: ((assets.data ?? []) as ManualAsset[]).map((a) => ({ ...a, value: Number(a.value) })),
     // Lo ejecutado sale de los movimientos visibles (lo personal de la pareja no llega), más los totales
     // de sus presupuestos personales que me compartió (solo de movimientos que no puedo abrir)
-    spending: [...spendingRows(transactions), ...sharedSpending],
+    spending: [...spendingRows(consumption), ...sharedSpending],
+    consumption,
     sharedSpending,
     plans: ((plans.data ?? []) as BudgetPlan[]).map((b) => ({ ...b, amount: Number(b.amount), alert_pct: Number(b.alert_pct), shared_with_partner: !!b.shared_with_partner })),
     planCategories: ((planCategories.data ?? []) as BudgetPlanCategory[]).map((c) => ({ ...c, amount: num(c.amount) as number | null })),

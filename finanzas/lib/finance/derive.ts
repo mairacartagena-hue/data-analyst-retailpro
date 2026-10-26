@@ -6,7 +6,8 @@ import type {
 import { categoryStatus, pendingObligationsFor, type BudgetCategory, type CategoryStatus, type Members, type SpendingRow } from "./budget";
 import { netFor, owedToPartner, type LedgerEntry } from "./crossLedger";
 import { DEFAULT_PERIOD_SETTINGS, isWithin, type Period, type PeriodSettings } from "./periods";
-import { computeSafeToSpend, creditCardDebtOf, realBalanceOf, type SafeToSpendResult } from "./safeToSpend";
+import { computeSafeToSpend, realBalanceOf, type SafeToSpendResult } from "./safeToSpend";
+import { cardDue } from "./installments";
 import { pendingSavingsFor } from "./goals";
 import { consumptionSign } from "./spaces";
 
@@ -19,6 +20,8 @@ export interface Snapshot {
   categories: Category[];
   budgets: CategoryBudgetRow[];
   transactions: Transaction[];
+  /** Movimientos con las compras a cuotas repartidas mes a mes (ver installments.ts). */
+  consumption?: Transaction[];
   ledger: LedgerRow[];
   spending: SpendingRow[];
   assets: ManualAsset[];
@@ -133,7 +136,10 @@ export function safeToSpendFor(s: Snapshot, period: Period, statuses = statusesF
     realBalance: realBalanceOf(me, accounts),
     householdObligationsPending: pendingObligationsFor(me, toBudgetCategories(s.limits, s.budgets), [...statuses.values()]),
     scheduledSavingsPending: pendingSavingsFor(me, s.goals ?? [], s.contributions ?? [], period),
-    creditCardDebt: creditCardDebtOf(me, accounts),
+    // Tarjetas: solo lo que toca pagar en el periodo (las cuotas que vencen después no se apartan)
+    creditCardDebt: s.accounts
+      .filter((a) => a.owner_user_id === me && a.kind === "CREDIT_CARD" && s.balances[a.id] !== undefined)
+      .reduce((acc, a) => acc + cardDue(a, s.balances[a.id], s.transactions, period).due, 0),
     owedToPartner: owedToPartner(me, ledgerEntries(s.ledger)),
   });
 }
@@ -186,7 +192,8 @@ export interface CashFlow {
 export function cashFlow(s: Snapshot, period: Period, scope: Scope): CashFlow {
   let income = 0;
   let expense = 0;
-  for (const t of s.transactions) {
+  // Una compra a cuotas sale de la caja a medida que se paga: cada cuota en su mes
+  for (const t of s.consumption ?? s.transactions) {
     if (!isWithin(t.occurred_on, period)) continue;
     if (scope === "me" && t.payer_user_id !== s.me.user_id) continue;
     if (scope === "household" && t.scope !== "HOUSEHOLD") continue;

@@ -83,6 +83,8 @@ export interface Account {
   credit_limit: number | null;
   statement_day: number | null;
   due_day: number | null;
+  /** Tarjetas: tasa de interés efectiva anual (%) para estimar los intereses de las cuotas. */
+  interest_rate_ea?: number | null;
   archived: boolean;
 }
 
@@ -186,6 +188,11 @@ export interface Transaction {
   suggested_responsible_user_id?: string | null;
   suggested_to_account_id?: string | null;
   income_category_id?: string | null;
+  /** Compras con tarjeta de crédito: número de cuotas (1 = una sola). */
+  installments?: number;
+  /** Solo en las copias por cuota que usan presupuestos e informes: número de la cuota y el movimiento original. */
+  installment_no?: number;
+  installment_of?: Transaction;
   splits: Split[];
 }
 

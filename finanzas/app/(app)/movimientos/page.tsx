@@ -204,6 +204,7 @@ function TxRow({ tx }: { tx: Transaction }) {
     title = tx.description && tx.description !== "Liquidación" ? tx.description : "Liquidación";
     subtitle = `${payer?.display_name} → ${memberById(tx.counterparty_user_id)?.display_name}`;
   }
+  if ((tx.installments ?? 1) > 1 && tx.kind === "EXPENSE") subtitle = `${subtitle} · ${tx.installments} cuotas`;
 
   return (
     <button onClick={() => openTransaction(tx)} className="flex w-full items-center gap-3 px-3.5 py-3 text-left hover:bg-surface-2">

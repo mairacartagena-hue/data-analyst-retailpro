@@ -20,6 +20,7 @@ const schema = {
     category_id: { type: "STRING", nullable: true },
     account_id: { type: "STRING", nullable: true },
     to_account_id: { type: "STRING", nullable: true },
+    installments: { type: "INTEGER", nullable: true },
   },
 };
 
@@ -44,6 +45,7 @@ ${list(ctx.incomeCategories)}
 - account_id: id de la cuenta con la que se pagó o a la que entró la plata, SOLO si se menciona (en un recibo, si se ven los últimos dígitos de la tarjeta y coinciden con el nombre). Lista:
 ${list(ctx.accounts)}
 - to_account_id: en una TRANSFER, la cuenta de destino (misma lista).
+- installments: número de cuotas si es una compra con tarjeta de crédito y se dice o aparece (ej. "a 12 cuotas", "No. cuotas: 6"). null si no.
 No inventes: si algo no aparece, usa null.`;
 }
 

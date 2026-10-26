@@ -27,7 +27,7 @@ export function BudgetDetailSheet({ limit, status, onClose, onEdit }: {
   onClose: () => void;
   onEdit: (l: CategoryLimit) => void;
 }) {
-  const { transactions, period, memberById, me, partner, categories } = useFinance();
+  const { consumption: transactions, period, memberById, me, partner, categories } = useFinance();
   const { openTransaction, openPayment } = useShell();
   const category: Category | null = limit ? categories.find((c) => c.id === limit.category_id) ?? null : null;
   if (!limit || !category) return null;
@@ -66,12 +66,12 @@ export function BudgetDetailSheet({ limit, status, onClose, onEdit }: {
               const src = SOURCE[t.source] ?? SOURCE.MANUAL;
               const Icon = src.icon;
               return (
-                <button key={s.id} onClick={() => { onClose(); openTransaction(t); }} className="flex w-full items-center gap-3 px-3.5 py-3 text-left hover:bg-surface-2">
+                <button key={s.id} onClick={() => { onClose(); openTransaction(t.installment_of ?? t); }} className="flex w-full items-center gap-3 px-3.5 py-3 text-left hover:bg-surface-2">
                   <MemberBadge member={memberById(s.responsible_user_id)} size={24} />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-medium">{t.merchant || t.description || category.name}</span>
                     {s.category_id !== category.id && <span className="block truncate text-xs text-muted">{categoryPath(categories, s.category_id)}</span>}
-                    <span className="flex items-center gap-1 text-xs text-muted"><Icon size={12} /> {src.label} · {formatDay(t.occurred_on)}{t.status === "PENDING_REVIEW" ? " · por revisar" : ""}</span>
+                    <span className="flex items-center gap-1 text-xs text-muted"><Icon size={12} /> {src.label} · {formatDay(t.occurred_on)}{t.installment_no ? ` · cuota ${t.installment_no} de ${t.installments}` : ""}{t.status === "PENDING_REVIEW" ? " · por revisar" : ""}</span>
                   </span>
                   <span className="num shrink-0 font-semibold">{sign < 0 ? "−" : ""}{formatCop(s.amount)}</span>
                 </button>

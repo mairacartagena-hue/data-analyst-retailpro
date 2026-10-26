@@ -20,6 +20,7 @@ export function sanitizeCapture(raw: Record<string, unknown>, ctx: CaptureContex
   const cats = r.kind === "INCOME" ? ctx.incomeCategories : ctx.categories;
   if (has(cats, raw.category_id)) r.categoryId = raw.category_id as string;
   if (has(ctx.accounts, raw.account_id)) r.accountId = raw.account_id as string;
+  if (typeof raw.installments === "number" && raw.installments >= 1 && raw.installments <= 48) r.installments = Math.round(raw.installments);
   if (r.kind === "TRANSFER" && has(ctx.accounts, raw.to_account_id) && raw.to_account_id !== raw.account_id) r.toAccountId = raw.to_account_id as string;
   return r;
 }
