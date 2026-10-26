@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Archive, ArchiveRestore } from "lucide-react";
+import { Fragment, useEffect, useState } from "react";
+import { Archive, ArchiveRestore, FileUp } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import type { Account, ManualAsset, Visibility } from "@/lib/types";
 import { ACCOUNT_KIND_LABEL, ASSET_TYPE_LABEL, VISIBILITY_LABEL } from "@/lib/types";
@@ -17,6 +17,9 @@ import { SwitchRow } from "@/components/ui/switch";
 import { AmountInput } from "@/components/AmountInput";
 import { parseCop } from "@/lib/finance/money";
 import { cn, errMsg } from "@/lib/utils";
+import { shrink, toBase64 } from "@/lib/capture/file";
+import { currentInstallmentFrom, type CreditStatementData } from "@/lib/capture/creditStatement";
+import { effectOn } from "@/lib/finance/reconcile";
 
 const KINDS: AccountKind[] = ["DEPOSIT", "WALLET", "CASH", "CREDIT_CARD", "LOAN", "CREDIT"];
 const VISIBILITIES: Visibility[] = ["PRIVATE", "BALANCE_ONLY", "PUBLIC"];
@@ -106,7 +109,7 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
       // En tarjetas el saldo inicial es la deuda actual (se guarda negativa)
       opening_balance: isDebt ? -base : base,
       credit_limit: isCard ? parseCop(limit) : null,
-      statement_day: isCard ? day(statementDay) : null,
+      statement_day: isCard || isCredit ? day(statementDay) : null,
       due_day: isCard || isCredit ? day(dueDay) : null,
       interest_rate_ea: isCard || isCredit ? rateValue : null,
       term_months: isCredit ? Math.min(600, Math.max(1, Number.parseInt(term, 10) || 0)) || null : null,
@@ -184,6 +187,26 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
           </Field>
         )}
         {isCredit && (
+          <CreditStatementImport account={account} onData={(d) => {
+            const today = todayBogota();
+            if (d.institution && !institution.trim()) setInstitution(d.institution);
+            if (d.last4 && !last4) setLast4(d.last4);
+            if (!account && d.capitalBalance) {
+              setOpening(String(Math.round(d.capitalBalance)));
+              if (d.statementDate && d.statementDate <= today) setOpeningDate(d.statementDate);
+            }
+            if (d.rateEa) setRate(String(d.rateEa).replace(".", ","));
+            if (d.termMonths) setTerm(String(d.termMonths));
+            const cur = currentInstallmentFrom(d, today);
+            if (cur) setCurrentInst(String(cur));
+            if (d.dueDate) setDueDay(String(Number(d.dueDate.slice(8, 10))));
+            if (d.statementDate) setStatementDay(String(Number(d.statementDate.slice(8, 10))));
+            if (d.monthlyCosts !== undefined) setCosts(String(Math.round(d.monthlyCosts)));
+            if (d.installmentAmount) setFixedCuota(String(Math.round(d.installmentAmount)));
+            if (d.originalAmount) setOriginal(String(Math.round(d.originalAmount)));
+          }} />
+        )}
+        {isCredit && (
           <div className="grid grid-cols-2 gap-3">
             <Field label="Valor inicial del crédito" hint="Lo que te prestó el banco al empezar."><AmountInput value={original} onChange={setOriginal} /></Field>
             <Field label="Valor de la cuota" hint="Capital + intereses del extracto, sin seguros. Los intereses salen de la tasa y la diferencia va a capital. Vacío: la app la calcula."><AmountInput value={fixedCuota} onChange={setFixedCuota} /></Field>
@@ -192,6 +215,7 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
               <Input id="cur-inst" inputMode="numeric" value={currentInst} placeholder={term ? `1 a ${term}` : ""} onChange={(e) => setCurrentInst(e.target.value.replace(/\D/g, "").slice(0, 3))} />
             </Field>
             <Field label="Día de pago" htmlFor="dd2"><Input id="dd2" inputMode="numeric" value={dueDay} onChange={(e) => setDueDay(e.target.value.replace(/\D/g, "").slice(0, 2))} /></Field>
+            <Field label="Día de corte" htmlFor="sd2" hint="Fecha de facturación del extracto."><Input id="sd2" inputMode="numeric" value={statementDay} onChange={(e) => setStatementDay(e.target.value.replace(/\D/g, "").slice(0, 2))} /></Field>
             <Field label="Seguros y otros costos al mes" hint="Seguro de vida, de inmueble, cuotas de administración del crédito."><AmountInput value={costs} onChange={setCosts} /></Field>
           </div>
         )}
@@ -533,6 +557,104 @@ function CreditPayments({ account }: { account: Account }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Importar el extracto del crédito (PDF o foto): la IA lo lee y llena el formulario; la persona revisa y guarda. */
+function CreditStatementImport({ account, onData }: { account: Account | null; onData: (d: CreditStatementData) => void }) {
+  const { balances, transactions, supabase, reload } = useFinance();
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [read, setRead] = useState<CreditStatementData | null>(null);
+  const [adjusted, setAdjusted] = useState(false);
+
+  async function pick(file: File | undefined) {
+    if (!file) return;
+    setErr(null);
+    setRead(null);
+    setAdjusted(false);
+    if (!navigator.onLine) return setErr("Sin conexión: para leer el extracto necesitas internet.");
+    setBusy(true);
+    try {
+      const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+      const payload = isPdf ? { data: await toBase64(file), mime: "application/pdf" } : await shrink(file, 2400);
+      if (payload.data.length > 4_200_000) throw new Error("El archivo es muy pesado (máximo ~3 MB). Prueba con una foto o el PDF del banco.");
+      const res = await fetch("/api/credit-statement", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; result?: CreditStatementData; error?: string };
+      if (!body.ok || !body.result) throw new Error(body.error ?? "No se pudo leer el extracto.");
+      if (Object.keys(body.result).length === 0) throw new Error("No encontré datos del crédito en ese archivo.");
+      setRead(body.result);
+      onData(body.result);
+    } catch (e) {
+      setErr(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Deuda de la app a la fecha del extracto (sin los movimientos posteriores)
+  const date = read?.statementDate;
+  const appOwed = account && date
+    ? -((balances[account.id] ?? 0) - transactions.filter((t) => t.occurred_on > date && t.status !== "PENDING_REVIEW").reduce((sum, t) => sum + effectOn(account.id, t), 0))
+    : null;
+  const diff = read?.capitalBalance !== undefined && appOwed !== null ? Math.round(read.capitalBalance) - Math.round(appOwed) : 0;
+
+  async function adjust() {
+    if (!account || !date || diff === 0) return;
+    setBusy(true);
+    setErr(null);
+    const r = await supabase.rpc("save_transaction", { p: {
+      kind: "ADJUSTMENT", amount: Math.abs(diff), occurred_on: date, account_id: account.id,
+      direction: diff > 0 ? "OUT" : "IN", description: `Ajuste del saldo con el extracto (${account.name})`, tags: ["#conciliacion"],
+    } });
+    setBusy(false);
+    if (r.error) return setErr(errMsg(r.error));
+    setAdjusted(true);
+    void reload();
+  }
+
+  const rows: [string, string][] = read ? [
+    ["Saldo a capital", read.capitalBalance !== undefined ? formatCop(Math.round(read.capitalBalance)) : ""],
+    ["Fecha del extracto", read.statementDate ?? ""],
+    ["Pague hasta", read.dueDate ?? ""],
+    ["Tasa", read.rateEa ? `${String(read.rateEa).replace(".", ",")} % EA` : ""],
+    ["Cuotas", read.termMonths ? `${read.termMonths}${read.installmentsPending !== undefined ? ` (pendientes ${read.installmentsPending})` : ""}` : ""],
+    ["Cuota (capital + intereses)", read.installmentAmount ? formatCop(Math.round(read.installmentAmount)) : ""],
+    ["Seguros y costos", read.monthlyCosts !== undefined ? formatCop(Math.round(read.monthlyCosts)) : ""],
+    ["Total a pagar", read.amountDue ? formatCop(Math.round(read.amountDue)) : ""],
+    ["Valor inicial", read.originalAmount ? formatCop(Math.round(read.originalAmount)) : ""],
+  ].filter((r): r is [string, string] => !!r[1]) : [];
+
+  return (
+    <div className="space-y-2 rounded-2xl border border-dashed border-border p-3">
+      <label className={cn("flex cursor-pointer items-center gap-2 text-sm font-medium text-olive", busy && "pointer-events-none opacity-60")}>
+        <FileUp size={18} />
+        {busy ? "Leyendo el extracto…" : "Importar extracto (PDF o foto) y llenar los datos"}
+        <input type="file" accept="application/pdf,image/*" className="hidden" disabled={busy}
+          onChange={(e) => { void pick(e.target.files?.[0]); e.target.value = ""; }} />
+      </label>
+      {!read && !err && <p className="text-xs text-muted">La IA lee el extracto del banco y llena tasa, cuotas, cuota, seguros y fechas. Revisa antes de guardar. El archivo no se guarda.</p>}
+      {read && (
+        <div className="space-y-2">
+          <dl className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs">
+            {rows.map(([k, v]) => (<Fragment key={k}><dt className="text-muted">{k}</dt><dd className="num text-right">{v}</dd></Fragment>))}
+          </dl>
+          <p className="text-xs text-olive">Listo: revisa los campos de abajo y toca Guardar.</p>
+          {account && appOwed !== null && read.capitalBalance !== undefined && (
+            diff === 0 || adjusted ? (
+              <p className="text-xs text-muted">{adjusted ? "Saldo ajustado al del extracto." : "El saldo de la app coincide con el extracto."}</p>
+            ) : (
+              <div className="space-y-1.5 rounded-xl bg-warning-soft px-3 py-2 text-xs">
+                <p>Al {date} la app dice que debes {formatCop(Math.round(appOwed))} y el extracto {formatCop(Math.round(read.capitalBalance))} ({diff > 0 ? "+" : "−"}{formatCop(Math.abs(diff))}).</p>
+                <Button size="sm" variant="outline" onClick={adjust} disabled={busy}>Ajustar el saldo al del extracto</Button>
+                <p className="text-muted">Es un ajuste de saldo: no cuenta como gasto ni ingreso.</p>
+              </div>
+            )
+          )}
+        </div>
+      )}
+      {err && <p className="text-xs text-danger">{err}</p>}
     </div>
   );
 }
