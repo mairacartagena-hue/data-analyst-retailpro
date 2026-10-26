@@ -7,6 +7,7 @@ import { BarChart3, Home, List, Menu, PieChart, Plus } from "lucide-react";
 import type { Transaction } from "@/lib/types";
 import { TransactionSheet, type TxPreset } from "@/components/TransactionSheet";
 import { SettleSheet } from "@/components/SettleSheet";
+import { OfflineBanner } from "@/components/OfflineBanner";
 import { cn } from "@/lib/utils";
 
 interface ShellApi {
@@ -68,7 +69,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <ShellCtx.Provider value={{ openTransaction, openPayment, openSettle }}>
-      <div className="mx-auto min-h-dvh w-full max-w-2xl pb-nav">{children}</div>
+      <div className="mx-auto min-h-dvh w-full max-w-2xl pb-nav">
+        <OfflineBanner />
+        {children}
+      </div>
 
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur">
         <div className="mx-auto flex max-w-2xl items-end px-2">

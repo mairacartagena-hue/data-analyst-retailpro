@@ -16,6 +16,8 @@ import { CategorySheet } from "@/components/CategorySheet";
 import { CategoryOptions, CategoryPicker } from "@/components/CategoryPicker";
 import { TransactionComments } from "@/components/TransactionComments";
 import { TagPicker } from "@/components/TagPicker";
+import { QuickCapture } from "@/components/QuickCapture";
+import type { CaptureResult } from "@/lib/capture/phrase";
 import { diffTags } from "@/lib/finance/tags";
 import { MemberBadge } from "@/components/MemberBadge";
 import { formatCop, parseCop } from "@/lib/finance/money";
@@ -26,6 +28,8 @@ import { unassigned, validateSplits, type SplitDraft } from "@/lib/finance/cross
 import { accountLabel, categoryLabel } from "@/lib/finance/labels";
 import { categoryPath, hasSplits } from "@/lib/finance/spaces";
 import { errMsg } from "@/lib/utils";
+import { isNetworkError } from "@/lib/offline/store";
+import { newClientId, type QueuedTx } from "@/lib/offline/queue";
 
 type FormKind = Exclude<TxKind, "SETTLEMENT">;
 type KindGroup = "EXPENSE" | "INCOME" | "TRANSFER" | "OTHER";
@@ -264,24 +268,78 @@ export function TransactionSheet({
     return { mine: { ...mine, spent: mine.spent - sameCat }, theirs };
   }, [kind, splitMode, selectedCategory, partner, partnerEdit, scope, responsibleId, me.user_id, state, date, editing]);
 
+  const online = () => !state.offline && (typeof navigator === "undefined" || navigator.onLine !== false);
+
+  /**
+   * Guarda con save_transaction. Un movimiento nuevo lleva un id de envío (no se duplica si se reenvía) y,
+   * sin conexión, queda en la cola del celular para enviarse cuando vuelva internet.
+   */
+  async function submit(id: string | null, p: Record<string, unknown>, tags: string[], queueable: boolean):
+    Promise<{ queued: true } | { queued: false; data: unknown; error: { message: string } | null }> {
+    if (id || !queueable) {
+      const r = await supabase.rpc("save_transaction", { p });
+      return { queued: false, data: r.data, error: r.error };
+    }
+    const item: QueuedTx = { client_id: newClientId(), queued_at: new Date().toISOString(), payload: p, tagIds: tags };
+    if (!online()) {
+      await state.enqueue(item);
+      return { queued: true };
+    }
+    const r = await supabase.rpc("save_transaction_once", { p: { ...p, client_id: item.client_id } });
+    if (r.error && isNetworkError(r.error)) {
+      await state.enqueue(item);
+      return { queued: true };
+    }
+    return { queued: false, data: r.data, error: r.error };
+  }
+
+  function finishQueued() {
+    setBusy(false);
+    try {
+      if (accountId) localStorage.setItem(LAST_ACCOUNT_KEY, accountId);
+      if (kind !== "TRANSFER" && kind !== "ADJUSTMENT") localStorage.setItem(LAST_SCOPE_KEY, scope);
+    } catch {}
+    onOpenChange(false);
+  }
+
+  /** Lo que se dictó o se leyó del recibo llena el formulario; la persona revisa y guarda. */
+  function applyCapture(r: CaptureResult) {
+    const k = r.kind ?? kind;
+    if (r.kind) {
+      setKind(r.kind);
+      if (r.kind === "TRANSFER") setToPartner(false);
+    }
+    if (r.amount) setAmount(String(r.amount));
+    if (r.description) setDescription(r.description);
+    if (r.date) setDate(r.date);
+    if (r.accountId && myAccounts.some((a) => a.id === r.accountId)) setAccountId(r.accountId);
+    if (r.toAccountId && myAccounts.some((a) => a.id === r.toAccountId)) setToAccountId(r.toAccountId);
+    if (r.categoryId) {
+      if (k === "INCOME" && incomeCategories.some((c) => c.id === r.categoryId)) setIncomeCategoryId(r.categoryId);
+      else if (k !== "INCOME" && usable.some((c) => c.id === r.categoryId)) setCategoryId(r.categoryId);
+    }
+    setError(null);
+  }
+
   /** Envío a la pareja: se registra como liquidación (sale de mi cuenta, llega a la suya y queda en el cruce). */
   async function saveToPartner() {
     if (!partner) return setError("Tu pareja todavía no se ha unido al hogar.");
     if (!accountId) return setError("Elige de qué cuenta sale.");
+    if (editing && isPendingReview && !online()) return setError("Sin conexión: para revisar un aviso necesitas internet.");
     setBusy(true);
-    const { data: savedId, error } = await supabase.rpc("save_transaction", {
-      p: {
-        kind: "SETTLEMENT",
-        amount: total,
-        occurred_on: date,
-        description: description.trim() || `Envío a ${partner.display_name}`,
-        account_id: accountId,
-        to_account_id: toAccountId || null,
-        counterparty_user_id: partner.user_id,
-        creates_debt: createsDebt,
-        tags: [],
-      },
-    });
+    const sent = await submit(null, {
+      kind: "SETTLEMENT",
+      amount: total,
+      occurred_on: date,
+      description: description.trim() || `Envío a ${partner.display_name}`,
+      account_id: accountId,
+      to_account_id: toAccountId || null,
+      counterparty_user_id: partner.user_id,
+      creates_debt: createsDebt,
+      tags: [],
+    }, editing && isPendingReview ? [] : tagIds, !(editing && isPendingReview));
+    if (sent.queued) return finishQueued();
+    const { data: savedId, error } = sent;
     if (!error && savedId && editing && isPendingReview) {
       // Era un aviso por revisar (ej. "Cuenta ···4993"): el aviso pasa al envío y el pendiente se quita
       await supabase.from("ingest_logs").update({ transaction_id: savedId, result: "ACCEPTED", reason: "Registrado como envío a la pareja" }).eq("transaction_id", editing.id);
@@ -348,9 +406,9 @@ export function TransactionSheet({
       return setError("Elige la cuenta de origen y una de destino distinta.");
     }
 
+    if (editing && !online()) return setError("Sin conexión: para editar un movimiento necesitas internet. Los nuevos sí se guardan y se envían después.");
     setBusy(true);
-    const { data: savedId, error } = await supabase.rpc("save_transaction", {
-      p: {
+    const sent = await submit(editing?.id ?? null, {
         id: editing?.id ?? null,
         kind,
         scope,
@@ -373,8 +431,9 @@ export function TransactionSheet({
           responsible_user_id: s.responsibleUserId,
           origin: s.origin ?? "NORMAL",
         })) : [],
-      },
-    });
+    }, tagIds, !editing);
+    if (sent.queued) return finishQueued();
+    const { data: savedId, error } = sent;
     if (!error && isPendingReview && kind === "EXPENSE" && !splitMode && remember && (editing?.merchant_norm || (editing?.splits.length ?? 0) > 0)) {
       await supabase.rpc("remember_merchant", { p_transaction_id: editing!.id, p_auto_apply: autoApply });
     }
@@ -478,6 +537,16 @@ export function TransactionSheet({
           )}
           {editing && !isPendingReview && <p className="text-sm font-medium text-muted">{TX_KIND_LABEL[kind]}</p>}
           {KIND_HINT[kind] && <p className="-mt-2 text-xs text-muted">{KIND_HINT[kind]}</p>}
+
+          {!editing && (
+            <QuickCapture
+              offline={state.offline}
+              accounts={myAccounts.map((a) => ({ id: a.id, name: a.name }))}
+              categories={usable.map((c) => ({ id: c.id, name: categoryPath(categories, c.id) }))}
+              incomeCategories={incomeCategories.map((c) => ({ id: c.id, name: c.name }))}
+              onResult={applyCapture}
+            />
+          )}
 
           <AmountInput large value={amount} onChange={setAmount} autoFocus={!editing && !preset} />
 

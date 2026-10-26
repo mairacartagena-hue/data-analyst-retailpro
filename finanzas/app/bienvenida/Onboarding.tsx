@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ErrorText, Field, Input } from "@/components/ui/input";
 import { errMsg } from "@/lib/utils";
+import { clearOffline } from "@/lib/offline/store";
 
 export function Onboarding({ email, initialCode = "" }: { email: string; initialCode?: string }) {
   const router = useRouter();
@@ -64,7 +65,7 @@ export function Onboarding({ email, initialCode = "" }: { email: string; initial
       <ErrorText>{error}</ErrorText>
 
       <button className="mx-auto mt-8 flex items-center gap-2 text-sm text-muted"
-        onClick={async () => { await getSupabase().auth.signOut(); router.replace("/login"); }}>
+        onClick={async () => { await clearOffline(); await getSupabase().auth.signOut(); router.replace("/login"); }}>
         <LogOut size={16} /> Salir
       </button>
     </main>

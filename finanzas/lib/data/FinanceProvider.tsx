@@ -11,6 +11,8 @@ import { toPeriodSettings, type Snapshot } from "@/lib/finance/derive";
 import type { SpendingRow } from "@/lib/finance/budget";
 import { spendingRows } from "@/lib/finance/spaces";
 import { periodFor, todayBogota, type Period } from "@/lib/finance/periods";
+import { getItem, isNetworkError, queueKey, setItem, snapshotKey } from "@/lib/offline/store";
+import type { QueuedTx } from "@/lib/offline/queue";
 
 export interface FinanceState extends Snapshot {
   /** Etiquetas del hogar y, por movimiento, los ids de las que tiene. */
@@ -33,6 +35,16 @@ export interface FinanceState extends Snapshot {
   reload: () => Promise<void>;
   supabase: SupabaseClient;
   memberById: (userId: string | null | undefined) => Member | null;
+  /** Sin conexión: los datos son la última copia guardada en el celular. */
+  offline: boolean;
+  /** Fecha de la copia local que se está mostrando (solo sin conexión). */
+  snapshotAt: string | null;
+  /** Movimientos guardados sin conexión, por enviar. */
+  queue: QueuedTx[];
+  enqueue: (q: QueuedTx) => Promise<void>;
+  /** Envía la cola; `retryRejected` también reintenta los que la base de datos rechazó. */
+  flushQueue: (retryRejected?: boolean) => Promise<void>;
+  discardQueued: (clientId: string) => Promise<void>;
 }
 
 const Ctx = createContext<FinanceState | null>(null);
@@ -58,7 +70,7 @@ async function fetchAll<T>(build: (from: number, to: number) => PromiseLike<{ da
 
 const num = (v: unknown) => (v == null ? v : Number(v));
 
-type Loaded = Omit<FinanceState, "period" | "setPeriod" | "reload" | "supabase" | "memberById">;
+type Loaded = Omit<FinanceState, "period" | "setPeriod" | "reload" | "supabase" | "memberById" | "offline" | "snapshotAt" | "queue" | "enqueue" | "flushQueue" | "discardQueued">;
 
 async function loadAll(sb: SupabaseClient, userId: string): Promise<Loaded> {
   const { data: meRow, error: meErr } = await sb.from("household_members").select("*").eq("user_id", userId).single();
@@ -189,12 +201,38 @@ export function FinanceProvider({ userId, children }: { userId: string; children
   const [period, setPeriod] = useState<Period | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const [offline, setOffline] = useState(false);
+  const [snapshotAt, setSnapshotAt] = useState<string | null>(null);
+  const [queue, setQueue] = useState<QueuedTx[]>([]);
+  const queueRef = useRef<QueuedTx[]>([]);
+  const flushing = useRef(false);
+  const hasData = useRef(false);
+
   const reload = useCallback(async () => {
     try {
       const next = await loadAll(supabase, userId);
       setData(next);
+      hasData.current = true;
       setError(null);
+      setOffline(false);
+      setSnapshotAt(null);
+      void setItem(snapshotKey(userId), { at: new Date().toISOString(), data: next });
     } catch (e) {
+      if (isNetworkError(e)) {
+        setOffline(true);
+        // Sin conexión: se muestra la última copia guardada en el celular
+        if (!hasData.current) {
+          const snap = await getItem<{ at: string; data: Loaded }>(snapshotKey(userId));
+          if (snap?.data?.me?.user_id === userId) {
+            setData(snap.data);
+            hasData.current = true;
+            setSnapshotAt(snap.at);
+            setError(null);
+            return;
+          }
+        }
+        if (hasData.current) return;
+      }
       setError((e as { message?: string }).message ?? "No se pudieron cargar los datos");
     }
   }, [supabase, userId]);
@@ -202,6 +240,85 @@ export function FinanceProvider({ userId, children }: { userId: string; children
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  const saveQueue = useCallback(async (next: QueuedTx[]) => {
+    queueRef.current = next;
+    setQueue(next);
+    await setItem(queueKey(userId), next);
+  }, [userId]);
+
+  /** Envía la cola en orden. Se detiene si no hay conexión; un rechazo de la base de datos queda anotado en el movimiento. */
+  const flushQueue = useCallback(async (retryRejected = false) => {
+    if (flushing.current || queueRef.current.length === 0) return;
+    flushing.current = true;
+    let sent = 0;
+    try {
+      for (const item of [...queueRef.current]) {
+        if (item.error && !retryRejected) continue;
+        const { data: id, error: err } = await supabase.rpc("save_transaction_once", { p: { ...item.payload, client_id: item.client_id } });
+        if (err) {
+          if (isNetworkError(err)) {
+            setOffline(true);
+            break;
+          }
+          await saveQueue(queueRef.current.map((q) => (q.client_id === item.client_id ? { ...q, error: err.message } : q)));
+          continue;
+        }
+        if (id && item.tagIds.length > 0 && data) {
+          await supabase.from("transaction_tags").upsert(
+            item.tagIds.map((tag_id) => ({ transaction_id: id as string, tag_id, household_id: data.me.household_id })),
+            { onConflict: "transaction_id,tag_id", ignoreDuplicates: true },
+          );
+        }
+        sent++;
+        await saveQueue(queueRef.current.filter((q) => q.client_id !== item.client_id));
+      }
+    } finally {
+      flushing.current = false;
+    }
+    if (sent > 0) void reload();
+  }, [supabase, saveQueue, reload, data]);
+
+  const enqueue = useCallback(async (q: QueuedTx) => {
+    await saveQueue([...queueRef.current.filter((x) => x.client_id !== q.client_id), q]);
+    setOffline(true);
+  }, [saveQueue]);
+
+  const discardQueued = useCallback(async (clientId: string) => {
+    await saveQueue(queueRef.current.filter((q) => q.client_id !== clientId));
+  }, [saveQueue]);
+
+  // Cola guardada en el celular: se carga al abrir y se envía apenas haya conexión
+  useEffect(() => {
+    let alive = true;
+    void getItem<QueuedTx[]>(queueKey(userId)).then((q) => {
+      if (!alive || !q?.length) return;
+      queueRef.current = q;
+      setQueue(q);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [userId]);
+
+  useEffect(() => {
+    if (data && queue.length > 0 && !offline) void flushQueue();
+  }, [data, queue.length, offline, flushQueue]);
+
+  useEffect(() => {
+    const onOnline = () => {
+      setOffline(false);
+      void reload().then(() => flushQueue());
+    };
+    const onOffline = () => setOffline(true);
+    if (!navigator.onLine) setOffline(true);
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+    };
+  }, [reload, flushQueue]);
 
   // Realtime: cualquier cambio del hogar recarga (con una pequeña espera para agrupar ráfagas).
   const householdId = data?.me.household_id;
@@ -250,8 +367,14 @@ export function FinanceProvider({ userId, children }: { userId: string; children
       reload,
       supabase,
       memberById: (id) => all.find((m) => m.user_id === id) ?? null,
+      offline,
+      snapshotAt,
+      queue,
+      enqueue,
+      flushQueue,
+      discardQueued,
     };
-  }, [data, period, reload, supabase]);
+  }, [data, period, reload, supabase, offline, snapshotAt, queue, enqueue, flushQueue, discardQueued]);
 
   if (error && !data) {
     return (
