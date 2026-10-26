@@ -16,7 +16,9 @@ PWA privada de finanzas personales y en pareja (Android y escritorio). Todo en p
 | Fase 3 — Dictar, foto del recibo y registrar sin conexión (migración 0026) | Hecho (0026 aplicada) |
 | Fase 3 — Telegram | Descartado (no se implementa) |
 | Organización hogar / personal, subcategorías, pago de deuda / reembolso / ajuste, presupuestos con nombre, vencimientos y metas de ahorro (migraciones 0017 y 0018) | Hecho (migraciones 0017 a 0019 aplicadas) |
-| Fase 4 — Créditos con saldo (capital e intereses), Web Push, IA | Pendiente |
+| Fase 4.1 — Créditos con saldo: cuenta Crédito, reparto de cada cuota, Saldo Seguro, Patrimonio y aviso mensual del saldo (migración 0031) | Hecho (0031 aplicada) |
+| Fase 4.2 — Notificaciones Web Push | Pendiente |
+| Fase 4.3 — IA (resumen del mes y preguntas sobre las finanzas) | Pendiente |
 
 **Pendiente por probar o configurar:**
 - [ ] Que la pareja se una al hogar y probar el cruce, la liquidación, Realtime en dos celulares y la privacidad (pasos 1, 5 y 6 de “Cómo probar la Fase 1”).
@@ -52,8 +54,9 @@ Pendiente para fases siguientes: Web Push e IA (Fase 4). Las metas de ahorro y l
 - Datos del crédito: saldo de capital, tasa de interés (efectiva anual, en pesos; UVR queda fuera por ahora), plazo, día de pago, seguros y otros costos.
 - Cada pago se registra una sola vez y se divide en capital (baja la deuda, no es gasto), intereses, seguros y otros costos (gastos). La app sugiere la división con la tasa y el saldo, y la persona la ajusta con el extracto del banco.
 - Saldo Seguro: se reserva la cuota del periodo hasta que se pague, no el saldo total. Patrimonio: resta el saldo de capital real.
+- **Pestañas:** Cuentas se divide en **Cuentas · Créditos · Cruce** (créditos con cuotas y préstamos van en Créditos, con la deuda total y las cuotas del mes). En **Cierre del mes** también se separa **Cuentas / Créditos**: en un crédito se compara la deuda de capital con el extracto y la diferencia se corrige con un ajuste de saldo (no es gasto ni ingreso).
 - La responsabilidad de la cuota se asigna igual que cualquier partida (ej. hipoteca 100 % de un miembro).
-- Aviso mensual para confirmar el saldo con el extracto: “¿El saldo de tu hipoteca es $X? Confirmar / Corregir”.
+- Aviso mensual en el inicio (después del día de pago, hasta confirmarlo ese mes) para confirmar el saldo con el extracto: “¿El saldo de tu hipoteca es $X? Confirmar / Corregir”. Confirmar guarda la conciliación del mes; Corregir pide el saldo del extracto y registra la diferencia como ajuste de saldo (no es gasto ni ingreso) (`components/CreditCheck.tsx`).
 
 ## Fase 2 — Ingesta automática
 
