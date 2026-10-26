@@ -10,6 +10,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { ErrorText, Field, Input, Select } from "@/components/ui/input";
 import { projectCard } from "@/lib/finance/installments";
+import { nextCuota, suggestSplit } from "@/lib/finance/credit";
 import { formatCop } from "@/lib/finance/money";
 import { monthName, todayBogota } from "@/lib/finance/periods";
 import { SwitchRow } from "@/components/ui/switch";
@@ -17,7 +18,7 @@ import { AmountInput } from "@/components/AmountInput";
 import { parseCop } from "@/lib/finance/money";
 import { cn, errMsg } from "@/lib/utils";
 
-const KINDS: AccountKind[] = ["DEPOSIT", "WALLET", "CASH", "CREDIT_CARD", "LOAN"];
+const KINDS: AccountKind[] = ["DEPOSIT", "WALLET", "CASH", "CREDIT_CARD", "LOAN", "CREDIT"];
 const VISIBILITIES: Visibility[] = ["PRIVATE", "BALANCE_ONLY", "PUBLIC"];
 
 export function AccountSheet({ open, onOpenChange, account }: { open: boolean; onOpenChange: (v: boolean) => void; account: Account | null }) {
@@ -36,6 +37,8 @@ export function AccountSheet({ open, onOpenChange, account }: { open: boolean; o
   const [statementDay, setStatementDay] = useState("");
   const [dueDay, setDueDay] = useState("");
   const [rate, setRate] = useState("");
+  const [term, setTerm] = useState("");
+  const [costs, setCosts] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -57,11 +60,14 @@ export function AccountSheet({ open, onOpenChange, account }: { open: boolean; o
     setStatementDay(account?.statement_day ? String(account.statement_day) : "");
     setDueDay(account?.due_day ? String(account.due_day) : "");
     setRate(account?.interest_rate_ea ? String(account.interest_rate_ea).replace(".", ",") : "");
+    setTerm(account?.term_months ? String(account.term_months) : "");
+    setCosts(account?.monthly_costs ? String(account.monthly_costs) : "");
   }, [open, account]);
 
   const isCard = kind === "CREDIT_CARD";
   // Tarjetas y préstamos: el saldo inicial es lo que se debe hoy
-  const isDebt = isCard || kind === "LOAN";
+  const isCredit = kind === "CREDIT";
+  const isDebt = isCard || kind === "LOAN" || isCredit;
 
   async function save() {
     setError(null);
@@ -70,7 +76,8 @@ export function AccountSheet({ open, onOpenChange, account }: { open: boolean; o
     const aliasList = [...new Set(aliases.split(/[\s,;]+/).filter(Boolean))];
     if (aliasList.some((a) => !/^\d{4}$/.test(a))) return setError("Cada número adicional debe tener 4 dígitos, separados por comas.");
     const rateValue = rate.trim() ? Number(rate.replace(",", ".")) : null;
-    if (isCard && rateValue != null && (!Number.isFinite(rateValue) || rateValue < 0 || rateValue > 200)) return setError("La tasa debe ser un porcentaje entre 0 y 200 (ej. 28,5).");
+    if (isCredit && (!Number.isFinite(Number.parseInt(term, 10)) || Number.parseInt(term, 10) < 1)) return setError("Escribe el plazo en meses.");
+    if ((isCard || isCredit) && rateValue != null && (!Number.isFinite(rateValue) || rateValue < 0 || rateValue > 200)) return setError("La tasa debe ser un porcentaje entre 0 y 200 (ej. 28,5).");
     const day = (v: string) => (v ? Math.min(31, Math.max(1, Number(v))) : null);
     const base = parseCop(opening) ?? 0;
     const row = {
@@ -88,8 +95,10 @@ export function AccountSheet({ open, onOpenChange, account }: { open: boolean; o
       opening_balance: isDebt ? -base : base,
       credit_limit: isCard ? parseCop(limit) : null,
       statement_day: isCard ? day(statementDay) : null,
-      due_day: isCard ? day(dueDay) : null,
-      interest_rate_ea: isCard ? rateValue : null,
+      due_day: isCard || isCredit ? day(dueDay) : null,
+      interest_rate_ea: isCard || isCredit ? rateValue : null,
+      term_months: isCredit ? Math.min(600, Math.max(1, Number.parseInt(term, 10) || 0)) || null : null,
+      monthly_costs: isCredit ? parseCop(costs) ?? 0 : 0,
     };
     setBusy(true);
     const { error } = account
@@ -139,7 +148,7 @@ export function AccountSheet({ open, onOpenChange, account }: { open: boolean; o
           hint="Últimos 4 dígitos de otras tarjetas o productos que llegan en los avisos de esta cuenta, separados por comas. Ej.: la tarjeta débito de tu cuenta de ahorros.">
           <Input id="aliases" value={aliases} onChange={(e) => setAliases(e.target.value.replace(/[^\d,\s]/g, ""))} inputMode="numeric" placeholder="7473, 1234" />
         </Field>
-        <Field label={isCard ? "Deuda actual de la tarjeta" : kind === "LOAN" ? "Cuánto se debe hoy" : "Saldo actual"} hint={account ? "Es el saldo con el que empezó la cuenta en la app; los movimientos se suman aparte." : "El saldo de hoy. Desde aquí la app suma y resta los movimientos."}>
+        <Field label={isCard ? "Deuda actual de la tarjeta" : isCredit ? "Capital que falta por pagar" : kind === "LOAN" ? "Cuánto se debe hoy" : "Saldo actual"} hint={account ? "Es el saldo con el que empezó la cuenta en la app; los movimientos se suman aparte." : "El saldo de hoy. Desde aquí la app suma y resta los movimientos."}>
           <AmountInput value={opening} onChange={setOpening} />
         </Field>
         {account && (
@@ -157,6 +166,14 @@ export function AccountSheet({ open, onOpenChange, account }: { open: boolean; o
             </Select>
           </Field>
         )}
+        {isCredit && (
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Plazo (meses)" htmlFor="term"><Input id="term" inputMode="numeric" value={term} onChange={(e) => setTerm(e.target.value.replace(/\D/g, "").slice(0, 3))} /></Field>
+            <Field label="Día de pago" htmlFor="dd2"><Input id="dd2" inputMode="numeric" value={dueDay} onChange={(e) => setDueDay(e.target.value.replace(/\D/g, "").slice(0, 2))} /></Field>
+            <Field label="Seguros y otros costos al mes" hint="Seguro de vida, de inmueble, cuotas de administración del crédito."><AmountInput value={costs} onChange={setCosts} /></Field>
+          </div>
+        )}
+        {isCredit && account && <CreditPayments account={account} />}
         {isCard && (
           <div className="grid grid-cols-3 gap-3">
             <Field label="Cupo"><AmountInput value={limit} onChange={setLimit} /></Field>
@@ -167,7 +184,7 @@ export function AccountSheet({ open, onOpenChange, account }: { open: boolean; o
         {isCard && account && (
           <CardProjection cardId={account.id} rate={account.interest_rate_ea ?? null} />
         )}
-        {isCard && (
+        {(isCard || isCredit) && (
           <Field label="Tasa de interés (% efectiva anual)" htmlFor="rate"
             hint="Sale en el extracto de la tarjeta. Sirve para estimar los intereses de las compras a cuotas; las de 1 cuota no pagan intereses.">
             <Input id="rate" inputMode="decimal" value={rate} placeholder="ej. 28,5" onChange={(e) => setRate(e.target.value.replace(/[^\d,.]/g, "").slice(0, 6))} />
@@ -366,6 +383,112 @@ function CardProjection({ cardId, rate }: { cardId: string; rate: number | null 
           <Button size="sm" variant="outline" onClick={() => setAdding(true)}>+ Agregar compra del extracto</Button>
         )}
       </div>
+    </div>
+  );
+}
+
+/** Registrar una cuota del crédito: el capital baja la deuda (transferencia) y los intereses y costos son gastos. */
+function CreditPayments({ account }: { account: Account }) {
+  const { accounts, balances, categories, me, supabase, reload, transactions } = useFinance();
+  const [open, setOpen] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const owed = Math.max(0, -(balances[account.id] ?? 0));
+  const today = todayBogota();
+  const next = nextCuota(owed, account.interest_rate_ea, account.term_months, account.opening_at, account.monthly_costs ?? 0, today);
+  const [date, setDate] = useState(today);
+  const [total, setTotal] = useState("");
+  const [interest, setInterest] = useState("");
+  const [costsPaid, setCostsPaid] = useState("");
+  const [payFrom, setPayFrom] = useState("");
+  const [categoryId, setCategoryId] = useState("");
+  const payAccounts = accounts.filter((a) => a.owner_user_id === me.user_id && !a.archived && ["DEPOSIT", "WALLET", "CASH"].includes(a.kind));
+  const expenseCats = categories.filter((c) => !c.archived && c.kind !== "INCOME");
+  const totalN = parseCop(total) ?? 0;
+  const split = suggestSplit(owed, account.interest_rate_ea, totalN, parseCop(costsPaid) ?? 0);
+  const interestN = parseCop(interest) ?? split.interest;
+  const costsN = parseCop(costsPaid) ?? 0;
+  const capitalN = Math.max(0, totalN - interestN - costsN);
+  const paidCount = transactions.filter((t) => t.account_id === account.id && t.kind === "TRANSFER" && t.description?.startsWith("Cuota crédito")).length;
+
+  function openForm() {
+    setOpen(true);
+    setErr(null);
+    setDate(today);
+    setTotal(String(next || ""));
+    const s = suggestSplit(owed, account.interest_rate_ea, next, account.monthly_costs ?? 0);
+    setInterest(String(s.interest || ""));
+    setCostsPaid(String(account.monthly_costs ?? ""));
+    setPayFrom(payAccounts[0]?.id ?? "");
+    setCategoryId("");
+  }
+
+  async function save() {
+    setErr(null);
+    if (totalN <= 0) return setErr("Escribe el valor de la cuota.");
+    if (!payFrom) return setErr("Elige de qué cuenta se paga.");
+    if (interestN + costsN > 0 && !categoryId) return setErr("Elige la categoría de los intereses y costos.");
+    if (interestN + costsN > totalN) return setErr("Intereses y costos no pueden ser mayores que la cuota.");
+    setBusy(true);
+    if (capitalN > 0) {
+      const r = await supabase.rpc("save_transaction", { p: {
+        kind: "TRANSFER", amount: capitalN, occurred_on: date, description: `Cuota crédito · capital (${account.name})`,
+        account_id: payFrom, to_account_id: account.id, creates_debt: false, tags: [],
+      } });
+      if (r.error) { setBusy(false); return setErr(errMsg(r.error)); }
+    }
+    if (interestN + costsN > 0) {
+      const r = await supabase.rpc("save_transaction", { p: {
+        kind: "EXPENSE", scope: "PERSONAL", amount: interestN + costsN, occurred_on: date,
+        description: `Cuota crédito · intereses y costos (${account.name})`, account_id: payFrom, tags: [],
+        splits: [{ amount: interestN + costsN, category_id: categoryId, responsible_user_id: me.user_id, origin: "NORMAL" }],
+      } });
+      if (r.error) { setBusy(false); return setErr(errMsg(r.error)); }
+    }
+    setBusy(false);
+    setOpen(false);
+    void reload();
+  }
+
+  return (
+    <div className="space-y-2 rounded-2xl border border-border p-3">
+      <p className="text-sm font-medium">Cuotas del crédito</p>
+      <p className="text-xs text-muted">
+        Debe {formatCop(owed)} · cuota estimada {formatCop(next)} · {paidCount} pagos registrados
+      </p>
+      {!open ? (
+        <Button size="sm" variant="outline" onClick={openForm} disabled={owed <= 0}>Registrar cuota</Button>
+      ) : (
+        <div className="space-y-2">
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Fecha" htmlFor="cr-date"><Input id="cr-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+            <Field label="Valor de la cuota"><AmountInput value={total} onChange={setTotal} /></Field>
+            <Field label="Intereses"><AmountInput value={interest} onChange={setInterest} /></Field>
+            <Field label="Seguros y costos"><AmountInput value={costsPaid} onChange={setCostsPaid} /></Field>
+          </div>
+          <p className="text-xs text-muted">
+            Sugerido con la tasa y el saldo: intereses {formatCop(split.interest)}. Capital que baja la deuda: <strong>{formatCop(capitalN)}</strong> (no es gasto). Ajusta los valores con el extracto del banco.
+          </p>
+          <Field label="Se paga desde">
+            <Select value={payFrom} onChange={(e) => setPayFrom(e.target.value)}>
+              {payAccounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </Select>
+          </Field>
+          {interestN + costsN > 0 && (
+            <Field label="Categoría de intereses y costos">
+              <Select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+                <option value="">Elige una categoría</option>
+                {expenseCats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </Select>
+            </Field>
+          )}
+          <ErrorText>{err}</ErrorText>
+          <div className="flex gap-2">
+            <Button size="sm" onClick={save} disabled={busy}>Guardar cuota</Button>
+            <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>Cancelar</Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

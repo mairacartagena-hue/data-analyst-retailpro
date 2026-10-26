@@ -6,7 +6,7 @@
 // − Lo que le debe a su pareja (lo que la pareja le debe NO suma)
 
 /** LOAN: préstamo de alguien (familia, un banco) que se paga con transferencias a la cuenta. */
-export type AccountKind = "DEPOSIT" | "WALLET" | "CASH" | "CREDIT_CARD" | "LOAN";
+export type AccountKind = "DEPOSIT" | "WALLET" | "CASH" | "CREDIT_CARD" | "LOAN" | "CREDIT";
 
 export interface BalanceAccount {
   ownerUserId: string;
