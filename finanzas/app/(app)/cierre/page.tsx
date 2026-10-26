@@ -12,12 +12,14 @@ import { Card, SectionTitle } from "@/components/ui/card";
 import { ErrorText, Field, Input } from "@/components/ui/input";
 import { Sheet } from "@/components/ui/sheet";
 import { StatementImport } from "@/components/StatementImport";
+import { Segmented } from "@/components/ui/segmented";
 import type { Account } from "@/lib/types";
 import { ACCOUNT_KIND_LABEL } from "@/lib/types";
 import { accountStatement, gmfEstimate, monthRange, shiftMonth, suggestedCloseMonth, type GmfMode } from "@/lib/finance/reconcile";
 import { formatCop, parseCop } from "@/lib/finance/money";
 import { monthName, periodFor, todayBogota } from "@/lib/finance/periods";
 import { statusesFor } from "@/lib/finance/derive";
+import { isCreditKind } from "@/lib/finance/credit";
 import { cn, errMsg } from "@/lib/utils";
 
 const FEES = [
@@ -59,6 +61,11 @@ export default function CierrePage() {
   const range = monthRange(month);
   const mine = accounts.filter((a) => a.owner_user_id === me.user_id && !a.archived);
   const done = mine.filter((a) => reconciliations.some((r) => r.account_id === a.id && r.month === range.start && r.status === "RECONCILED"));
+  const myAccounts = mine.filter((a) => !isCreditKind(a.kind));
+  const myCredits = mine.filter((a) => isCreditKind(a.kind));
+  const doneOf = (list: Account[]) => list.filter((a) => done.includes(a)).length;
+  const [tab, setTab] = useState<"cuentas" | "creditos">("cuentas");
+  const shown = tab === "creditos" ? myCredits : myAccounts;
 
   // ¿Qué hace falta? Obligaciones del periodo que cierra el mes, pendientes y avisos sin reconocer
   const closingPeriod = periodFor(state.settings, range.end);
@@ -121,11 +128,20 @@ export default function CierrePage() {
         {closingPeriod.start !== period.start && <p className="text-xs text-muted">Las obligaciones son las del periodo que termina el {range.end.slice(8)} de {monthName(Number(month.slice(5)) - 1, true)}.</p>}
       </Card>
 
-      <SectionTitle>Conciliar cuentas</SectionTitle>
-      {mine.length === 0 ? (
-        <p className="px-1 text-sm text-muted">No tienes cuentas. Agrégalas en Cuentas.</p>
+      <SectionTitle>Conciliar</SectionTitle>
+      <Segmented className="mb-3" value={tab} onChange={setTab} options={[
+        { value: "cuentas", label: `Cuentas · ${doneOf(myAccounts)}/${myAccounts.length}` },
+        { value: "creditos", label: `Créditos · ${doneOf(myCredits)}/${myCredits.length}` },
+      ]} />
+      {shown.length === 0 ? (
+        <p className="px-1 text-sm text-muted">{tab === "creditos" ? "No tienes créditos ni préstamos. Agrégalos en Cuentas → Créditos." : "No tienes cuentas. Agrégalas en Cuentas."}</p>
       ) : (
-        <div className="space-y-3">{mine.map((a) => <AccountClose key={a.id} account={a} month={month} />)}</div>
+        <div className="space-y-3">{shown.map((a) => <AccountClose key={a.id} account={a} month={month} />)}</div>
+      )}
+      {tab === "creditos" && shown.length > 0 && (
+        <p className="mt-3 px-1 text-xs text-muted">
+          Compara la deuda de capital con el extracto del crédito. Si no cuadra, suele ser porque el reparto de alguna cuota (capital e intereses) no coincide con el banco: el ajuste corrige la deuda sin contar como gasto ni ingreso.
+        </p>
       )}
       <p className="mt-3 px-1 text-xs text-muted">
         El 4x1000 es un estimado: 0,4 % de lo que sale de la cuenta por encima del tope exento (350 UVT al mes en cuentas exentas, 65 UVT en depósitos de bajo monto; UVT {formatCop(state.uvt)}). Confírmalo con tu extracto.
@@ -142,6 +158,8 @@ function AccountClose({ account, month }: { account: Account; month: string }) {
   const st = useMemo(() => accountStatement(account, transactions, range), [account, transactions, range]);
   const rec = reconciliations.find((r) => r.account_id === account.id && r.month === range.start);
   const isCard = account.kind === "CREDIT_CARD";
+  const isCredit = isCreditKind(account.kind);
+  const isDebt = isCard || isCredit;
   const [open, setOpen] = useState(!rec);
   const [bank, setBank] = useState("");
   const [fee, setFee] = useState<FeeKey | null>(null);
@@ -153,21 +171,35 @@ function AccountClose({ account, month }: { account: Account; month: string }) {
   }, [rec, month]);
 
   // En tarjetas se compara la deuda (positiva) con la del extracto
-  const appValue = isCard ? -st.closing : st.closing;
+  const appValue = isDebt ? -st.closing : st.closing;
   const bankValue = parseCop(bank);
-  const diff = bankValue === null ? null : isCard ? appValue - bankValue : bankValue - appValue; // + sobra plata en el banco, − falta
+  const diff = bankValue === null ? null : isDebt ? appValue - bankValue : bankValue - appValue; // + sobra plata en el banco, − falta
   const gmfMode = (account.gmf_mode ?? "TAXED") as GmfMode;
-  const gmf = !isCard && account.kind !== "CASH" ? Math.max(0, gmfEstimate(st.gmfBase, gmfMode, uvt) - st.gmfRecorded) : 0;
+  const gmf = !isDebt && account.kind !== "CASH" ? Math.max(0, gmfEstimate(st.gmfBase, gmfMode, uvt) - st.gmfRecorded) : 0;
 
   async function markReconciled() {
     if (bankValue === null) return setError("Escribe el saldo que dice tu banco.");
     setBusy(true);
     setError(null);
-    const statement = isCard ? -bankValue : bankValue;
+    const statement = isDebt ? -bankValue : bankValue;
     const { error } = await supabase.from("account_reconciliations").upsert({
       household_id: account.household_id, account_id: account.id, owner_user_id: account.owner_user_id, month: range.start,
       statement_balance: statement, app_balance: st.closing, status: diff === 0 ? "RECONCILED" : "DIFFERENCE",
     }, { onConflict: "account_id,month" });
+    setBusy(false);
+    if (error) return setError(errMsg(error));
+    void reload();
+  }
+
+  async function adjustCredit() {
+    if (diff === null || diff === 0) return;
+    setBusy(true);
+    setError(null);
+    const today = todayBogota();
+    const { error } = await supabase.rpc("save_transaction", { p: {
+      kind: "ADJUSTMENT", amount: Math.abs(diff), occurred_on: range.end < today ? range.end : today, account_id: account.id,
+      direction: diff < 0 ? "OUT" : "IN", description: `Ajuste del saldo con el extracto (${account.name})`, tags: ["#conciliacion"],
+    } });
     setBusy(false);
     if (error) return setError(errMsg(error));
     void reload();
@@ -194,20 +226,20 @@ function AccountClose({ account, month }: { account: Account; month: string }) {
       {open && (
         <div className="space-y-4 border-t border-border p-4">
           <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-            <dt className="text-muted">{isCard ? "Deuda al empezar" : "Saldo al empezar"}</dt><dd className="num text-right">{formatCop(isCard ? -st.opening : st.opening)}</dd>
-            <dt className="text-muted">{isCard ? "Pagos y abonos" : "Entró"}</dt><dd className="num text-right text-olive">+{formatCop(st.inflow)}</dd>
-            <dt className="text-muted">{isCard ? "Compras" : "Salió"}</dt><dd className="num text-right">−{formatCop(st.outflow)}</dd>
-            <dt className="font-semibold">{isCard ? "Deuda según la app" : "Saldo según la app"}</dt><dd className="num text-right font-semibold">{formatCop(appValue)}</dd>
+            <dt className="text-muted">{isDebt ? "Deuda al empezar" : "Saldo al empezar"}</dt><dd className="num text-right">{formatCop(isDebt ? -st.opening : st.opening)}</dd>
+            <dt className="text-muted">{isCredit ? "Abonos a capital" : isCard ? "Pagos y abonos" : "Entró"}</dt><dd className="num text-right text-olive">+{formatCop(st.inflow)}</dd>
+            <dt className="text-muted">{isCredit ? "Desembolsos y ajustes" : isCard ? "Compras" : "Salió"}</dt><dd className="num text-right">−{formatCop(st.outflow)}</dd>
+            <dt className="font-semibold">{isDebt ? "Deuda según la app" : "Saldo según la app"}</dt><dd className="num text-right font-semibold">{formatCop(appValue)}</dd>
           </dl>
           {st.pending > 0 && <p className="text-xs text-warning">{st.pending} movimiento{st.pending === 1 ? "" : "s"} de esta cuenta siguen por revisar.</p>}
 
-          <StatementImport account={account} month={month} onBalance={(v) => setBank(String(v))} />
+          {!isCredit && <StatementImport account={account} month={month} onBalance={(v) => setBank(String(v))} />}
 
-          <Field label={isCard ? `Deuda según tu extracto al ${Number(range.end.slice(8))} de ${monthName(Number(month.slice(5)) - 1, true)}` : `Saldo según tu banco al ${Number(range.end.slice(8))} de ${monthName(Number(month.slice(5)) - 1, true)}`}>
+          <Field label={isCredit ? `Saldo de capital según el extracto al ${Number(range.end.slice(8))} de ${monthName(Number(month.slice(5)) - 1, true)}` : isCard ? `Deuda según tu extracto al ${Number(range.end.slice(8))} de ${monthName(Number(month.slice(5)) - 1, true)}` : `Saldo según tu banco al ${Number(range.end.slice(8))} de ${monthName(Number(month.slice(5)) - 1, true)}`}>
             <AmountInput value={bank} onChange={setBank} />
           </Field>
 
-          <div className="space-y-2">
+          {!isCredit && <div className="space-y-2">
             <p className="flex items-center gap-1.5 text-sm font-medium text-muted"><Receipt size={15} /> 1 · Registra los gastos bancarios del mes</p>
             <div className="flex flex-wrap gap-2">
               {FEES.filter((f) => !(isCard && f.key === "gmf")).map((f) => (
@@ -219,9 +251,26 @@ function AccountClose({ account, month }: { account: Account; month: string }) {
             </div>
             <p className="text-xs text-muted">Van a tu categoría “Gastos bancarios”. Cada uno que registres se descuenta de la diferencia.</p>
             <button className="text-xs text-olive underline" onClick={() => openTransaction(null)}>Registrar otro movimiento que falte</button>
-          </div>
+          </div>}
 
-          {diff !== null && (
+          {isCredit && diff !== null && (
+            <div className="space-y-2">
+              <p className={cn("rounded-xl px-3 py-2 text-sm", diff === 0 ? "bg-olive-soft" : "bg-warning-soft")}>
+                {diff === 0
+                  ? "Cuadra exacto con el extracto."
+                  : diff < 0
+                    ? `El extracto dice que debes ${formatCop(-diff)} más que la app.`
+                    : `El extracto dice que debes ${formatCop(diff)} menos que la app.`}
+              </p>
+              {diff !== 0 && (
+                <Button variant="outline" size="sm" className="w-full" onClick={adjustCredit} disabled={busy}>
+                  Ajustar la deuda de la app a {formatCop(bankValue ?? 0)}
+                </Button>
+              )}
+            </div>
+          )}
+
+          {!isCredit && diff !== null && (
             <div className="space-y-2">
               <p className="text-sm font-medium text-muted">2 · Diferencia sin identificar</p>
               <p className={cn("rounded-xl px-3 py-2 text-sm", diff === 0 ? "bg-olive-soft" : "bg-warning-soft")}>

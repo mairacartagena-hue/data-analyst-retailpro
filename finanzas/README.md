@@ -54,6 +54,7 @@ Pendiente para fases siguientes: Telegram (Fase 3), Web Push, IA y créditos con
 - Datos del crédito: saldo de capital, tasa de interés (efectiva anual, en pesos; UVR queda fuera por ahora), plazo, día de pago, seguros y otros costos.
 - Cada pago se registra una sola vez y se divide en capital (baja la deuda, no es gasto), intereses, seguros y otros costos (gastos). La app sugiere la división con la tasa y el saldo, y la persona la ajusta con el extracto del banco.
 - Saldo Seguro: se reserva la cuota del periodo hasta que se pague, no el saldo total. Patrimonio: resta el saldo de capital real.
+- **Pestañas:** Cuentas se divide en **Cuentas · Créditos · Cruce** (créditos con cuotas y préstamos van en Créditos, con la deuda total y las cuotas del mes). En **Cierre del mes** también se separa **Cuentas / Créditos**: en un crédito se compara la deuda de capital con el extracto y la diferencia se corrige con un ajuste de saldo (no es gasto ni ingreso).
 - La responsabilidad de la cuota se asigna igual que cualquier partida (ej. hipoteca 100 % de un miembro).
 - Aviso mensual en el inicio (después del día de pago, hasta confirmarlo ese mes) para confirmar el saldo con el extracto: “¿El saldo de tu hipoteca es $X? Confirmar / Corregir”. Confirmar guarda la conciliación del mes; Corregir pide el saldo del extracto y registra la diferencia como ajuste de saldo (no es gasto ni ingreso) (`components/CreditCheck.tsx`).
 
