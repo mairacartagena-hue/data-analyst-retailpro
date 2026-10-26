@@ -91,3 +91,18 @@ describe("cuota del crédito que falta reservar en el periodo", () => {
       .toBe(nextCuota(-balance, 12.28, 180, "2025-07-01", 68_002.4, today));
   });
 });
+
+import { creditCheckDue } from "@/components/CreditCheck";
+
+describe("aviso mensual del saldo del crédito", () => {
+  const acc = { id: "c1", due_day: 4, opening_at: "2026-01-15" };
+  it("aparece después del día de pago si no se ha confirmado el mes", () => {
+    expect(creditCheckDue(acc, [], "2026-10-03")).toBe(false);
+    expect(creditCheckDue(acc, [], "2026-10-05")).toBe(true);
+    expect(creditCheckDue(acc, ["2026-10-01"], "2026-10-20")).toBe(false);
+  });
+  it("sin día de pago aparece desde el día 1; no aparece el mes en que se creó", () => {
+    expect(creditCheckDue({ ...acc, due_day: null }, [], "2026-10-01")).toBe(true);
+    expect(creditCheckDue({ ...acc, opening_at: "2026-10-02" }, [], "2026-10-20")).toBe(false);
+  });
+});
