@@ -5,6 +5,7 @@ import type { CaptureOption } from "@/lib/capture/phrase";
 
 // Registro por voz o foto: Gemini propone los datos y la app llena el formulario para revisarlo.
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"];
 const MAX_IMAGE_BASE64 = 6_000_000; // ~4,5 MB
