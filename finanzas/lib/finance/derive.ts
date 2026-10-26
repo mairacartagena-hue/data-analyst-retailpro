@@ -8,7 +8,7 @@ import { netFor, owedToPartner, type LedgerEntry } from "./crossLedger";
 import { DEFAULT_PERIOD_SETTINGS, isWithin, type Period, type PeriodSettings } from "./periods";
 import { computeSafeToSpend, realBalanceOf, type SafeToSpendResult } from "./safeToSpend";
 import { cardDue } from "./installments";
-import { nextCuota } from "./credit";
+import { creditReserve } from "./credit";
 import { todayBogota } from "./periods";
 import { pendingSavingsFor } from "./goals";
 import { consumptionSign } from "./spaces";
@@ -147,7 +147,7 @@ export function safeToSpendFor(s: Snapshot, period: Period, statuses = statusesF
       .reduce((acc, a) => acc + (a.kind === "LOAN"
         ? Math.max(0, -s.balances[a.id])
         : a.kind === "CREDIT"
-          ? nextCuota(-s.balances[a.id], a.interest_rate_ea, a.term_months, a.opening_at, a.monthly_costs ?? 0, todayBogota())
+          ? creditReserve(a, s.balances[a.id], s.transactions, period, todayBogota())
           : cardDue(a, s.balances[a.id], s.transactions, period, s.cardItems ?? []).due), 0),
     owedToPartner: owedToPartner(me, ledgerEntries(s.ledger)),
   });
