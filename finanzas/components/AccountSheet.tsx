@@ -31,7 +31,8 @@ const KINDS: AccountKind[] = ["DEPOSIT", "WALLET", "CASH", "CREDIT_CARD", "LOAN"
 const VISIBILITIES: Visibility[] = ["PRIVATE", "BALANCE_ONLY", "PUBLIC"];
 
 export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOSIT" }: { open: boolean; onOpenChange: (v: boolean) => void; account: Account | null; defaultKind?: AccountKind }) {
-  const { me, supabase, reload, partner } = useFinance();
+  const finance = useFinance();
+  const { me, supabase, reload, partner, categories } = finance;
   const [name, setName] = useState("");
   const [kind, setKind] = useState<AccountKind>("DEPOSIT");
   const [institution, setInstitution] = useState("");
@@ -52,12 +53,18 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
   const [original, setOriginal] = useState("");
   const [fixedCuota, setFixedCuota] = useState("");
   const [responsible, setResponsible] = useState("");
+  const [inBudget, setInBudget] = useState(false);
+  const [budgetCat, setBudgetCat] = useState("");
+  const [budgetAmount, setBudgetAmount] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setError(null);
+    setInBudget(false);
+    setBudgetCat("");
+    setBudgetAmount("");
     setName(account?.name ?? "");
     setKind(account?.kind ?? defaultKind);
     setInstitution(account?.institution ?? "");
@@ -86,6 +93,22 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
   // Tarjetas y préstamos: el saldo inicial es lo que se debe hoy
   const isCredit = kind === "CREDIT";
   const isDebt = isCard || kind === "LOAN" || isCredit;
+
+  // Cuota que calcula la app con lo que hay en el formulario (sirve también antes de guardar el crédito)
+  const formCuota = (() => {
+    if (!isCredit) return 0;
+    const today = todayBogota();
+    const termN = Number.parseInt(term, 10) || 0;
+    const instN = Number.parseInt(currentInst, 10);
+    return nextCuota(parseCop(opening) ?? 0, {
+      interest_rate_ea: rate.trim() ? Number(rate.replace(",", ".")) || 0 : 0,
+      term_months: termN || null,
+      monthly_costs: parseCop(costs) ?? 0,
+      due_day: dueDay ? Number(dueDay) : null,
+      installment_amount: parseCop(fixedCuota) || null,
+      ...(instN >= 1 ? { paid_installments: instN - 1, paid_installments_on: today } : { opening_at: openingDate || today }),
+    }, today);
+  })();
 
   async function save() {
     setError(null);
@@ -126,12 +149,26 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
       ...(isCredit && currentInst ? { paid_installments: instN - 1, paid_installments_on: todayBogota() } : {}),
       responsible_user_id: isDebt && responsible && responsible !== me.user_id ? responsible : null,
     };
+    const budgetValue = isCredit && !account && inBudget ? (parseCop(budgetAmount) || formCuota) : 0;
+    if (isCredit && !account && inBudget && budgetValue <= 0) return setError("Escribe el valor de la cuota para el presupuesto.");
     setBusy(true);
-    const { error } = account
-      ? await supabase.from("accounts").update(row).eq("id", account.id)
-      : await supabase.from("accounts").insert({ ...row, household_id: me.household_id, owner_user_id: me.user_id });
+    if (account) {
+      const { error } = await supabase.from("accounts").update(row).eq("id", account.id);
+      if (error) { setBusy(false); return setError(errMsg(error)); }
+    } else {
+      const { data, error } = await supabase.from("accounts").insert({ ...row, household_id: me.household_id, owner_user_id: me.user_id }).select().single();
+      if (error) { setBusy(false); return setError(errMsg(error)); }
+      if (budgetValue > 0 && data) {
+        try {
+          await linkCreditBudget(finance, data as Account, budgetCat, budgetValue);
+        } catch (e) {
+          setBusy(false);
+          void reload();
+          return setError(`El crédito quedó guardado, pero no se pudo crear el presupuesto: ${errMsg(e)}. Ábrelo de nuevo y activa el interruptor.`);
+        }
+      }
+    }
     setBusy(false);
-    if (error) return setError(errMsg(error));
     onOpenChange(false);
     void reload();
   }
@@ -225,7 +262,34 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
             <Field label="Seguros y otros costos al mes" hint="Seguro de vida, de inmueble, cuotas de administración del crédito."><AmountInput value={costs} onChange={setCosts} /></Field>
           </div>
         )}
+        {isCredit && formCuota > 0 && (
+          <p className="rounded-2xl bg-surface-2 px-3 py-2.5 text-sm">
+            Cuota estimada: <strong className="num">{formatCop(formCuota)}</strong>
+            <span className="block text-xs text-muted">{parseCop(fixedCuota) ? "Cuota del extracto" : "Calculada con el saldo, la tasa y las cuotas que faltan"}{parseCop(costs) ? ", más seguros y otros costos." : "."}</span>
+          </p>
+        )}
         {isCredit && account && <CreditBudget account={account} />}
+        {isCredit && !account && (
+          <div className="space-y-2 rounded-2xl border border-border px-3 pb-3">
+            <SwitchRow label="Incluir la cuota en Presupuestos"
+              hint="Crea un presupuesto del hogar con la cuota. Cuando llegue solo un pago con ese valor, se marca como pago de este crédito."
+              checked={inBudget}
+              onCheckedChange={(v) => { setInBudget(v); if (v && !budgetCat) setBudgetCat(guessCategory(name, categories)); }} />
+            {inBudget && (
+              <div className="space-y-2">
+                <Field label="Categoría del presupuesto">
+                  <Select value={budgetCat} onChange={(e) => setBudgetCat(e.target.value)}>
+                    <option value="">Nueva categoría: {name.trim() || "nombre del crédito"}</option>
+                    <CategoryOptions categories={categories.filter((c) => !c.archived && c.kind !== "INCOME")} />
+                  </Select>
+                </Field>
+                <Field label="Cuota por periodo" hint={`Vacío: se usa la cuota estimada (${formatCop(formCuota)}, incluye seguros). Cada pago queda con su valor real.`}>
+                  <AmountInput value={budgetAmount} onChange={setBudgetAmount} />
+                </Field>
+              </div>
+            )}
+          </div>
+        )}
         {isCredit && account && <CreditPayments account={account} />}
         {isCard && (
           <div className="grid grid-cols-3 gap-3">
@@ -581,13 +645,31 @@ function guessCategory(name: string, categories: { id: string; name: string; arc
   return hit?.id ?? "";
 }
 
+/** Crea (o actualiza) el presupuesto del hogar con la cuota del crédito y lo enlaza a la cuenta. */
+async function linkCreditBudget(state: ReturnType<typeof useFinance>, account: Account, categoryId: string, amount: number) {
+  const { me, partner, settings, limits, supabase } = state;
+  const currentStart = periodFor(settings, todayBogota()).start;
+  const catId = categoryId || await ensureCategory(state, supabase, account.name, "🏦");
+  const existing = limits.find((l) => l.category_id === catId && l.scope === "HOUSEHOLD") ?? null;
+  const slot = [me, partner].find((m) => m?.user_id === responsibleOf(account))?.slot ?? me.slot;
+  const r = await supabase.rpc("save_category_limit", { p: {
+    id: existing?.id ?? null, category_id: catId, scope: "HOUSEHOLD",
+    responsibility: slot === "B" ? "MEMBER_B_100" : "MEMBER_A_100",
+    is_household_obligation: false, rollover_enabled: existing?.rollover_enabled ?? false, shared_with_partner: false,
+    budget: { valid_from: currentStart, amount, fixed_amount_a: null, fixed_amount_b: null },
+  } });
+  if (r.error) throw r.error;
+  const u = await supabase.from("accounts").update({ budget_category_id: catId }).eq("id", account.id);
+  if (u.error) throw u.error;
+}
+
 /**
  * Interruptor "Incluir la cuota en Presupuestos": el crédito queda con un presupuesto del hogar por su cuota
  * (no es obligación: la cuota ya se aparta en el Saldo Seguro) y los pagos que lleguen solos se cruzan con él.
  */
 function CreditBudget({ account }: { account: Account }) {
   const state = useFinance();
-  const { me, partner, settings, balances, categories, limits, budgets, supabase, reload } = state;
+  const { settings, balances, categories, limits, budgets, supabase, reload } = state;
   const linked = account.budget_category_id ? categories.find((c) => c.id === account.budget_category_id) ?? null : null;
   const currentStart = periodFor(settings, todayBogota()).start;
   const estimate = nextCuota(Math.max(0, -(balances[account.id] ?? 0)), account, todayBogota());
@@ -613,18 +695,7 @@ function CreditBudget({ account }: { account: Account }) {
     if (value <= 0) return setErr("Escribe el valor de la cuota.");
     setBusy(true);
     try {
-      const catId = categoryId || await ensureCategory(state, supabase, account.name, "🏦");
-      const existing = limits.find((l) => l.category_id === catId && l.scope === "HOUSEHOLD") ?? null;
-      const slot = [me, partner].find((m) => m?.user_id === responsibleOf(account))?.slot ?? me.slot;
-      const r = await supabase.rpc("save_category_limit", { p: {
-        id: existing?.id ?? null, category_id: catId, scope: "HOUSEHOLD",
-        responsibility: slot === "B" ? "MEMBER_B_100" : "MEMBER_A_100",
-        is_household_obligation: false, rollover_enabled: existing?.rollover_enabled ?? false, shared_with_partner: false,
-        budget: { valid_from: currentStart, amount: value, fixed_amount_a: null, fixed_amount_b: null },
-      } });
-      if (r.error) throw r.error;
-      const u = await supabase.from("accounts").update({ budget_category_id: catId }).eq("id", account.id);
-      if (u.error) throw u.error;
+      await linkCreditBudget(state, account, categoryId, value);
       setEditing(false);
       void reload();
     } catch (e) {
