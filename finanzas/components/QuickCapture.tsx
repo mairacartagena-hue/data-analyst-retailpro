@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { parsePhrase, type CaptureOption, type CaptureResult } from "@/lib/capture/phrase";
 import { todayBogota } from "@/lib/finance/periods";
+import { shrink } from "@/lib/capture/file";
 
 // Registrar por voz o con la foto de un recibo: llena el formulario y la persona revisa antes de guardar.
 // La voz la transcribe el navegador; la frase (o la foto) la lee Gemini en el servidor. Sin conexión, la frase
@@ -26,27 +27,6 @@ function speechCtor(): (new () => SpeechRecognitionLike) | null {
   if (typeof window === "undefined") return null;
   const w = window as unknown as { SpeechRecognition?: new () => SpeechRecognitionLike; webkitSpeechRecognition?: new () => SpeechRecognitionLike };
   return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
-}
-
-/** Reduce la foto (máx. 1600 px, JPEG) para enviarla rápido. */
-async function shrink(file: File): Promise<{ data: string; mime: string }> {
-  try {
-    const bmp = await createImageBitmap(file);
-    const scale = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.round(bmp.width * scale);
-    canvas.height = Math.round(bmp.height * scale);
-    canvas.getContext("2d")!.drawImage(bmp, 0, 0, canvas.width, canvas.height);
-    bmp.close();
-    const url = canvas.toDataURL("image/jpeg", 0.82);
-    return { data: url.slice(url.indexOf(",") + 1), mime: "image/jpeg" };
-  } catch {
-    // El navegador no pudo abrirla (ej. HEIC): se envía tal cual
-    const buf = new Uint8Array(await file.arrayBuffer());
-    let bin = "";
-    for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
-    return { data: btoa(bin), mime: file.type || "image/jpeg" };
-  }
 }
 
 export function QuickCapture({
