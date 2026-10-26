@@ -207,7 +207,14 @@ export interface Transaction {
   /** Solo en las copias por cuota que usan presupuestos e informes: número de la cuota y el movimiento original. */
   installment_no?: number;
   installment_of?: Transaction;
+  /** Plata de un tercero (ej. Álvaro): mueve la cuenta pero no es gasto ni ingreso propio. */
+  third_party_id?: string | null;
   splits: Split[];
+}
+
+export interface ThirdParty {
+  id: string;
+  name: string;
 }
 
 export interface IngestLog {
@@ -237,6 +244,7 @@ export interface MerchantMemory {
   creates_debt: boolean;
   /** REFUND: los ingresos de este origen entran como reembolso de la categoría. */
   movement_kind: "REFUND" | null;
+  third_party_id?: string | null;
 }
 
 /** Etiqueta del hogar para filtrar e informar (se pueden crear, renombrar y borrar). */

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowDownLeft, ArrowRightLeft, ArrowUpRight, Handshake, Home, Lock, Scale, SlidersHorizontal, Tag as TagIcon, Undo2 } from "lucide-react";
+import { ArrowDownLeft, ArrowRightLeft, ArrowUpRight, Handshake, Home, Lock, Scale, SlidersHorizontal, Tag as TagIcon, Undo2, UserRound } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { useShell } from "@/components/AppShell";
 import { PeriodSwitcher, SwipePeriods } from "@/components/PeriodSwitcher";
@@ -165,7 +165,7 @@ export default function MovimientosPage() {
 }
 
 function TxRow({ tx }: { tx: Transaction }) {
-  const { me, categories, labels, memberById, tags, txTags } = useFinance();
+  const { me, categories, labels, memberById, tags, txTags, thirdParties } = useFinance();
   const { openTransaction } = useShell();
   const rowTags = (txTags[tx.id] ?? []).map((id) => tags.find((t) => t.id === id)).filter((t): t is NonNullable<typeof t> => !!t);
   const payer = memberById(tx.payer_user_id);
@@ -203,6 +203,11 @@ function TxRow({ tx }: { tx: Transaction }) {
     icon = <Handshake size={18} className="text-wood" />;
     title = tx.description && tx.description !== "Liquidación" ? tx.description : "Liquidación";
     subtitle = `${payer?.display_name} → ${memberById(tx.counterparty_user_id)?.display_name}`;
+  }
+  if (tx.third_party_id) {
+    const tp = thirdParties.find((t) => t.id === tx.third_party_id);
+    icon = <UserRound size={18} className="text-wood" />;
+    subtitle = tp ? `Plata de ${tp.name} · no cuenta` : "Plata de un tercero · no cuenta";
   }
   if ((tx.installments ?? 1) > 1 && tx.kind === "EXPENSE") subtitle = `${subtitle} · ${tx.installments} cuotas`;
 

@@ -4,6 +4,7 @@
 // − Ahorros programados pendientes del usuario
 // − Deuda pendiente de sus tarjetas de crédito
 // − Lo que le debe a su pareja (lo que la pareja le debe NO suma)
+// − Plata recibida de un tercero que aún no se ha pagado (lo que el tercero debe NO suma)
 
 /** LOAN: préstamo de alguien (familia, un banco) que se paga con transferencias a la cuenta. */
 export type AccountKind = "DEPOSIT" | "WALLET" | "CASH" | "CREDIT_CARD" | "LOAN" | "CREDIT";
@@ -20,9 +21,11 @@ export interface SafeToSpendInput {
   scheduledSavingsPending: number;
   creditCardDebt: number;
   owedToPartner: number;
+  heldForThirdParty?: number;
 }
 
 export interface SafeToSpendResult extends SafeToSpendInput {
+  heldForThirdParty: number;
   total: number;
 }
 
@@ -49,6 +52,7 @@ export function computeSafeToSpend(input: SafeToSpendInput): SafeToSpendResult {
     scheduledSavingsPending: Math.max(0, input.scheduledSavingsPending),
     creditCardDebt: Math.max(0, input.creditCardDebt),
     owedToPartner: Math.max(0, input.owedToPartner),
+    heldForThirdParty: Math.max(0, input.heldForThirdParty ?? 0),
   };
   return {
     ...parts,
@@ -57,6 +61,7 @@ export function computeSafeToSpend(input: SafeToSpendInput): SafeToSpendResult {
       parts.householdObligationsPending -
       parts.scheduledSavingsPending -
       parts.creditCardDebt -
-      parts.owedToPartner,
+      parts.owedToPartner -
+      parts.heldForThirdParty,
   };
 }
