@@ -18,7 +18,7 @@ PWA privada de finanzas personales y en pareja (Android y escritorio). Todo en p
 | Organización hogar / personal, subcategorías, pago de deuda / reembolso / ajuste, presupuestos con nombre, vencimientos y metas de ahorro (migraciones 0017 y 0018) | Hecho (migraciones 0017 a 0019 aplicadas) |
 | Fase 4.1 — Créditos con saldo: cuenta Crédito, reparto de cada cuota, Saldo Seguro, Patrimonio y aviso mensual del saldo (migración 0031) | Hecho (0031 aplicada) |
 | Fase 4.2 — Notificaciones Web Push (migración 0033) | Hecho (0033 aplicada); faltan las claves en Vercel |
-| Fase 4.3 — IA (resumen del mes y preguntas sobre las finanzas) | Pendiente |
+| Fase 4.3 — Asistente con IA: preguntas sobre las finanzas y resumen del mes | Hecho |
 
 **Pendiente por probar o configurar:**
 - [ ] Que la pareja se una al hogar y probar el cruce, la liquidación, Realtime en dos celulares y la privacidad (pasos 1, 5 y 6 de “Cómo probar la Fase 1”).
@@ -55,6 +55,7 @@ Pendiente para fases siguientes: Web Push e IA (Fase 4). Las metas de ahorro y l
 - Cada pago se registra una sola vez y se divide en capital (baja la deuda, no es gasto), intereses, seguros y otros costos (gastos). La app sugiere la división con la tasa y el saldo, y la persona la ajusta con el extracto del banco.
 - Saldo Seguro: se reserva la cuota del periodo hasta que se pague, no el saldo total. Patrimonio: resta el saldo de capital real.
 - **Cuotas (migración 0034):** en el crédito se indica el **número de cuotas** y **en qué cuota vas** (la próxima a pagar). Desde ese día, cada día de pago suma una cuota; la app muestra “Cuota 38 de 240” en Cuentas → Créditos y en el crédito, y calcula la cuota estimada con las cuotas que faltan. Sin ese dato cuenta los meses desde el saldo inicial.
+- **Valor inicial (migración 0035):** lo que prestó el banco. Con él se ve cuánto del capital ya se pagó (barra en el crédito y “Pagado X %” en Cuentas → Créditos).
 - **Pestañas:** Cuentas se divide en **Cuentas · Créditos · Cruce** (créditos con cuotas y préstamos van en Créditos, con la deuda total y las cuotas del mes). En **Cierre del mes** también se separa **Cuentas / Créditos**: en un crédito se compara la deuda de capital con el extracto y la diferencia se corrige con un ajuste de saldo (no es gasto ni ingreso).
 - La responsabilidad de la cuota se asigna igual que cualquier partida (ej. hipoteca 100 % de un miembro).
 - Aviso mensual en el inicio (después del día de pago, hasta confirmarlo ese mes) para confirmar el saldo con el extracto: “¿El saldo de tu hipoteca es $X? Confirmar / Corregir”. Confirmar guarda la conciliación del mes; Corregir pide el saldo del extracto y registra la diferencia como ajuste de saldo (no es gasto ni ingreso) (`components/CreditCheck.tsx`).
@@ -68,6 +69,14 @@ Ajustes → **Notificaciones** → “Activar en este celular” (cada persona e
 - **Cómo funciona:** la app calcula los recordatorios de los próximos 35 días cada vez que se abre y los guarda en `push_schedule` (`lib/finance/reminders.ts`, `components/PushScheduler.tsx`). La tarea diaria los pide con `push_due()` usando su propia clave (`PUSH_CRON_SECRET`), así el servidor no usa claves secretas de Supabase. Lo ya enviado no se repite; los celulares que ya no existen se borran solos.
 
 Variables en Vercel: `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` (`mailto:...`) y `PUSH_CRON_SECRET`. En Supabase, la huella de esa clave: `insert into push_config (secret_hash) values (encode(extensions.digest('LA-CLAVE', 'sha256'), 'hex')) on conflict (id) do update set secret_hash = excluded.secret_hash;`
+
+## Asistente con IA (Fase 4.3)
+
+Más → **Asistente con IA** (también desde Informes → IA). Se le pregunta en lenguaje normal: “¿cuánto gastamos en mercado en los últimos 3 meses?”, “hazme un resumen del mes”, “¿qué podría recortar?”, “¿cuándo termino de pagar la hipoteca?”.
+
+- La app arma en el celular un resumen de lo que la persona puede ver (`lib/ai/context.ts`): saldo seguro, patrimonio, cruce, presupuestos del periodo, cuentas y créditos (cuota, en qué cuota va, valor inicial), metas, pagos programados, ingresos y gastos de 12 meses, gasto por categoría de 6 meses y los movimientos recientes (hasta ~90 mil caracteres; los más viejos se recortan). Lo privado de la pareja nunca está en el celular, así que no se envía.
+- `/api/ai/ask` exige sesión y llama a Gemini (`gemini-flash-latest`; si no está disponible usa Flash-Lite). Se puede cambiar con `GEMINI_ASSISTANT_MODEL`. Usa la misma `GEMINI_API_KEY` de la captura.
+- La conversación se guarda solo en la pestaña abierta (se borra al cerrar la app) y responde en texto plano.
 
 ## Fase 2 — Ingesta automática
 
@@ -203,7 +212,7 @@ Pestañas: **Inicio · Movimientos · + · Presupuesto · Informes · Más**. �
 ## Configuración
 
 ### 1. Base de datos (Supabase, proyecto `finanzas-pareja`)
-Las migraciones están en `supabase/migrations/` (0001 → 0034). Para aplicarlas a mano, pega cada archivo completo en **SQL Editor → Run**, en orden. Se pueden correr más de una vez.
+Las migraciones están en `supabase/migrations/` (0001 → 0035). Para aplicarlas a mano, pega cada archivo completo en **SQL Editor → Run**, en orden. Se pueden correr más de una vez.
 
 ### 2. Autenticación
 En Supabase → **Authentication → URL Configuration**:

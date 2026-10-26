@@ -1,8 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Download } from "lucide-react";
+import { Download, Sparkles } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { PeriodSwitcher, SwipePeriods } from "@/components/PeriodSwitcher";
 import { BarList, ChartCard, GroupedColumns, StackedRows } from "@/components/charts/Charts";
@@ -56,7 +57,10 @@ export default function InformesPage() {
     <main className="px-4 pt-[calc(12px+env(safe-area-inset-top))]">
       <div className="flex items-center justify-between py-2">
         <h1 className="font-display text-3xl">Informes</h1>
-        <Button size="sm" variant="outline" onClick={download}><Download size={16} /> CSV</Button>
+        <div className="flex gap-2">
+          <Link href="/asistente" className="inline-flex h-9 items-center gap-1.5 rounded-full border border-border bg-surface px-3 text-sm"><Sparkles size={16} className="text-wood" /> IA</Link>
+          <Button size="sm" variant="outline" onClick={download}><Download size={16} /> CSV</Button>
+        </div>
       </div>
       <PeriodSwitcher />
       <Segmented className="mt-3" value={space} onChange={setSpace} options={[

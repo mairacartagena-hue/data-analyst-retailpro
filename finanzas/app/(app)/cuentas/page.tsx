@@ -15,7 +15,7 @@ import { ASSET_TYPE_LABEL, VISIBILITY_LABEL } from "@/lib/types";
 import { formatCop } from "@/lib/finance/money";
 import { responsibleOf } from "@/lib/finance/derive";
 import { cn } from "@/lib/utils";
-import { installmentLabel, isCreditKind, nextCuota } from "@/lib/finance/credit";
+import { capitalPaidRatio, installmentLabel, isCreditKind, nextCuota } from "@/lib/finance/credit";
 import { todayBogota } from "@/lib/finance/periods";
 
 type View = "cuentas" | "creditos" | "cruce";
@@ -83,6 +83,7 @@ export default function CuentasPage() {
               <span className={cn("num block font-semibold", (isCard || a.kind === "LOAN" || a.kind === "CREDIT") && bal < 0 && "text-danger")}>
                 {isCard || a.kind === "LOAN" || a.kind === "CREDIT" ? (bal < 0 ? `Debe ${formatCop(-bal)}` : formatCop(bal)) : formatCop(bal)}
               </span>
+              {a.kind === "CREDIT" && capitalPaidRatio(a.original_amount, Math.max(0, -(bal ?? 0))) !== null ? <span className="num block text-xs text-muted">Pagado {Math.round(capitalPaidRatio(a.original_amount, Math.max(0, -(bal ?? 0)))! * 100)} % de {formatCop(a.original_amount!)}</span> : null}
               {a.kind === "CREDIT" && creditCuota(a) > 0 ? <span className="num block text-xs text-muted">Cuota ≈ {formatCop(creditCuota(a))}</span> : null}
               {isCard && a.credit_limit ? <span className="num block text-xs text-muted">Disponible {formatCop(a.credit_limit + Math.min(0, bal))}</span> : null}
             </>
