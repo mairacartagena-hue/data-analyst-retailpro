@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addMonthsIso, cardDue, expandInstallments, installmentPlan, monthlyRate, projectCard, rateOf, splitEven, statementsDueIn, cutsBetween, statementItemsAfter } from "@/lib/finance/installments";
+import { addMonthsIso, cardDue, expandInstallments, installmentPlan, monthlyRate, projectCard, rateOf, splitEven, statementsDueIn, cutsBetween, statementItemsAfter, matchedWithItems } from "@/lib/finance/installments";
 import type { CardStatementItem } from "@/lib/types";
 import { spendingRows } from "@/lib/finance/spaces";
 import type { Transaction } from "@/lib/types";
@@ -183,6 +183,45 @@ describe("tarjeta con compras a cuotas del extracto", () => {
     const r = statementItemsAfter([item({ rate_ea: 28 })], 1);
     expect(r.interest).toBe(Math.round(6_339_143 * monthlyRate(28)));
     expect(r.capitalDue + r.later).toBe(6_339_143);
+  });
+});
+
+describe("tarjeta BBVA con los números del extracto del 20-oct", () => {
+  // Extracto: debía 8.153.194, de lo cual 6.339.143 es capital de cuotas sin facturar → se paga 1.814.051 el 5-nov.
+  // En la app: apertura el 21-oct 00:00 (el corte del 20 ya incluye lo de ese día) y compras posteriores de 292.540.
+  const card = { id: "bbva", statement_day: 20, due_day: 5, opening_at: "2026-10-21T05:00:00+00:00", interest_rate_ea: 28.56 };
+  const period = { start: "2026-10-22", end: "2026-11-21" };
+  const buy = (id: string, on: string, amount: number, installments = 1) =>
+    tx({ id, account_id: "bbva", occurred_on: on, amount, installments, interest_rate_ea: installments > 1 ? 28.56 : null });
+  const txs = [
+    buy("amazon", "2026-10-07", 120_926, 36), buy("ikea", "2026-10-15", 170_950, 2), buy("ali", "2026-10-16", 54_095, 36),
+    buy("temu", "2026-10-16", 64_153), buy("ara", "2026-10-17", 124_500), buy("auto", "2026-10-20", 219_926),
+    buy("d1", "2026-10-24", 9_300), buy("moto", "2026-10-24", 247_590), buy("bela", "2026-10-23", 18_750), buy("play", "2026-10-23", 16_900),
+  ];
+  const item = (id: string, desc: string, date: string, amount: number, n: number, paid: number, remaining: number): CardStatementItem =>
+    ({ id, account_id: "bbva", description: desc, purchase_date: date, amount, installments: n, paid_installments: paid, remaining_balance: remaining, rate_ea: 28.56 });
+  const items = [
+    item("resto", "70 compras de agosto", "2026-08-25", 7_000_000, 36, 1, 6_020_598.27),
+    item("amazon", "AMAZON MKTPL", "2026-10-07", 120_926.46, 36, 0, 120_926.46),
+    item("ikea", "IKEA CALI", "2026-10-15", 170_950, 2, 1, 143_523.27),
+    item("ali", "aliexpress", "2026-10-16", 54_095, 36, 0, 54_095),
+  ];
+
+  it("reconoce las compras del extracto que ya son movimiento", () => {
+    expect([...matchedWithItems(txs, items)].sort()).toEqual(["ali", "amazon", "ikea"]);
+  });
+
+  it("la cuota del periodo es la del extracto: ~$1.800.000", () => {
+    const d = cardDue(card, -(8_153_194 + 292_540), txs, period, items);
+    expect(d.due).toBeGreaterThan(1_800_000);
+    expect(d.due).toBeLessThan(1_830_000);
+    expect(d.dueDate).toBe("2026-11-05");
+  });
+
+  it("la proyección no cuenta dos veces una compra que está en el extracto y como movimiento", () => {
+    const both = projectCard(card, txs, "2026-10-26", 3, items);
+    const onlyItems = projectCard(card, [], "2026-10-26", 3, items);
+    expect(both.map((m) => m.capital)).toEqual(onlyItems.map((m) => m.capital));
   });
 });
 
