@@ -8,6 +8,7 @@ import type { Transaction } from "@/lib/types";
 import { TransactionSheet, type TxPreset } from "@/components/TransactionSheet";
 import { SettleSheet } from "@/components/SettleSheet";
 import { OfflineBanner } from "@/components/OfflineBanner";
+import { PushScheduler } from "@/components/PushScheduler";
 import { cn } from "@/lib/utils";
 
 interface ShellApi {
@@ -71,6 +72,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <ShellCtx.Provider value={{ openTransaction, openPayment, openSettle }}>
       <div className="mx-auto min-h-dvh w-full max-w-2xl pb-nav">
         <OfflineBanner />
+        <PushScheduler />
         {children}
       </div>
 

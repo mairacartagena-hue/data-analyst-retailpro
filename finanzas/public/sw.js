@@ -118,3 +118,39 @@ self.addEventListener("notificationclick", (event) => {
     }),
   );
 });
+
+// Notificaciones Web Push: la tarea diaria envía { title, body, url, tag }.
+self.addEventListener("push", (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {
+    data = { title: "Finanzas en Pareja", body: event.data ? event.data.text() : "" };
+  }
+  const url = typeof data.url === "string" && data.url.startsWith("/") && !data.url.startsWith("//") ? data.url : "/";
+  event.waitUntil(
+    self.registration.showNotification(data.title || "Finanzas en Pareja", {
+      body: data.body || "",
+      icon: "/icons/icon-192.png",
+      badge: "/icons/icon-192.png",
+      tag: data.tag || undefined,
+      data: { url },
+    }),
+  );
+});
+
+// Al tocar la notificación: abre la app en la pantalla del aviso (o la enfoca si ya estaba abierta).
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || "/";
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((wins) => {
+      for (const w of wins) {
+        if (new URL(w.url).origin === self.location.origin && "focus" in w) {
+          return w.focus().then((c) => (c && "navigate" in c ? c.navigate(url) : c));
+        }
+      }
+      return self.clients.openWindow(url);
+    }),
+  );
+});
