@@ -195,7 +195,7 @@ Pestañas: **Inicio · Movimientos · + · Presupuesto · Informes · Más**. �
 Ej. un pago mensual que se hace por un familiar que luego envía la plata: se usa una categoría propia (ej. “Alvaro”) y reembolsos.
 - El pago es un gasto en esa categoría; la plata que llega es un **reembolso** de la misma categoría, así que en el mes queda en $0 y no cuenta como ingreso.
 - Para que llegue sola como reembolso: regla de reembolso en la memoria de comercios (`merchant_memory.movement_kind = 'REFUND'`) para quien envía la plata.
-- La migración 0037 (`third_parties`) quedó en la base de datos sin uso: se probó un interruptor “Plata de un tercero” y se reemplazó por este esquema.
+- La migración 0037 (`third_parties`) probó un interruptor “Plata de un tercero”; la 0038 la quitó.
 
 ## Seguridad
 
@@ -220,7 +220,7 @@ Ej. un pago mensual que se hace por un familiar que luego envía la plata: se us
 ## Configuración
 
 ### 1. Base de datos (Supabase, proyecto `finanzas-pareja`)
-Las migraciones están en `supabase/migrations/` (0001 → 0037). Para aplicarlas a mano, pega cada archivo completo en **SQL Editor → Run**, en orden. Se pueden correr más de una vez.
+Las migraciones están en `supabase/migrations/` (0001 → 0038). Para aplicarlas a mano, pega cada archivo completo en **SQL Editor → Run**, en orden. Se pueden correr más de una vez.
 
 ### 2. Autenticación
 En Supabase → **Authentication → URL Configuration**:
