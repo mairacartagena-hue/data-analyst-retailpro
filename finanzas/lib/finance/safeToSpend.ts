@@ -5,7 +5,8 @@
 // − Deuda pendiente de sus tarjetas de crédito
 // − Lo que le debe a su pareja (lo que la pareja le debe NO suma)
 
-export type AccountKind = "DEPOSIT" | "WALLET" | "CASH" | "CREDIT_CARD";
+/** LOAN: préstamo de alguien (familia, un banco) que se paga con transferencias a la cuenta. */
+export type AccountKind = "DEPOSIT" | "WALLET" | "CASH" | "CREDIT_CARD" | "LOAN";
 
 export interface BalanceAccount {
   ownerUserId: string;
@@ -34,10 +35,10 @@ export function realBalanceOf(userId: string, accounts: BalanceAccount[]): numbe
     .reduce((s, a) => s + a.balance, 0);
 }
 
-/** Deuda pendiente de las tarjetas del usuario. Un saldo a favor en la tarjeta no suma. */
+/** Deuda pendiente de las tarjetas y préstamos del usuario. Un saldo a favor no suma. */
 export function creditCardDebtOf(userId: string, accounts: BalanceAccount[]): number {
   return accounts
-    .filter((a) => a.ownerUserId === userId && a.kind === "CREDIT_CARD")
+    .filter((a) => a.ownerUserId === userId && (a.kind === "CREDIT_CARD" || a.kind === "LOAN"))
     .reduce((s, a) => s + Math.max(0, -a.balance), 0);
 }
 

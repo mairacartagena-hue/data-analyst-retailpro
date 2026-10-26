@@ -102,6 +102,15 @@ GEMINI_MODEL=...            # opcional; por defecto gemini-flash-lite-latest
 - **Intereses estimados:** en Cuentas, cada tarjeta tiene su **tasa de interés (% efectiva anual)** (`accounts.interest_rate_ea`). Como cobran las tarjetas en Colombia: capital fijo por cuota e intereses sobre el saldo que queda, con la tasa mensual equivalente. A 1 cuota no hay intereses. Los intereses reales se registran con el extracto (Cierre del mes).
 - **Saldo Seguro y vencimiento de la tarjeta:** se aparta solo lo que toca pagar en el periodo: deuda de la tarjeta − capital de las cuotas que vencen después + intereses estimados de las cuotas del periodo. La deuda completa sigue en Cuentas y en Patrimonio.
 
+## Préstamos (migración 0028)
+
+Cuenta de tipo **Préstamo** (Cuentas → + → Préstamo): para plata que me prestan (por ejemplo mi hermana) o que le presto a alguien. Su saldo es negativo mientras se debe.
+
+- **Me prestan 200:** transferencia de la cuenta del préstamo a mi cuenta. No es ingreso; la deuda sube a 200.
+- **Compro algo con esa plata:** gasto normal de mi cuenta.
+- **Le pago 120:** transferencia de mi cuenta a la cuenta del préstamo. No es gasto; la deuda baja a 80.
+- La deuda cuenta como pasivo en Patrimonio y se aparta completa del Saldo Seguro. No suma al flujo ni a los presupuestos, y no sale como opción para liquidar con la pareja.
+
 ## Cierre del mes (conciliación)
 
 Ajustes → **Cierre del mes** (`app/(app)/cierre`), con recordatorio en el inicio los últimos 3 días del mes y los primeros 5 del siguiente.
@@ -180,7 +189,7 @@ Pestañas: **Inicio · Movimientos · + · Presupuesto · Informes · Más**. �
 ## Configuración
 
 ### 1. Base de datos (Supabase, proyecto `finanzas-pareja`)
-Las migraciones están en `supabase/migrations/` (0001 → 0027). Para aplicarlas a mano, pega cada archivo completo en **SQL Editor → Run**, en orden. Se pueden correr más de una vez.
+Las migraciones están en `supabase/migrations/` (0001 → 0028). Para aplicarlas a mano, pega cada archivo completo en **SQL Editor → Run**, en orden. Se pueden correr más de una vez.
 
 ### 2. Autenticación
 En Supabase → **Authentication → URL Configuration**:

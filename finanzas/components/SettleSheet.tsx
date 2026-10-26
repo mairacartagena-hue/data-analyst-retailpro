@@ -20,8 +20,8 @@ export function SettleSheet({ open, onOpenChange }: { open: boolean; onOpenChang
   const net = crossNet(state);
   const owe = Math.max(0, -net);
 
-  const myAccounts = accounts.filter((a) => a.owner_user_id === me.user_id && !a.archived && a.kind !== "CREDIT_CARD");
-  const partnerAccounts = labels.filter((l) => partner && l.owner_user_id === partner.user_id && l.kind !== "CREDIT_CARD");
+  const myAccounts = accounts.filter((a) => a.owner_user_id === me.user_id && !a.archived && !["CREDIT_CARD", "LOAN"].includes(a.kind));
+  const partnerAccounts = labels.filter((l) => partner && l.owner_user_id === partner.user_id && !["CREDIT_CARD", "LOAN"].includes(l.kind));
 
   const [amount, setAmount] = useState("");
   const [from, setFrom] = useState("");

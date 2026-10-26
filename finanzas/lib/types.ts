@@ -270,6 +270,7 @@ export const ACCOUNT_KIND_LABEL: Record<AccountKind, string> = {
   WALLET: "Billetera digital",
   CASH: "Efectivo",
   CREDIT_CARD: "Tarjeta de crédito",
+  LOAN: "Préstamo (me deben pagar o debo a alguien)",
 };
 
 export const VISIBILITY_LABEL: Record<Visibility, string> = {

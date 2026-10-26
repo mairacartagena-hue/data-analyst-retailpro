@@ -505,7 +505,7 @@ export function bankCharges(account: Account, lines: StatementLine[], uvt: numbe
   const sum = (ls: StatementLine[]) => ls.reduce((a, l) => a + Math.abs(l.amount), 0);
   const of = (k: LineKind) => lines.filter((l) => l.kind === k);
   const gmfLines = of("GMF").filter((l) => l.amount < 0);
-  const applies = account.kind !== "CREDIT_CARD" && account.kind !== "CASH";
+  const applies = account.kind !== "CREDIT_CARD" && account.kind !== "CASH" && account.kind !== "LOAN";
   // Base: todo lo que sale de la cuenta menos el propio 4x1000
   const base = lines.filter((l) => l.amount < 0 && l.kind !== "GMF").reduce((a, l) => a - l.amount, 0);
   const mode = (account.gmf_mode ?? "TAXED") as GmfMode;
