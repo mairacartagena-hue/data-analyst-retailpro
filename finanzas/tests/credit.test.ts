@@ -139,3 +139,20 @@ describe("valor inicial del crédito", () => {
     expect(capitalPaidRatio(100, 120)).toBe(0); // deuda mayor que el valor inicial (intereses capitalizados)
   });
 });
+
+describe("cuota fija del extracto", () => {
+  // Caja Social, extracto del 18-oct-2026: saldo $2.405.745,56, tasa cobrada 28,59 % EA,
+  // cuota = capital $170.813,93 + intereses $50.944,07; seguro de vida $3.108
+  const caja = { interest_rate_ea: 28.59, term_months: 60, monthly_costs: 3108, due_day: 3, paid_installments: 41, paid_installments_on: "2026-10-26", installment_amount: 221_758 };
+  it("usa la cuota del extracto más los seguros", () => {
+    expect(nextCuota(2_405_746, caja, "2026-10-26")).toBe(221_758 + 3108);
+  });
+  it("los intereses salen de la tasa y la diferencia va a capital", () => {
+    const s = suggestSplit(2_405_746, 28.59, 221_758 + 3108, 3108);
+    expect(Math.abs(s.interest - 50_944)).toBeLessThan(100);
+    expect(Math.abs(s.capital - 170_814)).toBeLessThan(100);
+  });
+  it("la última cuota no pasa de lo que se debe", () => {
+    expect(nextCuota(100_000, caja, "2026-10-26")).toBe(100_000 + Math.round(100_000 * monthlyRate(28.59)) + 3108);
+  });
+});

@@ -41,6 +41,7 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
   const [costs, setCosts] = useState("");
   const [currentInst, setCurrentInst] = useState("");
   const [original, setOriginal] = useState("");
+  const [fixedCuota, setFixedCuota] = useState("");
   const [responsible, setResponsible] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -66,6 +67,7 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
     setTerm(account?.term_months ? String(account.term_months) : "");
     setCosts(account?.monthly_costs ? String(account.monthly_costs) : "");
     setOriginal(account?.original_amount ? String(account.original_amount) : "");
+    setFixedCuota(account?.installment_amount ? String(Math.round(account.installment_amount)) : "");
     const paidNow = account?.kind === "CREDIT" ? installmentsPaid(account, todayBogota()) : null;
     setCurrentInst(paidNow != null && account?.term_months ? String(Math.min(paidNow + 1, account.term_months)) : "");
     setResponsible(account?.responsible_user_id && account.responsible_user_id !== account.owner_user_id ? account.responsible_user_id : "");
@@ -110,6 +112,7 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
       term_months: isCredit ? Math.min(600, Math.max(1, Number.parseInt(term, 10) || 0)) || null : null,
       monthly_costs: isCredit ? parseCop(costs) ?? 0 : 0,
       original_amount: isCredit ? (parseCop(original) || null) : null,
+      installment_amount: isCredit ? (parseCop(fixedCuota) || null) : null,
       // "Voy en la cuota 38": quedan 37 pagadas a hoy; cada día de pago que pase suma una
       ...(isCredit && currentInst ? { paid_installments: instN - 1, paid_installments_on: todayBogota() } : {}),
       responsible_user_id: isDebt && responsible && responsible !== me.user_id ? responsible : null,
@@ -183,6 +186,7 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
         {isCredit && (
           <div className="grid grid-cols-2 gap-3">
             <Field label="Valor inicial del crédito" hint="Lo que te prestó el banco al empezar."><AmountInput value={original} onChange={setOriginal} /></Field>
+            <Field label="Valor de la cuota" hint="Capital + intereses del extracto, sin seguros. Los intereses salen de la tasa y la diferencia va a capital. Vacío: la app la calcula."><AmountInput value={fixedCuota} onChange={setFixedCuota} /></Field>
             <Field label="Número de cuotas" htmlFor="term" hint="Plazo total en meses."><Input id="term" inputMode="numeric" value={term} onChange={(e) => setTerm(e.target.value.replace(/\D/g, "").slice(0, 3))} /></Field>
             <Field label="¿En qué cuota vas?" htmlFor="cur-inst" hint="La próxima que vas a pagar. Desde aquí suma una cada día de pago.">
               <Input id="cur-inst" inputMode="numeric" value={currentInst} placeholder={term ? `1 a ${term}` : ""} onChange={(e) => setCurrentInst(e.target.value.replace(/\D/g, "").slice(0, 3))} />

@@ -93,6 +93,8 @@ export interface Account {
   paid_installments?: number | null;
   /** Créditos: valor inicial (lo que prestó el banco). */
   original_amount?: number | null;
+  /** Créditos: cuota fija del extracto (capital + intereses, sin seguros). */
+  installment_amount?: number | null;
   paid_installments_on?: string | null;
   monthly_costs?: number;
   archived: boolean;
