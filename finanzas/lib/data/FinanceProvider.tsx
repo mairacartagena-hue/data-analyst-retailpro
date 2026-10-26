@@ -5,7 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabase } from "@/lib/supabase/client";
 import type {
   Account, AccountLabel, BudgetPlan, CategoryLimit, BudgetPlanCategory, Category, CategoryBudgetRow, CustomPeriodRow, Household, LedgerRow,
-  CardStatementItem, ManualAsset, Member, PeriodSettingsRow, Reconciliation, SavingsContribution, SavingsGoal, ScheduledPayment, Split, Tag, Transaction,
+  CardStatementItem, ManualAsset, Member, PeriodSettingsRow, Reconciliation, SavingsContribution, SavingsGoal, ScheduledPayment, Split, Tag, ThirdParty, Transaction, MerchantMemory,
 } from "@/lib/types";
 import { toPeriodSettings, type Snapshot } from "@/lib/finance/derive";
 import type { SpendingRow } from "@/lib/finance/budget";
@@ -31,6 +31,9 @@ export interface FinanceState extends Snapshot {
   commitments: ScheduledPayment[];
   goals: SavingsGoal[];
   contributions: SavingsContribution[];
+  /** Terceros propios (por ahora solo uno, ej. Álvaro) y los comercios o remitentes recordados como suyos. */
+  thirdParties: ThirdParty[];
+  thirdPartyMemory: Pick<MerchantMemory, "identifier_type" | "identifier" | "third_party_id">[];
   uvt: number;
   reconciliations: Reconciliation[];
   labels: AccountLabel[];
@@ -84,7 +87,7 @@ async function loadAll(sb: SupabaseClient, userId: string): Promise<Loaded> {
   const hh = me.household_id;
 
   const [household, members, settings, customPeriods, accounts, labels, balances, categories, budgets, txs, splits, ledger, assets, recs,
-    plans, planCategories, commitments, goals, contributions, limits, shared, tagRows, txTagRows] =
+    plans, planCategories, commitments, goals, contributions, limits, shared, tagRows, txTagRows, thirdParties, tpMemory] =
     await Promise.all([
       sb.from("households").select("id, name, invite_code").eq("id", hh).single(),
       sb.from("household_members").select("*").eq("household_id", hh),
@@ -119,10 +122,12 @@ async function loadAll(sb: SupabaseClient, userId: string): Promise<Loaded> {
       fetchAll<{ transaction_id: string; tag_id: string }>((f, t) =>
         sb.from("transaction_tags").select("transaction_id, tag_id").eq("household_id", hh).range(f, t),
       ),
+      sb.from("third_parties").select("id, name").eq("owner_user_id", userId).order("created_at"),
+      sb.from("merchant_memory").select("identifier_type, identifier, third_party_id").eq("user_id", userId).not("third_party_id", "is", null),
     ]);
 
   for (const r of [household, members, settings, customPeriods, accounts, labels, balances, categories, budgets, assets, recs,
-    plans, planCategories, commitments, goals, limits, shared, tagRows]) {
+    plans, planCategories, commitments, goals, limits, shared, tagRows, thirdParties, tpMemory]) {
     if (r.error) throw r.error;
   }
   const txTags: Record<string, string[]> = {};
@@ -146,6 +151,8 @@ async function loadAll(sb: SupabaseClient, userId: string): Promise<Loaded> {
   for (const b of (balances.data ?? []) as { account_id: string; balance: number }[]) balanceMap[b.account_id] = Number(b.balance);
 
   return {
+    thirdParties: (thirdParties.data ?? []) as ThirdParty[],
+    thirdPartyMemory: (tpMemory.data ?? []) as FinanceState["thirdPartyMemory"],
     tags: (tagRows.data ?? []) as Tag[],
     txTags,
     household: household.data as Household,
@@ -211,7 +218,7 @@ const REALTIME_TABLES = [
   "accounts", "categories", "category_budgets", "transactions", "transaction_splits",
   "cross_ledger", "household_members", "period_settings", "manual_assets",
   "category_limits", "budget_plans", "budget_plan_categories", "scheduled_payments", "savings_goals", "savings_contributions",
-  "tags", "transaction_tags",
+  "tags", "transaction_tags", "third_parties", "merchant_memory",
 ];
 
 export function FinanceProvider({ userId, children }: { userId: string; children: React.ReactNode }) {
@@ -382,6 +389,9 @@ export function FinanceProvider({ userId, children }: { userId: string; children
     const all = [data.me, data.partner].filter(Boolean) as Member[];
     return {
       ...data,
+      // Un respaldo sin conexión guardado antes de esta versión no trae los terceros
+      thirdParties: data.thirdParties ?? [],
+      thirdPartyMemory: data.thirdPartyMemory ?? [],
       period,
       setPeriod,
       reload,

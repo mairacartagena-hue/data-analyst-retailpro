@@ -5,6 +5,7 @@ import type {
 } from "@/lib/types";
 import { categoryStatus, pendingObligationsFor, type BudgetCategory, type CategoryStatus, type Members, type SpendingRow } from "./budget";
 import { netFor, owedToPartner, type LedgerEntry } from "./crossLedger";
+import { heldForThirdParty, thirdPartyBalance } from "./thirdParty";
 import { DEFAULT_PERIOD_SETTINGS, isWithin, type Period, type PeriodSettings } from "./periods";
 import { computeSafeToSpend, realBalanceOf, type SafeToSpendResult } from "./safeToSpend";
 import { cardDue } from "./installments";
@@ -155,6 +156,7 @@ export function safeToSpendFor(s: Snapshot, period: Period, statuses = statusesF
           ? creditReserve(a, s.balances[a.id], s.transactions, period, todayBogota())
           : cardDue(a, s.balances[a.id], s.transactions, period, s.cardItems ?? []).due), 0),
     owedToPartner: owedToPartner(me, ledgerEntries(s.ledger)),
+    heldForThirdParty: heldForThirdParty(s.transactions, me),
   });
 }
 
@@ -189,6 +191,14 @@ export function netWorth(s: Snapshot, scope: Scope): NetWorth {
     if (m.kind === "ASSET") assets += Number(m.value);
     else liabilities += Number(m.value);
   }
+  // Plata de terceros: lo recibido sin pagar es de ellos (pasivo); lo pagado sin reembolso, cuenta por cobrar (activo).
+  const payers = new Set(s.transactions.filter((t) => t.third_party_id).map((t) => t.payer_user_id));
+  for (const payer of payers) {
+    if (!mine(payer)) continue;
+    const bal = thirdPartyBalance(s.transactions, payer);
+    if (bal > 0) liabilities += bal;
+    else assets += -bal;
+  }
   return { assets, liabilities, total: assets - liabilities };
 }
 
@@ -208,7 +218,7 @@ export function cashFlow(s: Snapshot, period: Period, scope: Scope): CashFlow {
   let expense = 0;
   // Una compra a cuotas sale de la caja a medida que se paga: cada cuota en su mes
   for (const t of s.consumption ?? s.transactions) {
-    if (!isWithin(t.occurred_on, period)) continue;
+    if (!isWithin(t.occurred_on, period) || t.third_party_id) continue;
     if (scope === "me" && t.payer_user_id !== s.me.user_id) continue;
     if (scope === "household" && t.scope !== "HOUSEHOLD") continue;
     const amount = Number(t.amount);
