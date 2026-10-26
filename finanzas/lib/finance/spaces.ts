@@ -28,17 +28,35 @@ export function hasSplits(kind: TxKind): boolean {
 
 
 /** Ejecutado por categoría, día, responsable y ámbito a partir de los movimientos visibles. */
-export function spendingRows(txs: Transaction[]): SpendingRow[] {
+/**
+ * Filas de lo ejecutado por categoría. `creditBudgets` (crédito → categoría de su presupuesto): lo que se transfiere
+ * al crédito cuenta como pagado en su categoría (del hogar), y los intereses cargados al propio crédito no se
+ * cuentan otra vez porque ya van dentro de esa transferencia.
+ */
+export function spendingRows(txs: Transaction[], creditBudgets: Map<string, string> = new Map()): SpendingRow[] {
   const out: SpendingRow[] = [];
   for (const t of txs) {
+    const creditCat = t.kind === "TRANSFER" && t.to_account_id ? creditBudgets.get(t.to_account_id) : undefined;
+    if (creditCat) {
+      out.push({ categoryId: creditCat, responsibleUserId: t.payer_user_id, occurredOn: t.occurred_on, total: t.amount, scope: "HOUSEHOLD" });
+      continue;
+    }
     const sign = consumptionSign(t.kind);
     if (!sign) continue;
+    if (t.account_id && creditBudgets.has(t.account_id)) continue;
     for (const s of t.splits) {
       if (!s.category_id) continue;
       out.push({ categoryId: s.category_id, responsibleUserId: s.responsible_user_id, occurredOn: t.occurred_on, total: sign * s.amount, scope: t.scope });
     }
   }
   return out;
+}
+
+/** Créditos con presupuesto: id del crédito → categoría de su presupuesto. */
+export function creditBudgetMap(accounts: { id: string; kind: string; budget_category_id?: string | null; archived?: boolean }[]): Map<string, string> {
+  return new Map(accounts
+    .filter((a) => (a.kind === "CREDIT" || a.kind === "LOAN") && a.budget_category_id && !a.archived)
+    .map((a) => [a.id, a.budget_category_id as string]));
 }
 
 // ---------------------------------------------------------------

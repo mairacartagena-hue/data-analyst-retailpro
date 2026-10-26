@@ -10,7 +10,7 @@ const STOPWORDS = new Set([
   "compra", "servicio", "tarjeta", "bancolombia", "cartera", "boton", "para", "desde",
 ]);
 
-function words(text: string | null | undefined): Set<string> {
+export function words(text: string | null | undefined): Set<string> {
   const n = normalizeMerchant(text ?? null) ?? "";
   return new Set(n.split(" ").filter((w) => w.length >= 4 && !/^\d+$/.test(w) && !STOPWORDS.has(w)));
 }
