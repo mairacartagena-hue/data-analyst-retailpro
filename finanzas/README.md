@@ -27,7 +27,7 @@ PWA privada de finanzas personales y en pareja (Android y escritorio). Todo en p
 - [ ] Probar con los dos celulares el cruce, la liquidación, Realtime y la privacidad (pasos 5 y 6 de “Cómo probar la Fase 1”).
 - [x] Cola “Por revisar” al día (0 pendientes al 27-oct).
 - [x] Primer Cierre del mes (ya hay conciliaciones guardadas).
-- [ ] Poner `CRON_SECRET` en Vercel (ver “Seguridad”): sin ella, cualquiera puede llamar `/api/push/daily` y adelantar los avisos del día.
+- [x] `CRON_SECRET` puesta en Vercel (27-oct): las rutas de los crons ya no quedan abiertas.
 - [ ] Confirmar que llegue el primer aviso diario (31-oct) y, si no, revisar `VAPID_PRIVATE_KEY` y `PUSH_CRON_SECRET` en Vercel.
 - [x] MacroDroid con las 2 macros (notificaciones y SMS). Falta conectar el celular de la pareja cuando se una.
 - [ ] Conseguir ejemplos reales de Nequi y Banco de Bogotá (Google Wallet ya está).
@@ -219,7 +219,7 @@ Ej. un pago mensual que se hace por un familiar que luego envía la plata: se us
   - Al cerrar sesión, el celular deja de recibir las notificaciones de esa persona.
   - El service worker tenía los manejadores de notificaciones duplicados (al tocar un aviso podía abrir dos ventanas); quedó uno, que solo abre rutas de la app.
   - Cabeceras de seguridad en todas las páginas (`next.config.ts`): no se puede meter la app en un iframe, `nosniff`, `Referrer-Policy` y micrófono/cámara solo para la app.
-- **`CRON_SECRET` en Vercel (recomendado):** Vercel la envía sola a sus crons. Sin ella, `/api/keepalive` y `/api/push/daily` quedan abiertas (la segunda sigue necesitando `PUSH_CRON_SECRET`, pero alguien podría adelantar el envío del día).
+- **`CRON_SECRET` en Vercel (configurada el 27-oct):** Vercel la envía sola a sus crons. Sin ella, `/api/keepalive` y `/api/push/daily` quedan abiertas (la segunda sigue necesitando `PUSH_CRON_SECRET`, pero alguien podría adelantar el envío del día).
 - Avisos de Supabase que se aceptan: “Leaked password protection” (solo en planes de pago), funciones `SECURITY DEFINER` llamables con sesión (así funciona la app: cada una valida `auth.uid()`), `ingest_event`/`ingest_token_valid`/`push_due`/`push_gone` sin sesión (validan token o clave) y tablas sin políticas a propósito (`push_config`, `client_submissions`: solo las usan funciones internas).
 
 ## Decisiones de la Fase 1
