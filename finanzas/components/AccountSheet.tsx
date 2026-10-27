@@ -26,6 +26,7 @@ import { cn, errMsg } from "@/lib/utils";
 import { shrink, toBase64 } from "@/lib/capture/file";
 import { currentInstallmentFrom, type CreditStatementData } from "@/lib/capture/creditStatement";
 import { effectOn } from "@/lib/finance/reconcile";
+import { CreditPaymentAdjust } from "@/components/CreditPaymentAdjust";
 
 const KINDS: AccountKind[] = ["DEPOSIT", "WALLET", "CASH", "CREDIT_CARD", "LOAN", "CREDIT"];
 const VISIBILITIES: Visibility[] = ["PRIVATE", "BALANCE_ONLY", "PUBLIC"];
@@ -291,6 +292,7 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
           </div>
         )}
         {isCredit && account && <CreditPayments account={account} />}
+        {isCredit && account && <CreditPaymentAdjust account={account} />}
         {isCard && (
           <div className="grid grid-cols-3 gap-3">
             <Field label="Cupo"><AmountInput value={limit} onChange={setLimit} /></Field>

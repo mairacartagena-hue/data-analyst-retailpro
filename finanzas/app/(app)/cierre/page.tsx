@@ -12,12 +12,13 @@ import { Card, SectionTitle } from "@/components/ui/card";
 import { ErrorText, Field, Input } from "@/components/ui/input";
 import { Sheet } from "@/components/ui/sheet";
 import { StatementImport } from "@/components/StatementImport";
+import { CreditPaymentAdjust } from "@/components/CreditPaymentAdjust";
 import { Segmented } from "@/components/ui/segmented";
 import type { Account } from "@/lib/types";
 import { ACCOUNT_KIND_LABEL } from "@/lib/types";
 import { accountStatement, gmfEstimate, monthRange, shiftMonth, suggestedCloseMonth, type GmfMode } from "@/lib/finance/reconcile";
 import { formatCop, parseCop } from "@/lib/finance/money";
-import { monthName, periodFor, todayBogota } from "@/lib/finance/periods";
+import { addDays, monthName, periodFor, todayBogota } from "@/lib/finance/periods";
 import { statusesFor } from "@/lib/finance/derive";
 import { isCreditKind } from "@/lib/finance/credit";
 import { cn, errMsg } from "@/lib/utils";
@@ -270,6 +271,8 @@ function AccountClose({ account, month }: { account: Account; month: string }) {
             <p className="text-xs text-muted">Van a tu categoría “Gastos bancarios”. Cada uno que registres se descuenta de la diferencia.</p>
             <button className="text-xs text-olive underline" onClick={() => openTransaction(null)}>Registrar otro movimiento que falte</button>
           </div>}
+
+          {account.kind === "CREDIT" && <CreditPaymentAdjust account={account} since={addDays(range.start, -15)} />}
 
           {isCredit && diff !== null && (
             <div className="space-y-2">
