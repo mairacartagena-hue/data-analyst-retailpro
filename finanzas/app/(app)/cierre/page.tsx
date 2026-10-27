@@ -13,6 +13,7 @@ import { ErrorText, Field, Input } from "@/components/ui/input";
 import { Sheet } from "@/components/ui/sheet";
 import { StatementImport } from "@/components/StatementImport";
 import { CreditPaymentAdjust } from "@/components/CreditPaymentAdjust";
+import { creditMonthBreakdown } from "@/lib/finance/creditPayments";
 import { Segmented } from "@/components/ui/segmented";
 import type { Account } from "@/lib/types";
 import { ACCOUNT_KIND_LABEL } from "@/lib/types";
@@ -157,6 +158,8 @@ function AccountClose({ account, month }: { account: Account; month: string }) {
   const { openTransaction } = useShell();
   const range = monthRange(month);
   const st = useMemo(() => accountStatement(account, transactions, range), [account, transactions, range]);
+  // Créditos: lo que bajó el capital, sin los intereses y seguros de las cuotas cargados al crédito
+  const cb = useMemo(() => creditMonthBreakdown(account, transactions, range, st.inflow, st.outflow), [account, transactions, range, st]);
   const rec = reconciliations.find((r) => r.account_id === account.id && r.month === range.start);
   const isCard = account.kind === "CREDIT_CARD";
   const isCredit = isCreditKind(account.kind);
@@ -246,8 +249,9 @@ function AccountClose({ account, month }: { account: Account; month: string }) {
         <div className="space-y-4 border-t border-border p-4">
           <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
             <dt className="text-muted">{isDebt ? "Deuda al empezar" : "Saldo al empezar"}</dt><dd className="num text-right">{formatCop(isDebt ? -st.opening : st.opening)}</dd>
-            <dt className="text-muted">{isCredit ? "Abonos a capital" : isCard ? "Pagos y abonos" : "Entró"}</dt><dd className="num text-right text-olive">+{formatCop(st.inflow)}</dd>
-            <dt className="text-muted">{isCredit ? "Desembolsos y ajustes" : isCard ? "Compras" : "Salió"}</dt><dd className="num text-right">−{formatCop(st.outflow)}</dd>
+            <dt className="text-muted">{isCredit ? "Abonos a capital" : isCard ? "Pagos y abonos" : "Entró"}</dt><dd className="num text-right text-olive">+{formatCop(isCredit ? cb.capital : st.inflow)}</dd>
+            {isCredit && cb.charges > 0 && (<><dt className="text-muted">Intereses y seguros pagados</dt><dd className="num text-right text-muted">{formatCop(cb.charges)}</dd></>)}
+            {(!isCredit || cb.other > 0) && (<><dt className="text-muted">{isCredit ? "Desembolsos y ajustes" : isCard ? "Compras" : "Salió"}</dt><dd className="num text-right">−{formatCop(isCredit ? cb.other : st.outflow)}</dd></>)}
             <dt className="font-semibold">{isDebt ? "Deuda según la app" : "Saldo según la app"}</dt><dd className="num text-right font-semibold">{formatCop(appValue)}</dd>
           </dl>
           {st.pending > 0 && <p className="text-xs text-warning">{st.pending} movimiento{st.pending === 1 ? "" : "s"} de esta cuenta siguen por revisar.</p>}

@@ -36,3 +36,16 @@ describe("cuotas pagadas de un crédito", () => {
     expect(fixWithRealCapital(p, 300_000)).toEqual({ transferAmount: 500_000, chargeAmount: 200_000 });
   });
 });
+
+import { creditMonthBreakdown } from "@/lib/finance/creditPayments";
+
+describe("cierre del mes de un crédito", () => {
+  it("abonos a capital: lo pagado menos intereses y seguros cargados al crédito (Lulo Bank, oct-2026)", () => {
+    const txs = [
+      tx({ id: "p", kind: "TRANSFER", amount: 838_058, occurred_on: "2026-10-23", account_id: "banco", to_account_id: H }),
+      tx({ id: "e", kind: "EXPENSE", amount: 354_549, occurred_on: "2026-10-23", account_id: H, description: "Cuota Lulo Bank · intereses y seguros" }),
+    ];
+    expect(creditMonthBreakdown(credit, txs, { start: "2026-10-01", end: "2026-10-31" }, 838_058, 354_549))
+      .toEqual({ capital: 483_509, charges: 354_549, other: 0 });
+  });
+});
