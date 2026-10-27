@@ -1,4 +1,4 @@
--- 0038 · Quitar "plata de terceros" (0037), que no se usa: esos pagos se manejan con una categoría y reembolsos.
+-- 0039 · Quitar "plata de terceros" (0037), que no se usa: esos pagos se manejan con una categoría y reembolsos.
 -- Se puede correr más de una vez.
 
 drop function if exists public.set_third_party(uuid, uuid, boolean);
