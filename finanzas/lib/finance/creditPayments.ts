@@ -66,3 +66,17 @@ export function fixWithRealCapital(p: CreditPayment, capital: number): PaymentFi
     ? { transferAmount: p.total, chargeAmount: charges }
     : { transferAmount: capital, chargeAmount: charges };
 }
+
+/**
+ * Movimiento del mes de un crédito separado como en el extracto: lo que bajó el capital, los intereses y seguros
+ * de las cuotas (cargados al crédito) y otros desembolsos o ajustes. `inflow`/`outflow` son los del extracto de la app.
+ */
+export function creditMonthBreakdown(
+  credit: Pick<Account, "id" | "name">, txs: Transaction[], range: { start: string; end: string }, inflow: number, outflow: number,
+): { capital: number; charges: number; other: number } {
+  const charges = creditPayments(credit, txs, range.start)
+    .filter((p) => p.mode === "ON_CREDIT" && p.charge && p.charge.occurred_on >= range.start && p.charge.occurred_on <= range.end)
+    .reduce((s, p) => s + p.charges, 0);
+  const used = Math.min(charges, inflow, outflow);
+  return { capital: inflow - used, charges: used, other: outflow - used };
+}
