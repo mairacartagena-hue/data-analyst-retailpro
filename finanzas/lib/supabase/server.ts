@@ -29,11 +29,14 @@ export async function getSessionMember() {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return { supabase, user: null, member: null };
+  if (!user) return { supabase, user: null, member: null, needsMfa: false };
+  // Verificación en dos pasos activada y aún sin el código: la base no deja ver nada hasta escribirlo
+  const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (aal?.nextLevel === "aal2" && aal.currentLevel !== "aal2") return { supabase, user, member: null, needsMfa: true };
   const { data: member } = await supabase
     .from("household_members")
     .select("id, household_id, display_name, slot")
     .eq("user_id", user.id)
     .maybeSingle();
-  return { supabase, user, member };
+  return { supabase, user, member, needsMfa: false };
 }
