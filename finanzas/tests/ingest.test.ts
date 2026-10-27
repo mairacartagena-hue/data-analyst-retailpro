@@ -66,6 +66,16 @@ describe("reglas de ignorar", () => {
     expect(detectIgnore("La compra por $20.000 fue rechazada")).toBe("Transacción no aprobada");
     expect(detectIgnore("Aprovecha 30% de descuento este fin de semana")).toBe("Publicidad");
     expect(detectIgnore("Compraste $45.000 en Éxito")).toBeNull();
+    // Avisos de inicio de sesión (BBVA por correo, Nequi, banca virtual)
+    for (const msg of [
+      "Importante: Confirmación de ingreso en nuestros canales digitales. Acabas de ingresar a tu App BBVA el 26/10/2026",
+      "¿Iniciaste otra sesión en tu App BBVA?, confirma esta información. Has ingresado nuevamente a la App BBVA. Tipo de operación: Ingreso App BBVA",
+      "Iniciaste sesión en tu Nequi desde la web",
+      "Inicio de sesión Banca Virtual",
+    ]) expect(detectIgnore(msg)).toBe("Aviso de inicio de sesión");
+    expect(detectIgnore("Recibiste un ingreso de $1.200.000 en tu cuenta")).toBeNull();
+    expect(detectIgnore("BBVA te informa que ingresaste a la Net el 2026-10-26 a las 09:57")).toBe("Aviso de inicio de sesión");
+    expect(detectIgnore("BBVA te informa que estas intentando realizar un Olvido de Contraseña, el 2026-10-26 a las 09:56")).toBe("Aviso de seguridad");
   });
 
   it("la entidad sale de la app o el remitente", () => {

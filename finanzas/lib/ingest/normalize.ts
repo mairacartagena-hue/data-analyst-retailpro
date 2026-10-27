@@ -118,6 +118,11 @@ export function detectIgnore(text: string): string | null {
   const t = fold(text);
   if (/\b(codigo|clave|otp|token)\b.{0,40}\b(verificacion|seguridad|dinamica|transaccional|es|:)/.test(t) &&
       !/\$\s?\d/.test(t)) return "Código o clave";
+  // Avisos de seguridad por inicio de sesión (app, banca virtual, canales digitales): no son movimientos
+  if (/\b(inicio de sesion|iniciaste (?:otra |una )?sesion|nueva sesion|sesion iniciada|acabas de ingresar|has ingresado|ingresaste (?:a|en)|confirmacion de ingreso|ingreso (?:a|en) (?:tu |la |nuestros |nuestra )?(?:app|aplicacion|banca|canales|portal|sucursal)|ingreso app)\b/.test(t) &&
+      !/\$\s?\d/.test(t)) return "Aviso de inicio de sesión";
+  if (/\b(olvido de (?:la )?(?:contrasena|clave)|(?:cambio|cambiaste|recuperacion|restablec\w*) (?:de )?(?:tu |la )?(?:contrasena|clave))\b/.test(t) &&
+      !/\$\s?\d/.test(t)) return "Aviso de seguridad";
   if (/\b(rechazad[ao]|declinad[ao]|no (?:fue )?aprobad[ao]|fallid[ao]|no exitos[ao])\b/.test(t)) return "Transacción no aprobada";
   if (/\b(aprovecha|promocion|descuento|cashback|oferta|gana|sorteo|felicitaciones)\b/.test(t) && !/\b(compra|pago|transferencia|retiro|recibiste|enviaste)\b/.test(t)) {
     return "Publicidad";
