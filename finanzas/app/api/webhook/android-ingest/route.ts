@@ -61,10 +61,14 @@ export async function POST(req: NextRequest) {
   const ev = body ? toEvent(body) : null;
   if (!ev) return NextResponse.json({ ok: false, error: "Faltan channel o text" }, { status: 400 });
 
-  const it = await interpret(ev);
   const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
+  // Primero el token: sin uno válido no se gasta el cupo de Gemini leyendo el aviso
+  const { data: valid, error: tokenError } = await sb.rpc("ingest_token_valid", { p_token: token });
+  if (!tokenError && valid === false) return NextResponse.json({ ok: false, error: "Token no válido" }, { status: 401 });
+
+  const it = await interpret(ev);
   const { data, error } = await sb.rpc("ingest_event", { p_token: token, p_event: toDbEvent(ev, it) });
 
   if (error) {

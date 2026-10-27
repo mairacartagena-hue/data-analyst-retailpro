@@ -95,6 +95,8 @@ export default function AjustesPage() {
 
   async function logout() {
     if (queue.length > 0 && !confirm(`Hay ${queue.length === 1 ? "1 movimiento" : `${queue.length} movimientos`} guardados sin conexión que no se han enviado. Si cierras sesión se pierden. ¿Cerrar sesión igual?`)) return;
+    // Este celular deja de recibir las notificaciones de esta persona
+    try { await disablePush(supabase); } catch {}
     await clearOffline();
     await supabase.auth.signOut();
     router.replace("/login");

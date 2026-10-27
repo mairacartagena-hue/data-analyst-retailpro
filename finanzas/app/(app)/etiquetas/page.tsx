@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-// Las etiquetas se quitaron de la app; las suscripciones se manejan con la categoría "Suscripciones".
+// Las etiquetas se manejan desde Movimientos → Etiquetas; esta ruta vieja lleva allá.
 export default function EtiquetasPage() {
   redirect("/movimientos");
 }

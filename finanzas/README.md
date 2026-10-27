@@ -4,7 +4,7 @@ PWA privada de finanzas personales y en pareja (Android y escritorio). Todo en p
 
 **Stack:** Next.js 16 (App Router) + TypeScript 5.9 + Tailwind 4 + componentes estilo shadcn/ui (Radix) + Motion · Supabase (Postgres, Auth, RLS, Realtime) · Vercel Hobby. Todo gratuito.
 
-## Estado (24 de octubre de 2026)
+## Estado (27 de octubre de 2026)
 
 | Parte | Estado |
 |---|---|
@@ -17,13 +17,18 @@ PWA privada de finanzas personales y en pareja (Android y escritorio). Todo en p
 | Fase 3 — Telegram | Descartado (no se implementa) |
 | Organización hogar / personal, subcategorías, pago de deuda / reembolso / ajuste, presupuestos con nombre, vencimientos y metas de ahorro (migraciones 0017 y 0018) | Hecho (migraciones 0017 a 0019 aplicadas) |
 | Fase 4.1 — Créditos con saldo: cuenta Crédito, reparto de cada cuota, Saldo Seguro, Patrimonio y aviso mensual del saldo (migración 0031) | Hecho (0031 aplicada) |
-| Fase 4.2 — Notificaciones Web Push (migración 0033) | Hecho (0033 aplicada); faltan las claves en Vercel |
+| Fase 4.1 — Créditos: cuotas, valor inicial, valor de la cuota, cuota en Presupuestos y cruce automático del pago, importar el extracto con IA, ajustar una cuota con el pago real (migraciones 0034 a 0038) | Hecho (aplicadas) |
+| Fase 4.2 — Notificaciones Web Push (migración 0033) | Hecho (0033 aplicada); claves configuradas y un celular activado; el primer aviso programado sale el 31 de octubre |
 | Fase 4.3 — Asistente con IA: preguntas sobre las finanzas y resumen del mes | Hecho |
+| Auditoría de seguridad del 27-oct-2026 (migración 0040) | Hecha (0040 aplicada); ver “Seguridad” |
 
 **Pendiente por probar o configurar:**
-- [ ] Que la pareja se una al hogar y probar el cruce, la liquidación, Realtime en dos celulares y la privacidad (pasos 1, 5 y 6 de “Cómo probar la Fase 1”).
-- [ ] Revisar la cola “Por revisar” y los avisos no reconocidos (Ajustes → Captura automática → Reintentar).
-- [ ] Hacer el primer Cierre del mes.
+- [x] La pareja ya está en el hogar (2 miembros).
+- [ ] Probar con los dos celulares el cruce, la liquidación, Realtime y la privacidad (pasos 5 y 6 de “Cómo probar la Fase 1”).
+- [x] Cola “Por revisar” al día (0 pendientes al 27-oct).
+- [x] Primer Cierre del mes (ya hay conciliaciones guardadas).
+- [ ] Poner `CRON_SECRET` en Vercel (ver “Seguridad”): sin ella, cualquiera puede llamar `/api/push/daily` y adelantar los avisos del día.
+- [ ] Confirmar que llegue el primer aviso diario (31-oct) y, si no, revisar `VAPID_PRIVATE_KEY` y `PUSH_CRON_SECRET` en Vercel.
 - [x] MacroDroid con las 2 macros (notificaciones y SMS). Falta conectar el celular de la pareja cuando se una.
 - [ ] Conseguir ejemplos reales de Nequi y Banco de Bogotá (Google Wallet ya está).
 - [ ] Crear el resto de categorías y las categorías de ingresos.
@@ -48,9 +53,9 @@ PWA privada de finanzas personales y en pareja (Android y escritorio). Todo en p
 | Dashboard con vistas Mis finanzas / Hogar / Vista global | `app/(app)/page.tsx` |
 | RLS en todas las tablas, Realtime en ambos celulares, PWA instalable, modo claro/oscuro | `supabase/migrations` |
 
-Pendiente para fases siguientes: Web Push e IA (Fase 4). Las metas de ahorro y los compromisos ya existen (0017 y 0018).
+Las metas de ahorro y los compromisos están en 0017 y 0018; Web Push y el asistente con IA, en la Fase 4 (abajo).
 
-**Créditos (decidido para la Fase 4):** por ahora se registran como pasivo manual en Cuentas → “Otros activos y pasivos” (tipo Crédito o Hipoteca) y la cuota como gasto en una categoría. En la Fase 4 serán un tipo de cuenta propio:
+**Créditos (Fase 4.1, migración 0031 y siguientes):** son un tipo de cuenta propio, **Crédito** (Cuentas → Créditos). Los pasivos manuales de Cuentas → “Otros activos y pasivos” siguen sirviendo para deudas sin cuotas:
 - Datos del crédito: saldo de capital, tasa de interés (efectiva anual, en pesos; UVR queda fuera por ahora), plazo, día de pago, seguros y otros costos.
 - Cada pago se registra una sola vez y se divide en capital (baja la deuda, no es gasto), intereses, seguros y otros costos (gastos). La app sugiere la división con la tasa y el saldo, y la persona la ajusta con el extracto del banco.
 - Saldo Seguro: se reserva la cuota del periodo hasta que se pague, no el saldo total. Patrimonio: resta el saldo de capital real.
@@ -140,7 +145,7 @@ Cuenta de tipo **Préstamo** (Cuentas → + → Préstamo): para plata que me pr
 
 ## Cierre del mes (conciliación)
 
-Ajustes → **Cierre del mes** (`app/(app)/cierre`), con recordatorio en el inicio los últimos 3 días del mes y los primeros 5 del siguiente.
+Más → **Cierre del mes** (`app/(app)/cierre`), con recordatorio en el inicio los últimos 3 días del mes y los primeros 5 del siguiente.
 
 - Por cada cuenta propia: saldo inicial, entradas, salidas y saldo según la app; se escribe el saldo del banco (o la deuda del extracto en tarjetas) y se ve la diferencia. Se guarda el historial en `account_reconciliations` (solo su dueño).
 - Gastos bancarios en un toque: 4x1000, cuota de manejo, intereses, comisión y seguro → categoría personal “Gastos bancarios”.
@@ -184,7 +189,7 @@ Pestañas: **Inicio · Movimientos · + · Presupuesto · Informes · Más**. �
 
 - **Presupuesto:** al tocar una barra se ven los pagos que la forman y cómo llegó cada uno (correo, SMS, notificación o a mano).
 - **Movimientos:** filtros por categoría (incluye subcategorías), espacio, tipo, cuenta, quién pagó y responsable (también por enlace: `?categoria=`, `?cuenta=`).
-- **Sin etiquetas visibles:** la app trabaja solo con categorías. Por dentro se conservan marcas técnicas (ej. `#gmf` para no sumar dos veces el 4x1000 y `#suscripcion` para reconocer cobros de suscripción); los cobros de suscripción sugieren la categoría “Suscripciones” en “Por revisar”.
+- **Marcas internas:** además de las etiquetas (abajo), la app guarda marcas técnicas que no se muestran (ej. `#gmf` para no sumar dos veces el 4x1000 y `#suscripcion` para reconocer cobros de suscripción); los cobros de suscripción sugieren la categoría “Suscripciones” en “Por revisar”.
 - **Informes:** gastos por categoría, por persona (hogar/personal) y tendencia de 6 meses, con vista de tabla y descarga CSV para Excel (separador “;”).
 - **Enviarle plata a la pareja** (+ → Transferir → “A {nombre}”): sale de tu cuenta, llega a su cuenta si la dejó visible (opcional) y queda anotado en el cruce (él te la debe). Sirve para cuando le mandas dinero para que haga una compra: cuando la registra a tu cargo, el cruce se compensa solo. El motivo se escribe libre en la descripción. El interruptor **“Anotar como deuda de {nombre}”** (activado por defecto) se apaga cuando la plata no es un préstamo (un regalo, plata que ya era de él): entonces solo se mueve entre cuentas y el cruce no cambia (migración 0022). También convierte un aviso pendiente (ej. “Cuenta ···4993”) en un envío a la pareja, sin dejar duplicados. Requiere que la pareja ya esté en el hogar; si no, el formulario muestra su enlace de invitación. Por debajo es una liquidación (`SETTLEMENT`).
 - **Deudas a tu favor** (Más → Cuentas y cruce): cada deuda que tu pareja tiene contigo se lista con lo que queda y un interruptor **“cobrar / condonar”**. *Cobrar*: entra la plata a la cuenta que elijas (como ajuste de saldo: no cuenta como ingreso del hogar) y baja la deuda. *Condonar*: solo se quita del cruce, sin mover plata; se puede deshacer desde el historial. Se puede resolver solo una parte. Un pago se deshace borrando su movimiento. Solo quien tiene la deuda a favor puede resolverla, y nunca por más de lo que le deben (migración 0023, `resolve_debt()`).
@@ -198,7 +203,7 @@ Pestañas: **Inicio · Movimientos · + · Presupuesto · Informes · Más**. �
 Ej. un pago mensual que se hace por un familiar que luego envía la plata: se usa una categoría propia (ej. “Alvaro”) y reembolsos.
 - El pago es un gasto en esa categoría; la plata que llega es un **reembolso** de la misma categoría, así que en el mes queda en $0 y no cuenta como ingreso.
 - Para que llegue sola como reembolso: regla de reembolso en la memoria de comercios (`merchant_memory.movement_kind = 'REFUND'`) para quien envía la plata.
-- La migración 0037 (`third_parties`) probó un interruptor “Plata de un tercero”; la 0038 la quitó.
+- La migración 0037 (`third_parties`) probó un interruptor “Plata de un tercero”; la 0039 la quitó.
 
 ## Seguridad
 
@@ -207,6 +212,15 @@ Ej. un pago mensual que se hace por un familiar que luego envía la plata: se us
 - `ingest_find_duplicate()` es interna (nadie la llama desde la API).
 - Desde la migración 0016, las funciones nuevas no quedan abiertas sin sesión por defecto: cada migración debe dar `grant execute … to authenticated` (o `anon`, si de verdad hace falta).
 - Al pegar migraciones por partes en el SQL Editor, revisar después **Advisors → Security** en Supabase: los `revoke`/`grant` de 0009, 0014a y 0015 no habían quedado aplicados (los corrige 0016).
+- Tokens de captura y clave del cron guardados solo como huella SHA-256; el texto crudo de los avisos se borra a los 30 días; a Gemini se le envía enmascarado.
+- **Auditoría del 27-oct-2026 (migración 0040 y código):**
+  - El webhook valida el token (`ingest_token_valid()`) **antes** de leer el aviso con Gemini: sin token válido no se gasta el cupo de la IA.
+  - `slot_user()`, `category_responsible()` y la función del trigger `accounts_check_responsible()` ya no se pueden llamar desde la API (devolvían ids de usuario de cualquier hogar). Las siguen usando por dentro las funciones de la base.
+  - Al cerrar sesión, el celular deja de recibir las notificaciones de esa persona.
+  - El service worker tenía los manejadores de notificaciones duplicados (al tocar un aviso podía abrir dos ventanas); quedó uno, que solo abre rutas de la app.
+  - Cabeceras de seguridad en todas las páginas (`next.config.ts`): no se puede meter la app en un iframe, `nosniff`, `Referrer-Policy` y micrófono/cámara solo para la app.
+- **`CRON_SECRET` en Vercel (recomendado):** Vercel la envía sola a sus crons. Sin ella, `/api/keepalive` y `/api/push/daily` quedan abiertas (la segunda sigue necesitando `PUSH_CRON_SECRET`, pero alguien podría adelantar el envío del día).
+- Avisos de Supabase que se aceptan: “Leaked password protection” (solo en planes de pago), funciones `SECURITY DEFINER` llamables con sesión (así funciona la app: cada una valida `auth.uid()`), `ingest_event`/`ingest_token_valid`/`push_due`/`push_gone` sin sesión (validan token o clave) y tablas sin políticas a propósito (`push_config`, `client_submissions`: solo las usan funciones internas).
 
 ## Decisiones de la Fase 1
 
@@ -223,7 +237,7 @@ Ej. un pago mensual que se hace por un familiar que luego envía la plata: se us
 ## Configuración
 
 ### 1. Base de datos (Supabase, proyecto `finanzas-pareja`)
-Las migraciones están en `supabase/migrations/` (0001 → 0038). Para aplicarlas a mano, pega cada archivo completo en **SQL Editor → Run**, en orden. Se pueden correr más de una vez.
+Las migraciones están en `supabase/migrations/` (0001 → 0040). Para aplicarlas a mano, pega cada archivo completo en **SQL Editor → Run**, en orden. Se pueden correr más de una vez.
 
 ### 2. Autenticación
 En Supabase → **Authentication → URL Configuration**:
@@ -235,7 +249,9 @@ Copia `.env.example` a `.env.local` (y en Vercel → Settings → Environment Va
 ```
 NEXT_PUBLIC_SUPABASE_URL=...
 NEXT_PUBLIC_SUPABASE_ANON_KEY=...   (clave pública / publishable)
+CRON_SECRET=...                     (recomendada: protege las rutas de los crons)
 ```
+Las de Gemini y Web Push están en sus secciones.
 Ninguna clave secreta va en el cliente.
 
 ### 4. Vercel
