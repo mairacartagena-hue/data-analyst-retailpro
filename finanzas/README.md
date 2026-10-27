@@ -21,6 +21,7 @@ PWA privada de finanzas personales y en pareja (Android y escritorio). Todo en p
 | Fase 4.2 — Notificaciones Web Push (migración 0033) | Hecho (0033 aplicada); claves configuradas y un celular activado; el primer aviso programado sale el 31 de octubre |
 | Fase 4.3 — Asistente con IA: preguntas sobre las finanzas y resumen del mes | Hecho |
 | Auditoría de seguridad del 27-oct-2026 (migración 0040) | Hecha (0040 aplicada); ver “Seguridad” |
+| Etapa 1 de mejoras: bloqueo con huella, verificación en dos pasos y política de contenido (migración 0041) | Hecha |
 
 **Pendiente por probar o configurar:**
 - [x] La pareja ya está en el hogar (2 miembros).
@@ -220,6 +221,9 @@ Ej. un pago mensual que se hace por un familiar que luego envía la plata: se us
   - El service worker tenía los manejadores de notificaciones duplicados (al tocar un aviso podía abrir dos ventanas); quedó uno, que solo abre rutas de la app.
   - Cabeceras de seguridad en todas las páginas (`next.config.ts`): no se puede meter la app en un iframe, `nosniff`, `Referrer-Policy` y micrófono/cámara solo para la app.
 - **`CRON_SECRET` en Vercel (configurada el 27-oct):** Vercel la envía sola a sus crons. Sin ella, `/api/keepalive` y `/api/push/daily` quedan abiertas (la segunda sigue necesitando `PUSH_CRON_SECRET`, pero alguien podría adelantar el envío del día).
+- **Bloqueo con huella** (Ajustes → Seguridad, cada celular): la app pide la huella o el bloqueo de pantalla del celular al abrirse y al volver después de 2 minutos en segundo plano (WebAuthn, `lib/appLock.ts`, `components/AppLock.tsx`). Es un candado de la pantalla en ese celular; la cookie `app-lock` solo indica que la página llegue tapada.
+- **Verificación en dos pasos** (Ajustes → Seguridad, gratis en Supabase): código de 6 dígitos de una app autenticadora. Quien la activa, al iniciar sesión pasa por `/verificar`. La base lo exige (migración 0041): sin el código (sesión `aal1`) ninguna tabla ni función devuelve datos (`mfa_ok()`, regla restrictiva en todas las tablas, `my_household_id()`, `is_member()`, saldos y notificaciones). Si se pierde el celular con la app autenticadora, se borra el factor en Supabase → Authentication → Users.
+- **Política de contenido (CSP)** en `next.config.ts`: solo se cargan scripts, estilos e imágenes de la app y solo se conecta con ella y con Supabase.
 - Avisos de Supabase que se aceptan: “Leaked password protection” (solo en planes de pago), funciones `SECURITY DEFINER` llamables con sesión (así funciona la app: cada una valida `auth.uid()`), `ingest_event`/`ingest_token_valid`/`push_due`/`push_gone` sin sesión (validan token o clave) y tablas sin políticas a propósito (`push_config`, `client_submissions`: solo las usan funciones internas).
 
 ## Decisiones de la Fase 1
@@ -237,7 +241,7 @@ Ej. un pago mensual que se hace por un familiar que luego envía la plata: se us
 ## Configuración
 
 ### 1. Base de datos (Supabase, proyecto `finanzas-pareja`)
-Las migraciones están en `supabase/migrations/` (0001 → 0040). Para aplicarlas a mano, pega cada archivo completo en **SQL Editor → Run**, en orden. Se pueden correr más de una vez.
+Las migraciones están en `supabase/migrations/` (0001 → 0041). Para aplicarlas a mano, pega cada archivo completo en **SQL Editor → Run**, en orden. Se pueden correr más de una vez.
 
 ### 2. Autenticación
 En Supabase → **Authentication → URL Configuration**:

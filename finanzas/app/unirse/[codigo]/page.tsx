@@ -5,8 +5,9 @@ import { Onboarding } from "@/app/bienvenida/Onboarding";
 export default async function UnirsePage({ params }: { params: Promise<{ codigo: string }> }) {
   const { codigo } = await params;
   const code = decodeURIComponent(codigo).toUpperCase();
-  const { user, member } = await getSessionMember();
+  const { user, member, needsMfa } = await getSessionMember();
   if (!user) redirect(`/login?next=${encodeURIComponent(`/unirse/${code}`)}`);
+  if (needsMfa) redirect("/verificar");
   if (member) redirect("/");
   return <Onboarding email={user.email ?? ""} initialCode={code} />;
 }
