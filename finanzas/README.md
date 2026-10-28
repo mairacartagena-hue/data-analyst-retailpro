@@ -24,6 +24,7 @@ PWA privada de finanzas personales y en pareja (Android y escritorio). Todo en p
 | Etapa 1 de mejoras: bloqueo con huella, verificación en dos pasos y política de contenido (migración 0041) | Hecha |
 | Etapa 2 de mejoras: más fácil de usar (Guardar fijo en las hojas, botón atrás del celular, secciones desplegables en tarjetas y créditos, un solo Guardar en Ajustes) | Hecha |
 | Etapa 3 de mejoras: más simple (Inicio con presupuestos en alerta, un solo botón de presupuesto, informes por subcategoría, Captura plegada, Cierre de a una cuenta) | Hecha |
+| Etapa 4 de mejoras: informes (consumo vs. pagos, aviso de lo por revisar, tendencia por periodos, CSV con cuotas, presupuesto vs. real, gastos fijos y variables, resumen para la renta) | Hecha |
 
 **Pendiente por probar o configurar:**
 - [x] La pareja ya está en el hogar (2 miembros).
@@ -197,6 +198,14 @@ Pestañas: **Inicio · Movimientos · + · Presupuesto · Informes · Más**. �
 - **Movimientos:** filtros por categoría (incluye subcategorías), espacio, tipo, cuenta, quién pagó y responsable (también por enlace: `?categoria=`, `?cuenta=`).
 - **Marcas internas:** además de las etiquetas (abajo), la app guarda marcas técnicas que no se muestran (ej. `#gmf` para no sumar dos veces el 4x1000 y `#suscripcion` para reconocer cobros de suscripción); los cobros de suscripción sugieren la categoría “Suscripciones” en “Por revisar”.
 - **Informes:** gastos **por subcategoría** (ej. “Energía · Servicios”; con “Categoría” las subcategorías suman en su principal), por persona (hogar/personal) y tendencia de 6 meses, con vista de tabla y descarga CSV para Excel (separador “;”).
+- **Informes (etapa 4):**
+  - **Consumo del periodo** (Informes) reparte las compras a cuotas: cuenta solo la cuota del periodo. En Movimientos el resumen dice **pagos** y suma cada compra por su valor completo.
+  - Si hay movimientos **por revisar** dentro del periodo, Informes avisa cuánto suman (pueden cambiar de categoría).
+  - **Tendencia de 6 periodos:** usa los periodos del hogar (mensual con su día de inicio o quincenal), no meses de calendario.
+  - **CSV:** cada compra a cuotas sale con la cuota del periodo y la columna “Cuota” (ej. “2 de 12”), igual que los gráficos.
+  - **Presupuesto frente a gasto real:** % usado de cada presupuesto de categoría en los últimos 4 periodos; avisa en cuáles te pasaste 2 o más veces.
+  - **Gastos fijos y variables:** vencimientos programados, suscripciones e intereses y seguros de créditos frente al resto; abonos a capital aparte. Lista las suscripciones activas (marcadas, en una categoría de suscripciones o servicios conocidos, últimos 45 días).
+  - **Resumen para la renta** (de quien mira, por año): ingresos por categoría, 4x1000 de sus cuentas (marca `#gmf`; la mitad es deducible) e intereses y seguros pagados de sus créditos (`taxSummary`, con `creditPayments`). Es una guía: los valores oficiales salen de los certificados de los bancos.
 - **Captura automática:** si el token ya recibió avisos, la guía de configuración queda plegada detrás de “Configuración”.
 - **Cierre del mes:** se abre una cuenta a la vez (la primera sin conciliar); al conciliarla se abre la siguiente.
 - **Enviarle plata a la pareja** (+ → Transferir → “A {nombre}”): sale de tu cuenta, llega a su cuenta si la dejó visible (opcional) y queda anotado en el cruce (él te la debe). Sirve para cuando le mandas dinero para que haga una compra: cuando la registra a tu cargo, el cruce se compensa solo. El motivo se escribe libre en la descripción. El interruptor **“Anotar como deuda de {nombre}”** (activado por defecto) se apaga cuando la plata no es un préstamo (un regalo, plata que ya era de él): entonces solo se mueve entre cuentas y el cruce no cambia (migración 0022). También convierte un aviso pendiente (ej. “Cuenta ···4993”) en un envío a la pareja, sin dejar duplicados. Requiere que la pareja ya esté en el hogar; si no, el formulario muestra su enlace de invitación. Por debajo es una liquidación (`SETTLEMENT`).

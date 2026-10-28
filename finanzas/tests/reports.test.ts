@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { matchesFilter, monthlyTrend, spendingByCategory, spendingByPerson, tagStats, toCsv } from "@/lib/finance/reports";
+import { fixedVsVariable, matchesFilter, monthlyTrend, pendingInPeriod, periodTrend, spendingByCategory, spendingByPerson, tagStats, taxSummary, toCsv } from "@/lib/finance/reports";
+import { expandInstallments } from "@/lib/finance/installments";
+import { periodFor, shiftPeriod } from "@/lib/finance/periods";
 import type { Category, Member, Transaction } from "@/lib/types";
 
 const A = "a";
@@ -94,9 +96,70 @@ describe("CSV", () => {
   it("separador punto y coma, una fila por parte y gastos en negativo", () => {
     const csv = toCsv(data.slice(0, 1), { categories: cats, labels: [], memberById: (id) => members.find((m) => m.user_id === id) ?? null });
     const lines = csv.replace("﻿", "").split("\r\n");
-    expect(lines[0]).toBe("Fecha;Tipo;Ámbito;Descripción;Comercio;Monto;Categoría;Responsable;Pagó;Cuenta;Estado");
+    expect(lines[0]).toBe("Fecha;Tipo;Ámbito;Descripción;Comercio;Monto;Cuota;Categoría;Responsable;Pagó;Cuenta;Estado");
     expect(lines).toHaveLength(3);
-    expect(lines[1]).toContain(";-165000;Mercado;Maira;Maira;");
-    expect(lines[2]).toContain(";-35000;Sin categoría;Beto;Maira;");
+    expect(lines[1]).toContain(";-165000;;Mercado;Maira;Maira;");
+    expect(lines[2]).toContain(";-35000;;Sin categoría;Beto;Maira;");
+  });
+
+  it("una compra a cuotas sale con la cuota del periodo, como en los gráficos", () => {
+    const tv = tx({ amount: 1_200_000, installments: 12, splits: [split(1_200_000, "merc")], occurred_on: "2026-09-15" });
+    const inOct = expandInstallments([tv]).filter((t) => t.occurred_on >= oct.start && t.occurred_on <= oct.end);
+    const lines = toCsv(inOct, { categories: cats, labels: [], memberById: () => null }).replace("\uFEFF", "").split("\r\n");
+    expect(lines).toHaveLength(2);
+    expect(lines[1]).toContain(";-100000;2 de 12;Mercado;");
+  });
+});
+
+describe("informes de la etapa 4", () => {
+  const settings = { cycle: "MONTHLY" as const, monthlyStartDay: 22, biweeklyFirstDay: 1, biweeklySecondDay: 16 };
+
+  it("tendencia por los periodos del hogar (no por mes calendario)", () => {
+    const p = periodFor(settings, "2026-10-25");
+    const prev = shiftPeriod(settings, p, -1);
+    const rows = periodTrend([
+      tx({ amount: 100, splits: [split(100, "merc")], occurred_on: "2026-10-21" }), // periodo anterior (22-sep a 21-oct)
+      tx({ amount: 50, splits: [split(50, "merc")], occurred_on: "2026-10-22" }),
+      tx({ kind: "INCOME", amount: 900, occurred_on: "2026-10-25" }),
+    ], [prev, p]);
+    expect(rows.map((r) => [r.period.start, r.income, r.expense])).toEqual([["2026-09-22", 0, 100], ["2026-10-22", 900, 50]]);
+  });
+
+  it("cuánto está por revisar dentro de los gastos", () => {
+    expect(pendingInPeriod([
+      tx({ amount: 58_000, status: "PENDING_REVIEW", splits: [split(58_000, null)] }),
+      tx({ amount: 10_000, splits: [split(10_000, "merc")] }),
+      tx({ kind: "TRANSFER", amount: 5, status: "PENDING_REVIEW" }),
+    ], oct)).toEqual({ count: 1, amount: 58_000 });
+  });
+
+  it("resumen para la renta: ingresos, 4x1000 de mis cuentas e intereses de mis créditos", () => {
+    const accounts = [
+      { id: "ah", name: "Ahorros", kind: "DEPOSIT", owner_user_id: A },
+      { id: "hip", name: "Hipoteca", kind: "CREDIT", owner_user_id: A },
+      { id: "otra", name: "De Beto", kind: "DEPOSIT", owner_user_id: B },
+    ];
+    const r = taxSummary([
+      tx({ kind: "INCOME", amount: 6_000_000, occurred_on: "2026-01-30" }),
+      tx({ kind: "INCOME", amount: 1_000, occurred_on: "2025-12-30" }),
+      tx({ amount: 15_600, tags: ["#gmf"], account_id: "ah" }),
+      tx({ amount: 9_000, tags: ["#gmf"], account_id: "otra", payer_user_id: B }),
+      tx({ kind: "TRANSFER", amount: 1_950_000, account_id: "ah", to_account_id: "hip", occurred_on: "2026-10-05" }),
+      tx({ amount: 1_020_000, account_id: "hip", occurred_on: "2026-10-05" }),
+    ], { userId: A, year: 2026, categories: cats, accounts });
+    expect(r.income).toBe(6_000_000);
+    expect(r.gmf).toBe(15_600);
+    expect(r.credits).toEqual([{ id: "hip", name: "Hipoteca", charges: 1_020_000, capital: 930_000, payments: 1 }]);
+  });
+
+  it("gastos fijos frente a variables", () => {
+    const r = fixedVsVariable([
+      tx({ amount: 420_000, scheduled_payment_id: "adm", splits: [split(420_000, "merc")] }),
+      tx({ amount: 44_900, tags: ["#suscripcion"], splits: [split(44_900, "ropa")] }),
+      tx({ amount: 1_020_000, account_id: "hip", splits: [split(1_020_000, "merc")] }),
+      tx({ amount: 80_000, splits: [split(80_000, "merc")] }),
+      tx({ kind: "TRANSFER", amount: 930_000, to_account_id: "hip" }),
+    ], oct, { categories: cats, creditIds: new Set(["hip"]) });
+    expect(r).toEqual({ scheduled: 420_000, subscriptions: 44_900, creditCharges: 1_020_000, variable: 80_000, creditCapital: 930_000 });
   });
 });
