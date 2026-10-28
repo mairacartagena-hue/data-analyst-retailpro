@@ -663,7 +663,8 @@ async function linkCreditBudget(state: ReturnType<typeof useFinance>, account: A
   const r = await supabase.rpc("save_category_limit", { p: {
     id: existing?.id ?? null, category_id: catId, scope: "HOUSEHOLD",
     responsibility: slot === "B" ? "MEMBER_B_100" : "MEMBER_A_100",
-    is_household_obligation: false, rollover_enabled: existing?.rollover_enabled ?? false, shared_with_partner: false,
+    // Al cambiar la cuota se respeta si la persona la marcó como obligación del hogar
+    is_household_obligation: existing?.is_household_obligation ?? false, rollover_enabled: existing?.rollover_enabled ?? false, shared_with_partner: false,
     budget: { valid_from: currentStart, amount, fixed_amount_a: null, fixed_amount_b: null },
   } });
   if (r.error) throw r.error;
