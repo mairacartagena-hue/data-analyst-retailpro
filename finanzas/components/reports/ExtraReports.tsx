@@ -36,7 +36,7 @@ export function BudgetVsActual({ space }: { space: ReportSpace }) {
   const over = rows.filter((r) => r.cells.filter((c) => c && c.pct > 100).length >= 2);
 
   return (
-    <ChartCard title="Presupuesto frente a gasto real" subtitle="Cuánto usaste de cada presupuesto en los últimos 3 periodos. Más de 100 % es que te pasaste"
+    <ChartCard id="presupuesto-real" defaultOpen={false} summary={(() => { const n = rows.filter((r) => (r.cells[r.cells.length - 1]?.pct ?? 0) > 100).length; return n ? `${n} pasado${n === 1 ? "" : "s"} este periodo` : `${rows.length} presupuesto${rows.length === 1 ? "" : "s"}, ninguno pasado este periodo`; })()} title="Presupuesto frente a gasto real" subtitle="Cuánto usaste de cada presupuesto en los últimos 3 periodos. Más de 100 % es que te pasaste"
       table={{ columns: ["Presupuesto", ...periods.map(shortPeriod)], rows: rows.map((r) => [r.name, ...r.cells.map((c) => (c ? `${formatCop(c.spent)} de ${formatCop(c.budget)}` : "—"))]) }}>
       {rows.length === 0 ? <p className="text-sm text-muted">No hay presupuestos de categoría en esta vista.</p> : (
         <div className="space-y-1">
@@ -88,17 +88,41 @@ export function FixedVsVariable({ consumption, period }: { consumption: Transact
   }, [transactions, categories, me.user_id]);
   const fixed = r.scheduled + r.subscriptions + r.creditCharges;
   const total = fixed + r.variable;
+  // Detalle de lo fijo (lo variable es un solo total)
   const items = [
     { key: "sch", label: "Vencimientos programados", value: r.scheduled },
     { key: "sub", label: "Suscripciones", value: r.subscriptions },
     { key: "cred", label: "Intereses y seguros de créditos", value: r.creditCharges },
-    { key: "var", label: "Variables (el resto)", value: r.variable },
   ].filter((i) => i.value > 0);
+  const pct = (v: number) => (total > 0 ? Math.round((v / total) * 100) : 0);
 
   return (
-    <ChartCard title="Gastos fijos y variables" subtitle={total > 0 ? `Fijos: ${Math.round((fixed / total) * 100)} % de lo gastado en el periodo` : "Lo que se repite cada periodo frente a lo que cambia"}
-      table={{ columns: ["Tipo", "Total"], rows: items.map((i) => [i.label, i.value]) }}>
-      {items.length === 0 ? <p className="text-sm text-muted">No hay gastos en este periodo.</p> : <BarList items={items} color="var(--series-1)" />}
+    <ChartCard id="fijos" defaultOpen={false} summary={total > 0 ? `Fijos ${formatCopShort(fixed)} (${Math.round((fixed / total) * 100)} %) · variables ${formatCopShort(r.variable)}` : "Sin gastos en el periodo"} title="Gastos fijos y variables" subtitle="Fijos: vencimientos programados, suscripciones e intereses y seguros de créditos. Variables: todo lo demás"
+      table={{ columns: ["Tipo", "Total"], rows: [["Fijos", fixed], ...items.map((i) => [`  ${i.label}`, i.value] as [string, number]), ["Variables", r.variable]] }}>
+      {total === 0 ? <p className="text-sm text-muted">No hay gastos en este periodo.</p> : (
+        <>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="rounded-2xl bg-surface-2 px-3 py-2.5">
+              <p className="text-xs text-muted">Fijos · {pct(fixed)} %</p>
+              <p className="num font-display text-xl">{formatCop(fixed)}</p>
+            </div>
+            <div className="rounded-2xl bg-surface-2 px-3 py-2.5">
+              <p className="text-xs text-muted">Variables · {pct(r.variable)} %</p>
+              <p className="num font-display text-xl">{formatCop(r.variable)}</p>
+            </div>
+          </div>
+          <div className="mt-2 flex h-2.5 overflow-hidden rounded-full bg-surface-2" aria-hidden>
+            <span className="h-full" style={{ width: `${pct(fixed)}%`, background: "var(--series-1)" }} />
+            <span className="h-full" style={{ width: `${pct(r.variable)}%`, background: "var(--series-2)" }} />
+          </div>
+          {items.length > 0 && (
+            <div className="mt-3">
+              <p className="mb-1.5 text-sm font-medium">De qué son los fijos</p>
+              <BarList items={items} color="var(--series-1)" />
+            </div>
+          )}
+        </>
+      )}
       {r.creditCapital > 0 && <p className="mt-2 text-xs text-muted">Además abonaste {formatCop(r.creditCapital)} a capital de tus créditos (no es gasto: baja la deuda).</p>}
       {list.length > 0 && (
         <div className="mt-4 border-t border-border pt-3">
@@ -129,7 +153,7 @@ export function TaxSummaryCard() {
     </div>
   );
   return (
-    <ChartCard title="Resumen para la renta" subtitle="Lo tuyo del año según lo registrado en la app. Es una guía: los valores oficiales salen de los certificados de tus bancos"
+    <ChartCard id="renta" defaultOpen={false} summary={`${year}: ingresos ${formatCopShort(s.income)} · 4x1000 ${formatCopShort(s.gmf)}`} title="Resumen para la renta" subtitle="Lo tuyo del año según lo registrado en la app. Es una guía: los valores oficiales salen de los certificados de tus bancos"
       table={{ columns: ["Concepto", "Valor"], rows: [["Ingresos", s.income], ...s.incomeByCategory.map((i) => [`  ${i.name}`, i.total] as [string, number]), ["4x1000 pagado", s.gmf], ...s.credits.flatMap((c) => [[`${c.name}: intereses`, c.interest], [`${c.name}: seguros y otros cargos`, c.insurance], [`${c.name}: abono a capital`, c.capital]] as [string, number][])] }}>
       <Segmented className="mb-2" value={String(year)} onChange={(v) => setYear(Number(v))}
         options={[{ value: String(thisYear - 1), label: String(thisYear - 1) }, { value: String(thisYear), label: `${thisYear} (en curso)` }]} />

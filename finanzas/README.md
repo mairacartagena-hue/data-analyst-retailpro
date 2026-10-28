@@ -198,6 +198,7 @@ Pestañas: **Inicio · Movimientos · + · Presupuesto · Informes · Más**. �
 - **Movimientos:** filtros por categoría (incluye subcategorías), espacio, tipo, cuenta, quién pagó y responsable (también por enlace: `?categoria=`, `?cuenta=`).
 - **Marcas internas:** además de las etiquetas (abajo), la app guarda marcas técnicas que no se muestran (ej. `#gmf` para no sumar dos veces el 4x1000 y `#suscripcion` para reconocer cobros de suscripción); los cobros de suscripción sugieren la categoría “Suscripciones” en “Por revisar”.
 - **Informes:** gastos **por subcategoría** (ej. “Energía · Servicios”; con “Categoría” las subcategorías suman en su principal), por persona (hogar/personal) y tendencia de 6 meses, con vista de tabla y descarga CSV para Excel (separador “;”).
+- **Informes plegables:** cada informe se abre y se cierra tocando su título; plegado muestra un resumen corto (ej. “Fijos 32 % · suscripciones $80.390 al mes”). De entrada solo está abierto “Gastos por subcategoría” y el celular recuerda cuáles dejaste abiertos.
 - **Informes (etapa 4):**
   - **Consumo del periodo** (Informes) reparte las compras a cuotas: cuenta solo la cuota del periodo. En Movimientos el resumen dice **pagos** y suma cada compra por su valor completo.
   - Si hay movimientos **por revisar** dentro del periodo, Informes avisa cuánto suman (pueden cambiar de categoría).
