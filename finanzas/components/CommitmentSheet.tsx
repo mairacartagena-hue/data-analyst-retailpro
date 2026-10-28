@@ -11,13 +11,14 @@ import { ChipGroup, Segmented } from "@/components/ui/segmented";
 import { SwitchRow } from "@/components/ui/switch";
 import { AmountInput } from "@/components/AmountInput";
 import { CategoryOptions } from "@/components/CategoryPicker";
-import { parseCop } from "@/lib/finance/money";
-import { todayBogota } from "@/lib/finance/periods";
+import { formatCop, parseCop } from "@/lib/finance/money";
+import { categoryPath } from "@/lib/finance/spaces";
+import { periodFor, todayBogota } from "@/lib/finance/periods";
 import { errMsg } from "@/lib/utils";
 
 /** Crear o editar un vencimiento: un pago previsto (una vez o cada mes). */
 export function CommitmentSheet({ open, onOpenChange, payment }: { open: boolean; onOpenChange: (v: boolean) => void; payment: ScheduledPayment | null }) {
-  const { categories, supabase, reload, me, partner, household } = useFinance();
+  const { categories, limits, settings, supabase, reload, me, partner, household } = useFinance();
   const [scope, setScope] = useState<Space>("HOUSEHOLD");
   const [name, setName] = useState("");
   const [kind, setKind] = useState<ScheduledPayment["kind"]>("EXPENSE");
@@ -30,6 +31,7 @@ export function CommitmentSheet({ open, onOpenChange, payment }: { open: boolean
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
   const [active, setActive] = useState(true);
+  const [toBudget, setToBudget] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -49,9 +51,14 @@ export function CommitmentSheet({ open, onOpenChange, payment }: { open: boolean
     setStart(p?.start_date ?? todayBogota());
     setEnd(p?.end_date ?? "");
     setActive(p?.active ?? true);
+    setToBudget(true);
   }, [open, payment]);
 
   const usable = categories.filter((c) => !c.archived && c.kind !== "INCOME");
+  // Un vencimiento mensual del hogar cuenta en Presupuestos si su categoría (o su principal) tiene presupuesto del hogar
+  const parentId = categories.find((c) => c.id === categoryId)?.parent_id ?? null;
+  const covering = categoryId ? limits.find((l) => l.scope === "HOUSEHOLD" && (l.category_id === categoryId || l.category_id === parentId)) ?? null : null;
+  const canBudget = scope === "HOUSEHOLD" && frequency === "MONTHLY" && !!categoryId;
   const canMakePersonal = !payment || payment.owner_user_id === me.user_id;
 
   async function save() {
@@ -82,6 +89,19 @@ export function CommitmentSheet({ open, onOpenChange, payment }: { open: boolean
       : await supabase.from("scheduled_payments").insert({ ...row, household_id: household.id, owner_user_id: me.user_id });
     setBusy(false);
     if (error) return setError(errMsg(error));
+    // Sin presupuesto del hogar para su categoría: se crea como pago obligatorio por el monto del vencimiento
+    if (canBudget && !covering && toBudget) {
+      const who = [me, partner].find((m) => m?.user_id === (responsible || me.user_id)) ?? me;
+      const r = await supabase.rpc("save_category_limit", { p: {
+        id: null, category_id: categoryId, scope: "HOUSEHOLD", responsibility: who.slot === "B" ? "MEMBER_B_100" : "MEMBER_A_100",
+        is_household_obligation: true, rollover_enabled: false, shared_with_partner: false,
+        budget: { valid_from: periodFor(settings, todayBogota()).start, amount: n, fixed_amount_a: null, fixed_amount_b: null },
+      } });
+      if (r.error) {
+        void reload();
+        return setError(`El vencimiento quedó guardado, pero no se pudo crear el presupuesto: ${errMsg(r.error)}`);
+      }
+    }
     onOpenChange(false);
     void reload();
   }
@@ -130,6 +150,13 @@ export function CommitmentSheet({ open, onOpenChange, payment }: { open: boolean
             <CategoryOptions categories={usable} />
           </Select>
         </Field>
+        {canBudget && (covering ? (
+          <p className="-mt-2 text-xs text-muted">Cuenta en el presupuesto del hogar de {categoryPath(categories, covering.category_id)}.</p>
+        ) : (
+          <SwitchRow label="Agregarlo a Presupuestos"
+            hint={`Crea el presupuesto del hogar de ${categoryPath(categories, categoryId)}${(parseCop(amount) ?? 0) > 0 ? ` por ${formatCop(parseCop(amount) ?? 0)} al mes` : ""}, como pago obligatorio.`}
+            checked={toBudget} onCheckedChange={setToBudget} />
+        ))}
         {partner && (
           <Field label="¿A quién le corresponde? (opcional)">
             <ChipGroup value={responsible} onChange={(v) => setResponsible(v === responsible ? "" : v)} options={members} />
