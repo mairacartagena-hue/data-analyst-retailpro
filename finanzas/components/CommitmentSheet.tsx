@@ -15,7 +15,7 @@ import { parseCop } from "@/lib/finance/money";
 import { todayBogota } from "@/lib/finance/periods";
 import { errMsg } from "@/lib/utils";
 
-/** Crear o editar un compromiso: un pago previsto (una vez o cada mes). */
+/** Crear o editar un vencimiento: un pago previsto (una vez o cada mes). */
 export function CommitmentSheet({ open, onOpenChange, payment }: { open: boolean; onOpenChange: (v: boolean) => void; payment: ScheduledPayment | null }) {
   const { categories, supabase, reload, me, partner, household } = useFinance();
   const [scope, setScope] = useState<Space>("HOUSEHOLD");
@@ -87,7 +87,7 @@ export function CommitmentSheet({ open, onOpenChange, payment }: { open: boolean
   }
 
   async function remove() {
-    if (!payment || !confirm("¿Borrar este compromiso? Los pagos ya registrados se conservan.")) return;
+    if (!payment || !confirm("¿Borrar este vencimiento? Los pagos ya registrados se conservan.")) return;
     setBusy(true);
     const { error } = await supabase.from("scheduled_payments").delete().eq("id", payment.id);
     setBusy(false);
@@ -99,8 +99,16 @@ export function CommitmentSheet({ open, onOpenChange, payment }: { open: boolean
   const members = [me, partner].filter(Boolean).map((m) => ({ value: m!.user_id, label: m!.user_id === me.user_id ? "Yo" : m!.display_name, color: m!.color }));
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} title={payment ? "Editar compromiso" : "Nuevo compromiso"}
-      description="Un pago previsto: cuenta como comprometido hasta que registres el pago real.">
+    <Sheet open={open} onOpenChange={onOpenChange} title={payment ? "Editar vencimiento" : "Nuevo vencimiento"}
+      description="Un pago previsto: cuenta como comprometido hasta que registres el pago real."
+      footer={<div className="space-y-2"><ErrorText>{error}</ErrorText><div className="flex gap-3">
+          {payment && (
+            <Button variant="danger" size="icon" onClick={remove} disabled={busy} aria-label="Borrar">
+              <Trash2 size={18} />
+            </Button>
+          )}
+          <Button className="flex-1" size="lg" onClick={save} disabled={busy}>{busy ? "Guardando..." : "Guardar"}</Button>
+        </div></div>}>
       <div className="space-y-4 pb-2">
         <Field label="¿De qué espacio?">
           <Segmented value={scope} onChange={(v) => { if (v === "HOUSEHOLD" || canMakePersonal) setScope(v); }} options={[
@@ -134,24 +142,15 @@ export function CommitmentSheet({ open, onOpenChange, payment }: { open: boolean
           ]} />
         </Field>
         {frequency === "MONTHLY" ? (
-          <div className="grid grid-cols-3 gap-3">
-            <Field label="Día"><Input type="number" inputMode="numeric" min={1} max={31} value={day} onChange={(e) => setDay(e.target.value)} /></Field>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2"><Field label="Día del mes"><Input type="number" inputMode="numeric" min={1} max={31} value={day} onChange={(e) => setDay(e.target.value)} /></Field></div>
             <Field label="Desde"><Input type="date" value={start} onChange={(e) => setStart(e.target.value)} /></Field>
-            <Field label="Hasta"><Input type="date" value={end} onChange={(e) => setEnd(e.target.value)} /></Field>
+            <Field label="Hasta (opcional)"><Input type="date" value={end} onChange={(e) => setEnd(e.target.value)} /></Field>
           </div>
         ) : (
           <Field label="Fecha"><Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></Field>
         )}
         {payment && <SwitchRow label="Activo" hint="Si lo desactivas, deja de aparecer en los vencimientos." checked={active} onCheckedChange={setActive} />}
-        <ErrorText>{error}</ErrorText>
-        <div className="flex gap-3">
-          {payment && (
-            <Button variant="danger" size="icon" onClick={remove} disabled={busy} aria-label="Borrar">
-              <Trash2 size={18} />
-            </Button>
-          )}
-          <Button className="flex-1" size="lg" onClick={save} disabled={busy}>{busy ? "Guardando..." : "Guardar"}</Button>
-        </div>
       </div>
     </Sheet>
   );

@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "motion/react";
-import { AlertTriangle, Check, Home, Lock, Pencil, Plus, Users } from "lucide-react";
+import { AlertTriangle, Check, Home, List, Lock, Plus, Users } from "lucide-react";
 import type { Category, CategoryLimit, Member } from "@/lib/types";
 import type { CategoryStatus } from "@/lib/finance/budget";
 import { formatCop, formatCopShort } from "@/lib/finance/money";
@@ -92,7 +92,7 @@ export function BudgetBar({
         {covered ? (
           <span className="flex items-center gap-1 text-sm font-medium text-olive"><Check size={15} /> Cubierto este periodo</span>
         ) : (
-          <span className="flex items-center gap-1 text-xs text-muted"><Pencil size={12} /> Toca para ver sus pagos</span>
+          <button type="button" onClick={onClick} className="flex items-center gap-1 text-xs text-muted hover:text-text"><List size={13} /> Ver sus pagos</button>
         )}
         <button onClick={() => onPay(covered ? 0 : suggested)}
           className={cn("flex items-center gap-1 rounded-full px-3 py-1.5 text-sm font-semibold", covered ? "text-muted hover:bg-surface-2" : "bg-olive-soft text-text")}>

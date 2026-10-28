@@ -7,6 +7,7 @@ import type { Account, ManualAsset, Visibility } from "@/lib/types";
 import { ACCOUNT_KIND_LABEL, ASSET_TYPE_LABEL, VISIBILITY_LABEL } from "@/lib/types";
 import type { AccountKind } from "@/lib/finance/safeToSpend";
 import { Sheet } from "@/components/ui/sheet";
+import { Collapsible } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
 import { ErrorText, Field, Input, Select } from "@/components/ui/input";
 import { projectCard } from "@/lib/finance/installments";
@@ -185,18 +186,30 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
   }
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} title={account ? "Editar cuenta" : "Nueva cuenta"}>
+    <Sheet open={open} onOpenChange={onOpenChange} title={account ? "Editar cuenta" : "Nueva cuenta"}
+      footer={<div className="space-y-2"><ErrorText>{error}</ErrorText><div className="flex gap-3">
+            {account && (
+              <Button variant="secondary" size="icon" className="h-14 w-14" onClick={toggleArchive} disabled={busy} aria-label={account.archived ? "Restaurar" : "Archivar"}>
+                {account.archived ? <ArchiveRestore size={18} /> : <Archive size={18} />}
+              </Button>
+            )}
+            <Button className="flex-1" size="lg" onClick={save} disabled={busy}>{busy ? "Guardando..." : "Guardar"}</Button>
+          </div></div>}>
       <div className="space-y-4 pb-2">
+        {account ? (
+          <p className="text-sm text-muted">Tipo: <span className="font-medium text-text">{ACCOUNT_KIND_LABEL[kind]}</span></p>
+        ) : (
         <Field label="Tipo">
           <div className="grid grid-cols-2 gap-2">
             {KINDS.map((k) => (
-              <button key={k} type="button" onClick={() => setKind(k)} aria-pressed={kind === k} disabled={!!account}
+              <button key={k} type="button" onClick={() => setKind(k)} aria-pressed={kind === k}
                 className={cn("rounded-2xl border px-3 py-2.5 text-left text-sm disabled:opacity-60", kind === k ? "border-olive bg-olive-soft font-semibold" : "border-border bg-surface")}>
                 {ACCOUNT_KIND_LABEL[k]}
               </button>
             ))}
           </div>
         </Field>
+        )}
         <Field label="Nombre" htmlFor="acc-name">
           <Input id="acc-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Nequi, Ahorros Bancolombia, Visa…" maxLength={60} />
         </Field>
@@ -294,8 +307,8 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
         {isCredit && account && <CreditPayments account={account} />}
         {isCredit && account && <CreditPaymentAdjust account={account} />}
         {isCard && (
-          <div className="grid grid-cols-3 gap-3">
-            <Field label="Cupo"><AmountInput value={limit} onChange={setLimit} /></Field>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2"><Field label="Cupo"><AmountInput value={limit} onChange={setLimit} /></Field></div>
             <Field label="Día de corte" htmlFor="sd"><Input id="sd" inputMode="numeric" value={statementDay} onChange={(e) => setStatementDay(e.target.value.replace(/\D/g, "").slice(0, 2))} /></Field>
             <Field label="Día de pago" htmlFor="dd"><Input id="dd" inputMode="numeric" value={dueDay} onChange={(e) => setDueDay(e.target.value.replace(/\D/g, "").slice(0, 2))} /></Field>
           </div>
@@ -305,7 +318,9 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
         )}
         {(isCard || isCredit) && (
           <Field label="Tasa de interés (% efectiva anual)" htmlFor="rate"
-            hint="Sale en el extracto de la tarjeta. Sirve para estimar los intereses de las compras a cuotas; las de 1 cuota no pagan intereses.">
+            hint={isCard
+              ? "Sale en el extracto de la tarjeta. Sirve para estimar los intereses de las compras a cuotas; las de 1 cuota no pagan intereses."
+              : "Sale en el extracto del crédito (la tasa cobrada). Con ella se estiman los intereses de cada cuota."}>
             <Input id="rate" inputMode="decimal" value={rate} placeholder="ej. 28,5" onChange={(e) => setRate(e.target.value.replace(/[^\d,.]/g, "").slice(0, 6))} />
           </Field>
         )}
@@ -331,15 +346,6 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
             hint="Cuando pagues algo del hogar con esta cuenta, tu pareja verá su nombre en vez de “Cuenta privada”. El saldo sigue oculto."
             checked={reveal} onCheckedChange={setReveal} />
         )}
-        <ErrorText>{error}</ErrorText>
-        <div className="flex gap-3">
-          {account && (
-            <Button variant="secondary" size="icon" onClick={toggleArchive} disabled={busy} aria-label={account.archived ? "Restaurar" : "Archivar"}>
-              {account.archived ? <ArchiveRestore size={18} /> : <Archive size={18} />}
-            </Button>
-          )}
-          <Button className="flex-1" size="lg" onClick={save} disabled={busy}>{busy ? "Guardando..." : "Guardar"}</Button>
-        </div>
       </div>
     </Sheet>
   );
@@ -390,7 +396,11 @@ export function AssetSheet({ open, onOpenChange, asset }: { open: boolean; onOpe
   }
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} title={asset ? "Editar" : "Activo o pasivo"}>
+    <Sheet open={open} onOpenChange={onOpenChange} title={asset ? "Editar" : "Activo o pasivo"}
+      footer={<div className="space-y-2"><ErrorText>{error}</ErrorText><div className="flex gap-3">
+          {asset && <Button variant="danger" onClick={remove} disabled={busy}>Borrar</Button>}
+          <Button className="flex-1" size="lg" onClick={save} disabled={busy}>Guardar</Button>
+        </div></div>}>
       <div className="space-y-4 pb-2">
         <div className="grid grid-cols-2 gap-2">
           {(["ASSET", "LIABILITY"] as const).map((k) => (
@@ -408,11 +418,6 @@ export function AssetSheet({ open, onOpenChange, asset }: { open: boolean; onOpe
         </Field>
         <Field label={kind === "ASSET" ? "Valor actual" : "Saldo pendiente"}><AmountInput value={value} onChange={setValue} /></Field>
         <SwitchRow label="Mi pareja lo puede ver" hint="Cuenta en el patrimonio del hogar." checked={shared} onCheckedChange={setShared} />
-        <ErrorText>{error}</ErrorText>
-        <div className="flex gap-3">
-          {asset && <Button variant="danger" onClick={remove} disabled={busy}>Borrar</Button>}
-          <Button className="flex-1" size="lg" onClick={save} disabled={busy}>Guardar</Button>
-        </div>
       </div>
     </Sheet>
   );
@@ -461,15 +466,16 @@ function CardProjection({ account }: { account: Account }) {
 
   return (
     <div className="space-y-3">
-      <p className="text-sm font-medium">Cuotas de los próximos meses</p>
+      <Collapsible title={byPayment ? "Proyección de pagos" : "Cuotas de los próximos meses"}
+        summary={rows.length ? `${formatCop(rows[0].total)} el próximo` : "sin cuotas"}>
       {rows.length === 0 ? (
         <p className="rounded-2xl bg-surface-2 px-3 py-2.5 text-sm text-muted">No hay cuotas pendientes en esta tarjeta.</p>
       ) : (
         <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface">
           {rows.map((r) => (
-            <div key={r.month} className="flex items-center justify-between px-3.5 py-2.5 text-sm">
-              <span className="capitalize">{byPayment ? "Pago de " : ""}{monthName(Number(r.month.slice(5)) - 1, true)} {r.month.slice(0, 4)} <span className="text-xs text-muted">· {r.purchases} compra{r.purchases === 1 ? "" : "s"}</span></span>
-              <span className="num font-semibold">{formatCop(r.total)}</span>
+            <div key={r.month} className="flex items-center justify-between gap-2 px-3.5 py-2.5 text-sm">
+              <span className="min-w-0">{(() => { const m = `${monthName(Number(r.month.slice(5)) - 1, true)} ${r.month.slice(0, 4)}`; return byPayment ? `Pago de ${m.toLowerCase()}` : m.charAt(0).toUpperCase() + m.slice(1); })()} <span className="text-xs text-muted">· {r.purchases} compra{r.purchases === 1 ? "" : "s"}</span></span>
+              <span className="num shrink-0 whitespace-nowrap font-semibold">{formatCop(r.total)}</span>
             </div>
           ))}
         </div>
@@ -477,9 +483,9 @@ function CardProjection({ account }: { account: Account }) {
       {rows.length > 0 && (
         <p className="text-xs text-muted">Total de estos meses: {formatCop(total)} (capital más intereses estimados). Es una estimación; el plan de pagos del banco manda.{byPayment ? " Incluye lo que compres después del corte, en el extracto que lo factura." : ""}</p>
       )}
+      </Collapsible>
 
-      <div className="space-y-2">
-        <p className="text-sm font-medium">Compras del extracto que no registraste</p>
+      <Collapsible title="Compras del extracto que no registraste" summary={mine.length ? String(mine.length) : undefined}>
         <p className="text-xs text-muted">Solo suman a la proyección. No aparecen en Movimientos, presupuestos ni informes.</p>
         {mine.length > 0 && (
           <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface">
@@ -514,7 +520,7 @@ function CardProjection({ account }: { account: Account }) {
         ) : (
           <Button size="sm" variant="outline" onClick={() => setAdding(true)}>+ Agregar compra del extracto</Button>
         )}
-      </div>
+      </Collapsible>
     </div>
   );
 }

@@ -22,6 +22,7 @@ PWA privada de finanzas personales y en pareja (Android y escritorio). Todo en p
 | Fase 4.3 — Asistente con IA: preguntas sobre las finanzas y resumen del mes | Hecho |
 | Auditoría de seguridad del 27-oct-2026 (migración 0040) | Hecha (0040 aplicada); ver “Seguridad” |
 | Etapa 1 de mejoras: bloqueo con huella, verificación en dos pasos y política de contenido (migración 0041) | Hecha |
+| Etapa 2 de mejoras: más fácil de usar (Guardar fijo en las hojas, botón atrás del celular, secciones desplegables en tarjetas y créditos, un solo Guardar en Ajustes) | Hecha |
 
 **Pendiente por probar o configurar:**
 - [x] La pareja ya está en el hogar (2 miembros).
@@ -186,6 +187,9 @@ Las pruebas de `tests/db` corren las migraciones reales en una base de datos en 
 
 Pestañas: **Inicio · Movimientos · + · Presupuesto · Informes · Más**. “Más” agrupa Cuentas y cruce, Categorías, Cierre del mes, Captura automática y Ajustes.
 
+- **Hojas (formularios que suben desde abajo):** el botón Guardar queda fijo abajo aunque el formulario sea largo (`Sheet` con `footer`), y el botón **atrás** del celular cierra la hoja en vez de salir de la pantalla (si hay una hoja sobre otra, cierra solo la de encima). En la tarjeta, la **proyección de pagos** y las **compras del extracto** son secciones desplegables; en el crédito, las **cuotas pagadas** (`components/ui/collapsible.tsx`). Al registrar, “Más opciones” guarda dividir por montos y etiquetas, los comentarios van al final y los créditos y préstamos no salen en “Pagué con” (solo en transferencias). Al editar una cuenta su tipo ya no se puede cambiar.
+- **Ajustes:** un solo **Guardar** para perfil y periodos, en una barra que aparece abajo cuando hay cambios.
+- El micrófono para dictar está a la izquierda, encima de la barra, para no tapar los botones de las tarjetas.
 - **Categorías** (Más → Categorías): un solo lugar para crear, editar y archivar las categorías de gastos e ingresos. Son las mismas que aparecen en Presupuesto y al registrar un pago; cada una muestra si es del hogar o personal, su límite (y quién lo asume) y cuántos movimientos la usan.
 
 - **Presupuesto:** al tocar una barra se ven los pagos que la forman y cómo llegó cada uno (correo, SMS, notificación o a mano).

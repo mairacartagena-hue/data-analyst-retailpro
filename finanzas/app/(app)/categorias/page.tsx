@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, CornerDownRight, Plus, Sparkles } from "lucide-react";
+import { ArrowLeft, ChevronRight, CornerDownRight, Plus, Sparkles } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { CategorySheet } from "@/components/CategorySheet";
 import { Button } from "@/components/ui/button";
@@ -131,9 +131,11 @@ export default function CategoriasPage() {
 
   return (
     <main className="px-4 pb-6 pt-[calc(12px+env(safe-area-inset-top))]">
-      <Link href="/mas" className="-ml-1 inline-flex items-center gap-1 py-1 text-sm text-muted"><ChevronLeft size={16} /> Más</Link>
       <div className="flex items-center justify-between py-2">
-        <h1 className="font-display text-3xl">Categorías</h1>
+        <div className="flex items-center gap-2">
+          <Link href="/mas" aria-label="Volver" className="rounded-full p-2 text-muted hover:bg-surface-2"><ArrowLeft size={20} /></Link>
+          <h1 className="font-display text-3xl">Categorías</h1>
+        </div>
         <Button size="sm" onClick={() => edit(null)}><Plus size={16} /> Nueva</Button>
       </div>
       <p className="px-1 text-sm text-muted">

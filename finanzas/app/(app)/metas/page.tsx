@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ChevronLeft, Home, Lock, Minus, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Home, Lock, Minus, Plus, Trash2 } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
@@ -56,9 +56,11 @@ export default function MetasPage() {
 
   return (
     <main className="px-4 pb-6 pt-[calc(12px+env(safe-area-inset-top))]">
-      <Link href="/mas" className="-ml-1 inline-flex items-center gap-1 py-1 text-sm text-muted"><ChevronLeft size={16} /> Más</Link>
       <div className="flex items-center justify-between py-2">
-        <h1 className="font-display text-3xl">Metas de ahorro</h1>
+        <div className="flex items-center gap-2">
+          <Link href="/mas" aria-label="Volver" className="rounded-full p-2 text-muted hover:bg-surface-2"><ArrowLeft size={20} /></Link>
+          <h1 className="font-display text-3xl">Metas de ahorro</h1>
+        </div>
         <Button size="sm" onClick={() => edit(null)}><Plus size={16} /> Nueva</Button>
       </div>
       <p className="px-1 text-sm text-muted">
@@ -146,7 +148,13 @@ function GoalSheet({ open, onOpenChange, goal }: { open: boolean; onOpenChange: 
   }
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} title={goal ? "Editar meta" : "Nueva meta"}>
+    <Sheet open={open} onOpenChange={onOpenChange} title={goal ? "Editar meta" : "Nueva meta"}
+      footer={<div className="space-y-2"><ErrorText>{error}</ErrorText><div className="flex gap-3">
+          {goal && (
+            <Button variant="danger" size="icon" onClick={remove} disabled={busy} aria-label="Borrar"><Trash2 size={18} /></Button>
+          )}
+          <Button className="flex-1" size="lg" onClick={save} disabled={busy}>{busy ? "Guardando..." : "Guardar"}</Button>
+        </div></div>}>
       <div className="space-y-4 pb-2">
         <Field label="¿De qué espacio?">
           <Segmented value={scope} onChange={(v) => { if (v === "HOUSEHOLD" || canMakePersonal) setScope(v); }} options={[
@@ -180,13 +188,6 @@ function GoalSheet({ open, onOpenChange, goal }: { open: boolean; onOpenChange: 
             </Select>
           </Field>
         )}
-        <ErrorText>{error}</ErrorText>
-        <div className="flex gap-3">
-          {goal && (
-            <Button variant="danger" size="icon" onClick={remove} disabled={busy} aria-label="Borrar"><Trash2 size={18} /></Button>
-          )}
-          <Button className="flex-1" size="lg" onClick={save} disabled={busy}>{busy ? "Guardando..." : "Guardar"}</Button>
-        </div>
       </div>
     </Sheet>
   );
