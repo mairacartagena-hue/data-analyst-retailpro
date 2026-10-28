@@ -15,19 +15,20 @@ import { isWithin, periodFor, shiftPeriod, todayBogota } from "@/lib/finance/per
 import { shortPeriod } from "@/lib/finance/periodLabels";
 import { BudgetVsActual, FixedVsVariable, TaxSummaryCard } from "@/components/reports/ExtraReports";
 import { spendingByTag } from "@/lib/finance/tags";
-import { inReportSpace, pendingInPeriod, periodTrend, spendingByCategory, spendingByPerson, toCsv, type ReportSpace } from "@/lib/finance/reports";
+import { inReportSpace, pendingInPeriod, periodTrend, spendingByCategory, spendingByPerson, toCsv, withCreditCapital, type ReportSpace } from "@/lib/finance/reports";
 
 const SERIES_1 = "var(--series-1)";
 const SERIES_2 = "var(--series-2)";
 
 export default function InformesPage() {
-  const { transactions: all, consumption: allConsumption, categories, labels, period, me, partner, memberById, tags, txTags, settings } = useFinance();
+  const { transactions: all, consumption: allConsumption, accounts, categories, labels, period, me, partner, memberById, tags, txTags, settings } = useFinance();
   const router = useRouter();
   const members = [me, partner].filter(Boolean) as Member[];
   const [space, setSpace] = useState<ReportSpace>("all");
   const transactions = useMemo(() => all.filter((t) => inReportSpace(t, space)), [all, space]);
   // Gastos por periodo: una compra a cuotas cuenta cada cuota en su mes (el CSV lista los movimientos tal cual)
-  const consumption = useMemo(() => allConsumption.filter((t) => inReportSpace(t, space)), [allConsumption, space]);
+  // y cada cuota de crédito cuenta completa: se suma el abono a capital a los intereses y seguros
+  const consumption = useMemo(() => withCreditCapital(allConsumption, accounts).filter((t) => inReportSpace(t, space)), [allConsumption, accounts, space]);
 
   // Primero por subcategoría (la categoría principal va al lado); con "Categoría" las subcategorías suman en su principal
   const [group, setGroup] = useState<"sub" | "parent">("sub");
@@ -92,7 +93,7 @@ export default function InformesPage() {
         </div>
         <p className="mt-2 px-1 text-xs text-muted">
           {space === "household" ? "Solo movimientos del hogar, pague quien pague." : space === "personal" ? "Tus movimientos personales (y los de tu pareja en los que te asignó una parte)." : "Todo lo que puedes ver: lo del hogar y lo tuyo."}
-          {" "}Las transferencias, liquidaciones y ajustes no cuentan; los reembolsos restan. Las compras a cuotas cuentan solo la cuota del periodo (en Movimientos salen por su valor completo).
+          {" "}Las transferencias, liquidaciones y ajustes no cuentan; los reembolsos restan. Las compras a cuotas cuentan solo la cuota del periodo (en Movimientos salen por su valor completo) y las cuotas de los créditos cuentan completas: capital, intereses y seguros.
         </p>
         {pending.count > 0 && (
           <Link href="/movimientos?filtro=pendientes" className="mt-2 block rounded-2xl bg-warning-soft px-3 py-2 text-sm">
