@@ -59,11 +59,11 @@ export default function PresupuestosPage() {
   const shown = limits
     .filter((l) => order.has(l.category_id))
     .sort((x, y) => (order.get(x.category_id)! - order.get(y.category_id)!));
-  const groups: { title: string; items: CategoryLimit[] }[] = [
-    { title: "Obligaciones del hogar", items: shown.filter((l) => l.is_household_obligation) },
-    { title: "Del hogar", items: shown.filter((l) => l.scope === "HOUSEHOLD" && !l.is_household_obligation) },
-    { title: "Personales", items: shown.filter((l) => l.scope === "PERSONAL" && l.owner_user_id === me.user_id) },
-    { title: partner ? `Compartidos por ${partner.display_name}` : "Compartidos", items: shown.filter((l) => l.scope === "PERSONAL" && l.owner_user_id !== me.user_id) },
+  const groups: { id: string; title: string; hint: string; items: CategoryLimit[] }[] = [
+    { id: "obligatorios", title: "Hogar · obligatorios", hint: "Lo que falte por pagar se aparta de tu Saldo Seguro", items: shown.filter((l) => l.is_household_obligation) },
+    { id: "flexibles", title: "Hogar · flexibles", hint: "Del hogar, sin apartar plata del Saldo Seguro", items: shown.filter((l) => l.scope === "HOUSEHOLD" && !l.is_household_obligation) },
+    { id: "personales", title: "Personales", hint: "Solo tú los ves", items: shown.filter((l) => l.scope === "PERSONAL" && l.owner_user_id === me.user_id) },
+    { id: "compartidos", title: partner ? `Compartidos por ${partner.display_name}` : "Compartidos", hint: "Ves cuánto lleva, no sus movimientos", items: shown.filter((l) => l.scope === "PERSONAL" && l.owner_user_id !== me.user_id) },
   ];
 
   // Lo que cada uno tenía a su cargo en los presupuestos del hogar y cuánto ha ejecutado
@@ -114,10 +114,8 @@ export default function PresupuestosPage() {
 
       <SwipePeriods>
         {/* Próximos vencimientos */}
-        <div className="mt-6 flex items-center justify-between">
-          <SectionTitle className="m-0">Próximos vencimientos</SectionTitle>
-          <Button size="sm" variant="ghost" onClick={() => editCommitment(null)}><Plus size={16} /> Vencimiento</Button>
-        </div>
+        <BudgetGroup id="vencimientos" title="Vencimientos" hint="Cuotas, administración y pagos con fecha"
+          action={<Button size="sm" variant="ghost" onClick={() => editCommitment(null)}><Plus size={16} /> Vencimiento</Button>}>
         {(householdCommitted > 0 || myCommitted > 0) && (
           <p className="mb-2 px-1 text-xs text-muted">
             Comprometido sin pagar: <span className="num font-semibold text-text">{formatCop(householdCommitted)}</span> del hogar
@@ -130,9 +128,10 @@ export default function PresupuestosPage() {
         ) : (
           <UpcomingList occurrences={upcoming.occurrences} cards={upcoming.cards} today={upcoming.today} onEdit={editCommitment} />
         )}
+        </BudgetGroup>
 
         {/* Presupuestos por categoría */}
-        <SectionTitle>Presupuestos por categoría</SectionTitle>
+        <SectionTitle>Cuánto lleva cada uno</SectionTitle>
         {shown.some((l) => l.scope === "HOUSEHOLD") && (
           <div className="grid grid-cols-2 gap-3">
             {perMember.map(({ member, available, spent }) => (
@@ -158,9 +157,12 @@ export default function PresupuestosPage() {
         )}
 
         {groups.map((g) => g.items.length > 0 && (
-          <section key={g.title}>
-            <SectionTitle>{g.title}</SectionTitle>
-            <div className="space-y-2.5">
+          <BudgetGroup key={g.id} id={g.id} title={g.title} hint={g.hint}
+            summary={(() => {
+              const spent = g.items.reduce((a, l) => a + (statuses.get(l.id)?.totalSpent ?? 0), 0);
+              const available = g.items.reduce((a, l) => a + (statuses.get(l.id)?.totalAvailable ?? 0), 0);
+              return `${formatCopShort(spent)} de ${formatCopShort(available)}`;
+            })()}>
               {g.items.map((l) => {
                 const c = categories.find((x) => x.id === l.category_id)!;
                 // Sangría solo si la principal está justo arriba en la misma lista; si no, se alinea con las demás
@@ -174,17 +176,15 @@ export default function PresupuestosPage() {
                   </div>
                 );
               })}
-            </div>
-          </section>
+          </BudgetGroup>
         ))}
 
         {/* Presupuestos de varias categorías (con nombre): solo si hay alguno */}
-        {visiblePlans.length > 0 && <SectionTitle>De varias categorías</SectionTitle>}
         {visiblePlans.length > 0 && (
-          <div className="space-y-2.5">
+          <BudgetGroup id="varias" title="De varias categorías" hint="Un límite para un grupo de categorías o un plan con fechas" summary={`${visiblePlans.length}`}>
             {visiblePlans.map((p) => <PlanCard key={p.id} plan={p} m={metrics.get(p.id)!}
               onEdit={p.scope === "PERSONAL" && p.owner_user_id !== me.user_id ? undefined : () => editPlan(p)} />)}
-          </div>
+          </BudgetGroup>
         )}
         {closedPlans.length > 0 && (
           <button className="mt-2 px-1 text-sm text-muted underline" onClick={() => setShowClosed(!showClosed)}>
@@ -294,5 +294,37 @@ function NewBudgetChooser({ open, onOpenChange, onCategory, onPlan }: { open: bo
         {option("De varias categorías", "Un solo límite para un grupo (ej. “Mis gustos” = Restaurantes + Ropa + Salidas), por periodo o por fechas.", onPlan)}
       </div>
     </Sheet>
+  );
+}
+
+/** Grupo de presupuestos con título destacado; se abre y se cierra tocándolo y el celular lo recuerda. */
+function BudgetGroup({ id, title, hint, summary, action, children }: { id: string; title: string; hint: string; summary?: string; action?: React.ReactNode; children: React.ReactNode }) {
+  const [open, setOpen] = useState(true);
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(`presupuestos:${id}`);
+      if (saved !== null) setOpen(saved === "1");
+    } catch {}
+  }, [id]);
+  function toggle() {
+    const next = !open;
+    setOpen(next);
+    try { localStorage.setItem(`presupuestos:${id}`, next ? "1" : "0"); } catch {}
+  }
+  return (
+    <section className="mt-6">
+      <div className="flex items-start gap-1">
+      <button type="button" onClick={toggle} aria-expanded={open} className="flex min-w-0 flex-1 items-start gap-2 px-1 pb-2 text-left">
+        <ChevronDown size={20} className={cn("mt-1 shrink-0 text-muted transition-transform", !open && "-rotate-90")} />
+        <span className="min-w-0 flex-1">
+          <span className="block font-display text-xl leading-tight">{title}</span>
+          <span className="block text-xs text-muted">{hint}</span>
+        </span>
+        {summary && <span className="num mt-1 shrink-0 text-sm text-muted">{summary}</span>}
+      </button>
+      {action && <div className="shrink-0">{action}</div>}
+      </div>
+      {open && <div className="space-y-2.5">{children}</div>}
+    </section>
   );
 }

@@ -102,7 +102,7 @@ export function BudgetDetailSheet({ limit: picked, status, onClose, onEdit }: {
 
         {limit.scope === "HOUSEHOLD" && (
           <div className="rounded-2xl border border-border px-3">
-            <SwitchRow label="Obligación del hogar"
+            <SwitchRow label="Pago obligatorio del hogar"
               hint={isObligation ? "Lo que falte por pagar se aparta de tu Saldo Seguro." : "No afecta tu Saldo Seguro: es un gasto opcional."}
               checked={isObligation} onCheckedChange={(v) => void toggleObligation(v)} />
             {obligationState && <p className="pb-2 text-xs text-muted">{obligationState === "saving" ? "Guardando…" : "Guardado ✓"}</p>}

@@ -200,7 +200,7 @@ export function LimitSheet({
         )}
 
         {household && (
-          <SwitchRow label="Obligación del hogar" hint="Lo que falte por pagar se aparta del Saldo Seguro de quien lo asume."
+          <SwitchRow label="Pago obligatorio del hogar" hint="Lo que falte por pagar se aparta del Saldo Seguro de quien lo asume."
             checked={obligation} onCheckedChange={setObligation} />
         )}
         {!household && partner && (
