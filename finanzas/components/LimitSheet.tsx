@@ -35,7 +35,7 @@ export function LimitSheet({
   /** Categoría sugerida para un presupuesto nuevo. */
   categoryId?: string | null;
 }) {
-  const { me, partner, settings, budgets, limits, categories, supabase, reload } = useFinance();
+  const { me, partner, settings, budgets, limits, categories, commitments, supabase, reload } = useFinance();
   const memberA = memberBySlot(me, partner, "A");
   const memberB = memberBySlot(me, partner, "B");
   const currentStart = periodFor(settings, todayBogota()).start;
@@ -121,9 +121,16 @@ export function LimitSheet({
     });
     if (!error && household) {
       // Amarrado: los vencimientos del hogar de esta categoría quedan a cargo de la misma persona (compartido: sin una sola persona)
+      // Montos fijos: cada vencimiento queda compartido en la misma proporción
       const who = resp === "MEMBER_A_100" ? memberA?.user_id : resp === "MEMBER_B_100" ? memberB?.user_id : null;
-      await supabase.from("scheduled_payments").update({ responsible_user_id: who ?? null })
-        .eq("household_id", me.household_id).eq("scope", "HOUSEHOLD").eq("category_id", category);
+      const a = parseCop(fixedA) ?? 0;
+      for (const c of commitments.filter((x) => x.scope === "HOUSEHOLD" && x.category_id === category)) {
+        const shareA = fixed && fixedTotal > 0 ? Math.round((c.amount * a) / fixedTotal) : null;
+        await supabase.from("scheduled_payments").update({
+          responsible_user_id: fixed ? null : who ?? null,
+          share_a: shareA, share_b: shareA === null ? null : c.amount - shareA,
+        }).eq("id", c.id);
+      }
     }
     setBusy(false);
     if (error) return setError(errMsg(error));

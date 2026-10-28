@@ -76,7 +76,8 @@ export function UpcomingList({
   onEdit?: (p: ScheduledPayment) => void;
   limit?: number;
 }) {
-  const { labels, memberById } = useFinance();
+  const { labels, memberById, me, partner } = useFinance();
+  const bySlot = (slot: "A" | "B") => [me, partner].find((m) => m?.slot === slot)?.user_id;
   const { openPayment } = useShell();
   const router = useRouter();
   type Row = { key: string; due: string; node: React.ReactNode };
@@ -86,6 +87,9 @@ export function UpcomingList({
     const w = whenLabel(o.due, today, !!o.paid);
     const p = o.payment;
     const resp = memberById(p.responsible_user_id);
+    const shared = p.share_a != null && p.share_b != null;
+    const shares = shared ? [{ userId: bySlot("A"), amount: Number(p.share_a) }, { userId: bySlot("B"), amount: Number(p.share_b) }]
+      .filter((x): x is { userId: string; amount: number } => !!x.userId) : undefined;
     rows.push({
       key: `${p.id}-${o.due}`,
       due: o.due,
@@ -100,7 +104,7 @@ export function UpcomingList({
               <span className="flex items-center gap-1 text-xs text-muted">
                 {p.scope === "HOUSEHOLD" ? <Home size={11} /> : <Lock size={11} />}
                 <span className={cn(w.tone === "danger" && "font-semibold text-danger", w.tone === "warn" && "font-semibold text-warning", w.tone === "ok" && "text-olive")}>{w.text}</span>
-                {resp && <> · a cargo de {resp.display_name}</>}
+                {shared ? <> · compartido</> : resp && <> · a cargo de {resp.display_name}</>}
               </span>
             </span>
           </button>
@@ -109,7 +113,7 @@ export function UpcomingList({
             <button className="shrink-0 rounded-full bg-olive-soft px-3 py-1.5 text-sm font-semibold"
               onClick={() => openPayment({
                 kind: p.kind, categoryId: p.category_id ?? undefined, amount: p.amount, description: p.name, scope: p.scope,
-                responsibleId: p.responsible_user_id ?? undefined, scheduledPaymentId: p.id, scheduledFor: o.due, date: today,
+                responsibleId: p.responsible_user_id ?? undefined, scheduledPaymentId: p.id, scheduledFor: o.due, date: today, shares,
               })}>
               Pagar
             </button>

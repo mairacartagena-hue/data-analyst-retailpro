@@ -358,6 +358,9 @@ export interface ScheduledPayment {
   amount: number;
   category_id: string | null;
   responsible_user_id: string | null;
+  /** Compartido con montos fijos (solo del hogar): lo que pone el miembro A y el B. */
+  share_a?: number | null;
+  share_b?: number | null;
   frequency: "ONCE" | "MONTHLY";
   due_date: string | null;
   day_of_month: number | null;

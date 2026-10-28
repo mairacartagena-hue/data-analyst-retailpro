@@ -13,12 +13,16 @@ import { AmountInput } from "@/components/AmountInput";
 import { CategoryOptions } from "@/components/CategoryPicker";
 import { formatCop, parseCop } from "@/lib/finance/money";
 import { categoryPath } from "@/lib/finance/spaces";
+import { budgetVersionAt } from "@/lib/finance/budget";
+import { toBudgetCategories } from "@/lib/finance/derive";
 import { periodFor, todayBogota } from "@/lib/finance/periods";
 import { errMsg } from "@/lib/utils";
 
 /** Crear o editar un vencimiento: un pago previsto (una vez o cada mes). */
 export function CommitmentSheet({ open, onOpenChange, payment }: { open: boolean; onOpenChange: (v: boolean) => void; payment: ScheduledPayment | null }) {
-  const { categories, limits, settings, supabase, reload, me, partner, household } = useFinance();
+  const { categories, limits, budgets, settings, supabase, reload, me, partner, household } = useFinance();
+  const memberA = [me, partner].find((m) => m?.slot === "A") ?? null;
+  const memberB = [me, partner].find((m) => m?.slot === "B") ?? null;
   const [scope, setScope] = useState<Space>("HOUSEHOLD");
   const [name, setName] = useState("");
   const [kind, setKind] = useState<ScheduledPayment["kind"]>("EXPENSE");
@@ -32,6 +36,9 @@ export function CommitmentSheet({ open, onOpenChange, payment }: { open: boolean
   const [end, setEnd] = useState("");
   const [active, setActive] = useState(true);
   const [toBudget, setToBudget] = useState(true);
+  // Compartido con montos fijos: lo que pone cada uno (miembro A y B)
+  const [shareA, setShareA] = useState("");
+  const [shareB, setShareB] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -44,7 +51,10 @@ export function CommitmentSheet({ open, onOpenChange, payment }: { open: boolean
     setKind(p?.kind ?? "EXPENSE");
     setAmount(p ? String(p.amount) : "");
     setCategoryId(p?.category_id ?? "");
-    setResponsible(p?.responsible_user_id ?? "");
+    const isShared = p?.share_a != null && p?.share_b != null;
+    setResponsible(isShared ? "SHARED" : (p?.responsible_user_id ?? ""));
+    setShareA(isShared ? String(p!.share_a) : "");
+    setShareB(isShared ? String(p!.share_b) : "");
     setFrequency(p?.frequency ?? "MONTHLY");
     setDay(String(p?.day_of_month ?? 1));
     setDueDate(p?.due_date ?? todayBogota());
@@ -69,13 +79,19 @@ export function CommitmentSheet({ open, onOpenChange, payment }: { open: boolean
     const d = Number(day);
     if (frequency === "MONTHLY" && (!Number.isInteger(d) || d < 1 || d > 31)) return setError("El día va de 1 a 31.");
     if (frequency === "ONCE" && !dueDate) return setError("Elige la fecha.");
+    const shared = scope === "HOUSEHOLD" && responsible === "SHARED";
+    const a = parseCop(shareA) ?? 0;
+    const b = parseCop(shareB) ?? 0;
+    if (shared && a + b !== n) return setError(`Las partes deben sumar ${formatCop(n)} (van ${formatCop(a + b)}).`);
     const row = {
       scope,
       name: name.trim(),
       kind,
       amount: n,
       category_id: categoryId || null,
-      responsible_user_id: responsible || null,
+      responsible_user_id: shared || !responsible ? null : responsible,
+      share_a: shared ? a : null,
+      share_b: shared ? b : null,
       frequency,
       day_of_month: frequency === "MONTHLY" ? d : null,
       due_date: frequency === "ONCE" ? dueDate : null,
@@ -91,12 +107,17 @@ export function CommitmentSheet({ open, onOpenChange, payment }: { open: boolean
     if (error) return setError(errMsg(error));
     // Amarrado al presupuesto del hogar de su categoría: si cambia quién lo asume, cambia también en el presupuesto
     const own = scope === "HOUSEHOLD" && categoryId ? limits.find((l) => l.scope === "HOUSEHOLD" && l.category_id === categoryId) ?? null : null;
-    const who = responsible ? [me, partner].find((m) => m?.user_id === responsible) ?? null : null;
-    const resp = who ? (who.slot === "B" ? "MEMBER_B_100" : "MEMBER_A_100") : null;
-    if (own && resp && own.responsibility !== resp) {
+    const currentStart = periodFor(settings, todayBogota()).start;
+    const who = responsible && !shared ? [me, partner].find((m) => m?.user_id === responsible) ?? null : null;
+    const resp = shared ? "FIXED_AMOUNTS" : who ? (who.slot === "B" ? "MEMBER_B_100" : "MEMBER_A_100") : null;
+    // Compartido: el presupuesto queda con montos fijos en la misma proporción (sobre su propio monto)
+    const ownAmount = own ? budgetVersionAt(toBudgetCategories([own], budgets)[0].budgets, currentStart)?.amount ?? n : n;
+    const fixedA = Math.round((ownAmount * a) / Math.max(1, n));
+    if (own && resp && (own.responsibility !== resp || shared)) {
       const r = await supabase.rpc("save_category_limit", { p: {
         id: own.id, category_id: own.category_id, scope: "HOUSEHOLD", responsibility: resp,
         is_household_obligation: own.is_household_obligation, rollover_enabled: own.rollover_enabled, shared_with_partner: false,
+        ...(shared ? { budget: { valid_from: currentStart, amount: ownAmount, fixed_amount_a: fixedA, fixed_amount_b: ownAmount - fixedA } } : {}),
       } });
       if (r.error) {
         void reload();
@@ -105,11 +126,12 @@ export function CommitmentSheet({ open, onOpenChange, payment }: { open: boolean
     }
     // Sin presupuesto del hogar para su categoría: se crea como pago obligatorio por el monto del vencimiento
     if (canBudget && !covering && toBudget) {
-      const who = [me, partner].find((m) => m?.user_id === (responsible || me.user_id)) ?? me;
+      const owner = [me, partner].find((m) => m?.user_id === (who?.user_id ?? me.user_id)) ?? me;
       const r = await supabase.rpc("save_category_limit", { p: {
-        id: null, category_id: categoryId, scope: "HOUSEHOLD", responsibility: who.slot === "B" ? "MEMBER_B_100" : "MEMBER_A_100",
+        id: null, category_id: categoryId, scope: "HOUSEHOLD",
+        responsibility: shared ? "FIXED_AMOUNTS" : owner.slot === "B" ? "MEMBER_B_100" : "MEMBER_A_100",
         is_household_obligation: true, rollover_enabled: false, shared_with_partner: false,
-        budget: { valid_from: periodFor(settings, todayBogota()).start, amount: n, fixed_amount_a: null, fixed_amount_b: null },
+        budget: { valid_from: currentStart, amount: n, fixed_amount_a: shared ? a : null, fixed_amount_b: shared ? b : null },
       } });
       if (r.error) {
         void reload();
@@ -168,14 +190,33 @@ export function CommitmentSheet({ open, onOpenChange, payment }: { open: boolean
           <p className="-mt-2 text-xs text-muted">Cuenta en el presupuesto del hogar de {categoryPath(categories, covering.category_id)}.</p>
         ) : (
           <SwitchRow label="Agregarlo a Presupuestos"
-            hint={`Crea el presupuesto del hogar de ${categoryPath(categories, categoryId)}${(parseCop(amount) ?? 0) > 0 ? ` por ${formatCop(parseCop(amount) ?? 0)} al mes` : ""}, como pago obligatorio.`}
+            hint={`Crea el presupuesto del hogar de ${categoryPath(categories, categoryId)}${(parseCop(amount) ?? 0) > 0 ? ` por ${formatCop(parseCop(amount) ?? 0)} al mes` : ""}, como pago obligatorio${responsible === "SHARED" ? " compartido con montos fijos" : ""}.`}
             checked={toBudget} onCheckedChange={setToBudget} />
         ))}
         {partner && (
           <Field label="¿Quién lo asume? (opcional)"
             hint={scope === "HOUSEHOLD" && covering?.category_id === categoryId ? `Va amarrado al presupuesto de ${categoryPath(categories, categoryId)}: si lo cambias aquí, cambia allá${covering.responsibility === "FIXED_AMOUNTS" ? " (deja de ser compartido con montos fijos)" : ""}.` : undefined}>
-            <ChipGroup value={responsible} onChange={(v) => setResponsible(v === responsible ? "" : v)} options={members} />
+            <ChipGroup value={responsible} onChange={(v) => {
+              const next = v === responsible ? "" : v;
+              setResponsible(next);
+              // Al elegir "Compartido" se propone mitad y mitad
+              if (next === "SHARED" && !shareA && !shareB) {
+                const n = parseCop(amount) ?? 0;
+                setShareA(String(Math.ceil(n / 2) || ""));
+                setShareB(String(Math.floor(n / 2) || ""));
+              }
+            }} options={scope === "HOUSEHOLD" ? [...members, { value: "SHARED", label: "Compartido", color: "var(--household)" }] : members} />
           </Field>
+        )}
+        {partner && scope === "HOUSEHOLD" && responsible === "SHARED" && (
+          <div className="grid grid-cols-2 gap-3">
+            <Field label={memberA?.user_id === me.user_id ? "Pongo yo" : `Pone ${memberA?.display_name ?? "A"}`}><AmountInput value={shareA} onChange={(v) => {
+              setShareA(v);
+              const n = parseCop(amount) ?? 0;
+              if (n > 0) setShareB(String(Math.max(0, n - (parseCop(v) ?? 0))));
+            }} /></Field>
+            <Field label={memberB?.user_id === me.user_id ? "Pongo yo" : `Pone ${memberB?.display_name ?? "B"}`}><AmountInput value={shareB} onChange={setShareB} /></Field>
+          </div>
         )}
         <Field label="¿Cada cuánto?">
           <Segmented value={frequency} onChange={setFrequency} options={[
