@@ -143,7 +143,7 @@ export default function MovimientosPage() {
 
       <SwipePeriods>
         <p className="num mt-3 px-1 text-sm text-muted">
-          {list.length} movimiento{list.length === 1 ? "" : "s"} · gastos {formatCop(totalExpense)}
+          {list.length} movimiento{list.length === 1 ? "" : "s"} · pagos {formatCop(totalExpense)}
           {totalIncome > 0 ? ` · ingresos ${formatCop(totalIncome)}` : ""}
         </p>
         {groups.length === 0 ? (

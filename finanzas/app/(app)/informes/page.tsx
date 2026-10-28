@@ -11,16 +11,17 @@ import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
 import type { Member } from "@/lib/types";
 import { formatCop } from "@/lib/finance/money";
-import { isWithin, monthName, todayBogota } from "@/lib/finance/periods";
-import { shiftMonth } from "@/lib/finance/reconcile";
+import { isWithin, periodFor, shiftPeriod, todayBogota } from "@/lib/finance/periods";
+import { shortPeriod } from "@/lib/finance/periodLabels";
+import { BudgetVsActual, FixedVsVariable, TaxSummaryCard } from "@/components/reports/ExtraReports";
 import { spendingByTag } from "@/lib/finance/tags";
-import { inReportSpace, monthlyTrend, spendingByCategory, spendingByPerson, toCsv, type ReportSpace } from "@/lib/finance/reports";
+import { inReportSpace, pendingInPeriod, periodTrend, spendingByCategory, spendingByPerson, toCsv, type ReportSpace } from "@/lib/finance/reports";
 
 const SERIES_1 = "var(--series-1)";
 const SERIES_2 = "var(--series-2)";
 
 export default function InformesPage() {
-  const { transactions: all, consumption: allConsumption, categories, labels, period, me, partner, memberById, tags, txTags } = useFinance();
+  const { transactions: all, consumption: allConsumption, categories, labels, period, me, partner, memberById, tags, txTags, settings } = useFinance();
   const router = useRouter();
   const members = [me, partner].filter(Boolean) as Member[];
   const [space, setSpace] = useState<ReportSpace>("all");
@@ -39,16 +40,19 @@ export default function InformesPage() {
   };
   const totalIncome = transactions.filter((t) => t.kind === "INCOME" && isWithin(t.occurred_on, period)).reduce((a, t) => a + t.amount, 0);
 
-  const months = useMemo(() => {
-    const current = todayBogota().slice(0, 7);
-    return Array.from({ length: 6 }, (_, i) => shiftMonth(current, i - 5));
-  }, []);
-  const trend = useMemo(() => monthlyTrend(consumption, months), [consumption, months]);
+  // Tendencia por los periodos del hogar (mensual con su día de inicio, o quincenal), como “Consumo del periodo”
+  const periods = useMemo(() => {
+    const current = periodFor(settings, todayBogota());
+    return Array.from({ length: 6 }, (_, i) => shiftPeriod(settings, current, i - 5));
+  }, [settings]);
+  const trend = useMemo(() => periodTrend(consumption, periods), [consumption, periods]);
+  const pending = useMemo(() => pendingInPeriod(consumption, period), [consumption, period]);
   const byTag = useMemo(() => spendingByTag(consumption, txTags, tags, period), [consumption, txTags, tags, period]);
   const people = useMemo(() => spendingByPerson(consumption, categories, period, members), [consumption, categories, period, members]);
 
   function download() {
-    const inPeriod = transactions.filter((t) => isWithin(t.occurred_on, period));
+    // Igual que los gráficos: una compra a cuotas sale con la cuota del periodo (columna “Cuota”)
+    const inPeriod = consumption.filter((t) => isWithin(t.occurred_on, period));
     const csv = toCsv(inPeriod, { categories, labels, memberById, tagsOf: (id) => (txTags[id] ?? []).map((x) => tags.find((t) => t.id === x)?.name).filter((n): n is string => !!n) });
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
     const a = document.createElement("a");
@@ -58,7 +62,6 @@ export default function InformesPage() {
     URL.revokeObjectURL(url);
   }
 
-  const shortMonth = (m: string) => monthName(Number(m.slice(5)) - 1);
 
   return (
     <main className="px-4 pt-[calc(12px+env(safe-area-inset-top))]">
@@ -79,7 +82,7 @@ export default function InformesPage() {
       <SwipePeriods>
         <div className="mt-4 grid grid-cols-2 gap-3">
           <div className="rounded-3xl border border-border bg-surface p-4">
-            <p className="text-xs text-muted">Gastos del periodo</p>
+            <p className="text-xs text-muted">Consumo del periodo</p>
             <p className="num mt-1 font-display text-2xl">{formatCop(totalExpense)}</p>
           </div>
           <div className="rounded-3xl border border-border bg-surface p-4">
@@ -89,8 +92,13 @@ export default function InformesPage() {
         </div>
         <p className="mt-2 px-1 text-xs text-muted">
           {space === "household" ? "Solo movimientos del hogar, pague quien pague." : space === "personal" ? "Tus movimientos personales (y los de tu pareja en los que te asignó una parte)." : "Todo lo que puedes ver: lo del hogar y lo tuyo."}
-          {" "}Las transferencias, liquidaciones y ajustes no cuentan; los reembolsos restan.
+          {" "}Las transferencias, liquidaciones y ajustes no cuentan; los reembolsos restan. Las compras a cuotas cuentan solo la cuota del periodo (en Movimientos salen por su valor completo).
         </p>
+        {pending.count > 0 && (
+          <Link href="/movimientos?filtro=pendientes" className="mt-2 block rounded-2xl bg-warning-soft px-3 py-2 text-sm">
+            Incluye {formatCop(pending.amount)} de {pending.count} movimiento{pending.count === 1 ? "" : "s"} por revisar: pueden cambiar de categoría al revisarlos. <span className="font-semibold underline">Revisar</span>
+          </Link>
+        )}
 
         <div className="mt-4 space-y-4">
           <ChartCard title={group === "sub" ? "Gastos por subcategoría" : "Gastos por categoría"}
@@ -123,11 +131,15 @@ export default function InformesPage() {
             {partner && <p className="mt-3 text-xs text-muted">Lo personal de tu pareja solo aparece si lo compartió contigo.</p>}
           </ChartCard>
 
-          <ChartCard title="Tendencia de 6 meses" subtitle="Ingresos y gastos por mes calendario"
-            table={{ columns: ["Mes", "Ingresos", "Gastos"], rows: trend.map((t) => [shortMonth(t.month), t.income, t.expense]) }}>
-            <GroupedColumns data={trend.map((t) => ({ label: shortMonth(t.month), values: [t.income, t.expense] }))}
+          <ChartCard title="Tendencia de 6 periodos" subtitle="Ingresos y consumo por periodo (los mismos de arriba)"
+            table={{ columns: ["Periodo", "Ingresos", "Gastos"], rows: trend.map((t) => [shortPeriod(t.period), t.income, t.expense]) }}>
+            <GroupedColumns data={trend.map((t) => ({ label: shortPeriod(t.period), values: [t.income, t.expense] }))}
               series={[{ label: "Ingresos", color: SERIES_1 }, { label: "Gastos", color: SERIES_2 }]} />
           </ChartCard>
+
+          <BudgetVsActual space={space} />
+          <FixedVsVariable consumption={consumption} period={period} />
+          <TaxSummaryCard />
         </div>
       </SwipePeriods>
     </main>
