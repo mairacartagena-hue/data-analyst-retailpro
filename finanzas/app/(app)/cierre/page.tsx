@@ -54,6 +54,8 @@ async function ensureCategory(state: FinanceState, sb: SupabaseClient, name: str
 
 export default function CierrePage() {
   const state = useFinance();
+  // Una cuenta abierta a la vez: al entrar, la primera sin conciliar
+  const [openId, setOpenId] = useState<string | null>(null);
   const { accounts, me, transactions, reconciliations, categories, period } = state;
   const [month, setMonth] = useState(() => suggestedCloseMonth(todayBogota()));
   useEffect(() => {
@@ -67,6 +69,8 @@ export default function CierrePage() {
   const myCredits = mine.filter((a) => isCreditKind(a.kind));
   const doneOf = (list: Account[]) => list.filter((a) => done.includes(a)).length;
   const [tab, setTab] = useState<"cuentas" | "creditos">("cuentas");
+  // Al cambiar de pestaña o de mes vuelve a abrirse la primera pendiente (al conciliar una, se abre la siguiente)
+  useEffect(() => setOpenId(null), [tab, month]);
   const shown = tab === "creditos" ? myCredits : myAccounts;
 
   // ¿Qué hace falta? Obligaciones del periodo que cierra el mes, pendientes y avisos sin reconocer
@@ -138,7 +142,9 @@ export default function CierrePage() {
       {shown.length === 0 ? (
         <p className="px-1 text-sm text-muted">{tab === "creditos" ? "No tienes créditos ni préstamos. Agrégalos en Cuentas → Créditos." : "No tienes cuentas. Agrégalas en Cuentas."}</p>
       ) : (
-        <div className="space-y-3">{shown.map((a) => <AccountClose key={a.id} account={a} month={month} />)}</div>
+        <div className="space-y-3">{shown.map((a) => <AccountClose key={a.id} account={a} month={month}
+          open={(openId ?? shown.find((x) => !reconciliations.some((r) => r.account_id === x.id && r.month === monthRange(month).start))?.id) === a.id}
+          onToggle={() => setOpenId((cur) => (cur === a.id ? "" : a.id))} />)}</div>
       )}
       {tab === "creditos" && shown.length > 0 && (
         <p className="mt-3 px-1 text-xs text-muted">
@@ -152,7 +158,7 @@ export default function CierrePage() {
   );
 }
 
-function AccountClose({ account, month }: { account: Account; month: string }) {
+function AccountClose({ account, month, open, onToggle }: { account: Account; month: string; open: boolean; onToggle: () => void }) {
   const state = useFinance();
   const { transactions, reconciliations, supabase, reload, uvt } = state;
   const { openTransaction } = useShell();
@@ -164,7 +170,6 @@ function AccountClose({ account, month }: { account: Account; month: string }) {
   const isCard = account.kind === "CREDIT_CARD";
   const isCredit = isCreditKind(account.kind);
   const isDebt = isCard || isCredit;
-  const [open, setOpen] = useState(!rec);
   const [bank, setBank] = useState("");
   const [fee, setFee] = useState<FeeKey | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -229,11 +234,11 @@ function AccountClose({ account, month }: { account: Account; month: string }) {
 
   return (
     <Card className="p-0">
-      <button className="flex w-full items-center gap-3 p-4 text-left" onClick={() => setOpen(!open)} aria-expanded={open}>
+      <button className="flex w-full items-center gap-3 p-4 text-left" onClick={onToggle} aria-expanded={open}>
         <Landmark size={18} className="shrink-0 text-muted" />
         <span className="min-w-0 flex-1">
           <span className="block truncate font-semibold">{account.name}{account.last4 ? ` ··${account.last4}` : ""}</span>
-          <span className="text-xs text-muted">{ACCOUNT_KIND_LABEL[account.kind]}</span>
+          <span className="text-xs text-muted">{open ? ACCOUNT_KIND_LABEL[account.kind] : `${isDebt ? "Deuda" : "Saldo"} según la app ${formatCop(appValue)}`}</span>
         </span>
         {rec?.status === "RECONCILED" ? (
           <span className="flex items-center gap-1 rounded-full bg-olive-soft px-2 py-0.5 text-xs font-semibold"><CheckCircle2 size={13} /> Conciliada</span>

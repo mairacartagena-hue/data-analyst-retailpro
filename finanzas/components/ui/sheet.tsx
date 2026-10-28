@@ -57,19 +57,44 @@ export function Sheet({
 }
 
 let seq = 0;
+/** "Atrás" que pidió una hoja al cerrarse y aún no llega; mientras tanto las hojas nuevas esperan para no perder su entrada. */
+let pendingBacks = 0;
+let popIsOurs = false;
+const waiting: (() => void)[] = [];
+let listening = false;
+
+function listenOnce() {
+  if (listening || typeof window === "undefined") return;
+  listening = true;
+  // Va antes que los de cada hoja: marca si este "atrás" lo pidió una hoja al cerrarse
+  window.addEventListener("popstate", () => {
+    popIsOurs = pendingBacks > 0;
+    if (pendingBacks > 0) pendingBacks--;
+    if (pendingBacks === 0) waiting.splice(0).forEach((push) => push());
+  });
+}
 
 /** Mientras la hoja está abierta hay una entrada en el historial: "atrás" la quita y cierra la hoja. */
 function useBackButtonCloses(open: boolean, onOpenChange: (open: boolean) => void) {
-  const id = React.useRef(0);
   const close = React.useRef(onOpenChange);
   close.current = onOpenChange;
   React.useEffect(() => {
     if (!open || typeof window === "undefined") return;
-    const mine = (id.current = ++seq);
-    window.history.pushState({ ...(window.history.state ?? {}), __sheet: mine }, "", window.location.href);
+    listenOnce();
+    const mine = ++seq;
+    let pushed = false;
+    let cancelled = false;
+    const push = () => {
+      if (cancelled) return;
+      window.history.pushState({ ...(window.history.state ?? {}), __sheet: mine }, "", window.location.href);
+      pushed = true;
+    };
+    if (pendingBacks > 0) waiting.push(push);
+    else push();
     let poppedByBack = false;
     const onPop = () => {
-      // Se quitó nuestra entrada (atrás): cerrar. Si quedó otra hoja encima, no es la nuestra.
+      if (popIsOurs || !pushed) return;
+      // Se quitó nuestra entrada (atrás del celular): cerrar. Si quedó otra hoja encima, no es la nuestra.
       if ((window.history.state as { __sheet?: number } | null)?.__sheet !== mine && !poppedByBack) {
         poppedByBack = true;
         close.current(false);
@@ -77,9 +102,13 @@ function useBackButtonCloses(open: boolean, onOpenChange: (open: boolean) => voi
     };
     window.addEventListener("popstate", onPop);
     return () => {
+      cancelled = true;
       window.removeEventListener("popstate", onPop);
       // Se cerró con la X, al guardar o tocando afuera: quitar la entrada que pusimos
-      if (!poppedByBack && (window.history.state as { __sheet?: number } | null)?.__sheet === mine) window.history.back();
+      if (pushed && !poppedByBack && (window.history.state as { __sheet?: number } | null)?.__sheet === mine) {
+        pendingBacks++;
+        window.history.back();
+      }
     };
   }, [open]);
 }

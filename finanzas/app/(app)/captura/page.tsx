@@ -58,7 +58,10 @@ export default function CapturaPage() {
   const { supabase, me, categories, memberById, reload } = useFinance();
   const [origin, setOrigin] = useState("");
   const [token, setToken] = useState<{ token_hint: string; created_at: string; last_used_at: string | null } | null>(null);
+  // Con el token ya recibiendo avisos, la guía de configuración queda plegada
+  const [showSetup, setShowSetup] = useState(false);
   const [newToken, setNewToken] = useState<string | null>(null);
+  const connected = !!token?.last_used_at && !newToken;
   const [logs, setLogs] = useState<IngestLog[]>([]);
   const [memory, setMemory] = useState<MerchantMemory[]>([]);
   const [open, setOpen] = useState<string | null>("android");
@@ -171,6 +174,18 @@ export default function CapturaPage() {
       </p>
       <ErrorText>{error}</ErrorText>
 
+      {connected && (
+        <Card className="mt-4 flex items-center gap-3">
+          <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-olive" aria-hidden />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold">Conectada</p>
+            <p className="text-xs text-muted">Último aviso: {new Date(token!.last_used_at!).toLocaleString("es-CO")} · token …{token!.token_hint}</p>
+          </div>
+          <Button size="sm" variant="outline" onClick={() => setShowSetup(!showSetup)}>{showSetup ? "Ocultar" : "Configuración"}</Button>
+        </Card>
+      )}
+
+      {(!connected || showSetup) && (<>
       <SectionTitle>1 · Tu token</SectionTitle>
       <Card className="space-y-3">
         {newToken ? (
@@ -240,6 +255,7 @@ export default function CapturaPage() {
           </ol>
         ))}
       </div>
+      </>)}
 
       <section id="sin-reconocer" className="scroll-mt-4">
         <SectionTitle>Avisos sin reconocer{failed.length > 0 ? ` (${failed.length})` : ""}</SectionTitle>

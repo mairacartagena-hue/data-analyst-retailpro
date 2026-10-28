@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { AlertTriangle, ChevronDown, Home, Lock, Pause, Plus, Users } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { PeriodSwitcher, SwipePeriods } from "@/components/PeriodSwitcher";
@@ -15,6 +14,7 @@ import { UpcomingList, useUpcoming } from "@/components/Upcoming";
 import { MemberBadge } from "@/components/MemberBadge";
 import { Button } from "@/components/ui/button";
 import { Card, SectionTitle } from "@/components/ui/card";
+import { Sheet } from "@/components/ui/sheet";
 import type { BudgetPlan, CategoryLimit, ScheduledPayment } from "@/lib/types";
 import { limitResponsible, statusesFor } from "@/lib/finance/derive";
 import { formatCop, formatCopShort } from "@/lib/finance/money";
@@ -37,6 +37,7 @@ export default function PresupuestosPage() {
   const [commitment, setCommitment] = useState<ScheduledPayment | null>(null);
   const [commitmentOpen, setCommitmentOpen] = useState(false);
   const [showClosed, setShowClosed] = useState(false);
+  const [chooser, setChooser] = useState(false);
 
   const statuses = useMemo(() => statusesFor(state, period), [state, period]);
   const upcoming = useUpcoming(period);
@@ -107,40 +108,11 @@ export default function PresupuestosPage() {
     <main className="px-4 pt-[calc(12px+env(safe-area-inset-top))]">
       <div className="flex items-center justify-between py-2">
         <h1 className="font-display text-3xl">Presupuesto</h1>
-        <Button size="sm" onClick={() => editPlan(null)}><Plus size={16} /> Presupuesto</Button>
+        <Button size="sm" onClick={() => setChooser(true)}><Plus size={16} /> Presupuesto</Button>
       </div>
       <PeriodSwitcher />
 
       <SwipePeriods>
-        {/* Presupuestos con nombre */}
-        <SectionTitle>Presupuestos</SectionTitle>
-        {visiblePlans.length === 0 ? (
-          <Card className="space-y-2 text-sm">
-            <p>Agrupa categorías con un límite: “Comida” (Alimentación), “Casa” (Vivienda y hogar) o uno personal como “Mis gustos”.</p>
-            <Button size="sm" variant="secondary" onClick={() => editPlan(null)}><Plus size={15} /> Crear presupuesto</Button>
-          </Card>
-        ) : (
-          <div className="space-y-2.5">
-            {visiblePlans.map((p) => <PlanCard key={p.id} plan={p} m={metrics.get(p.id)!}
-              onEdit={p.scope === "PERSONAL" && p.owner_user_id !== me.user_id ? undefined : () => editPlan(p)} />)}
-          </div>
-        )}
-        {closedPlans.length > 0 && (
-          <button className="mt-2 px-1 text-sm text-muted underline" onClick={() => setShowClosed(!showClosed)}>
-            {showClosed ? "Ocultar" : "Ver"} cerrados o fuera de fecha ({closedPlans.length})
-          </button>
-        )}
-        {showClosed && (
-          <div className="mt-2 space-y-2">
-            {closedPlans.map((p) => (
-              <button key={p.id} onClick={() => (p.scope === "HOUSEHOLD" || p.owner_user_id === me.user_id) && editPlan(p)} className="flex w-full items-center gap-2 rounded-2xl border border-dashed border-border p-3 text-left text-muted">
-                <span>{p.icon || "•"}</span>{p.name}
-                <span className="ml-auto text-xs">{p.status === "CLOSED" ? "Cerrado" : `${formatDay(p.start_date)}${p.end_date ? ` – ${formatDay(p.end_date)}` : ""}`}</span>
-              </button>
-            ))}
-          </div>
-        )}
-
         {/* Próximos vencimientos */}
         <div className="mt-6 flex items-center justify-between">
           <SectionTitle className="m-0">Próximos vencimientos</SectionTitle>
@@ -160,14 +132,7 @@ export default function PresupuestosPage() {
         )}
 
         {/* Presupuestos por categoría */}
-        <div className="mt-6 flex items-center justify-between">
-          <SectionTitle className="m-0">Presupuestos por categoría</SectionTitle>
-          <Button size="sm" variant="ghost" onClick={() => editLimit(null)}><Plus size={16} /> Categoría</Button>
-        </div>
-        <p className="mb-2 px-1 text-xs text-muted">
-          Aquí se define si el presupuesto es del hogar o personal y quién lo asume. Las categorías las usan los dos
-          (<Link href="/categorias" className="font-semibold text-olive underline">ver categorías</Link>).
-        </p>
+        <SectionTitle>Presupuestos por categoría</SectionTitle>
         {shown.some((l) => l.scope === "HOUSEHOLD") && (
           <div className="grid grid-cols-2 gap-3">
             {perMember.map(({ member, available, spent }) => (
@@ -179,7 +144,7 @@ export default function PresupuestosPage() {
                 <div className="mt-2 h-2 overflow-hidden rounded-full bg-surface-2">
                   <div className="h-full rounded-full" style={{ width: `${Math.min(100, available ? (spent / available) * 100 : 0)}%`, background: member.color }} />
                 </div>
-                <p className="num mt-1.5 text-xs text-muted">{formatCop(spent)} de {formatCop(available)}</p>
+                <p className="num mt-1.5 text-xs text-muted">{formatCopShort(spent)} de {formatCopShort(available)}</p>
               </Card>
             ))}
           </div>
@@ -188,7 +153,7 @@ export default function PresupuestosPage() {
         {shown.length === 0 && (
           <Card className="space-y-2 text-sm">
             <p>Ponle un límite a una categoría (ej. Mercado del hogar con montos fijos, o tu Ropa personal) y define quién lo asume.</p>
-            <Button size="sm" variant="secondary" onClick={() => editLimit(null)}><Plus size={15} /> Crear presupuesto de categoría</Button>
+            <Button size="sm" variant="secondary" onClick={() => setChooser(true)}><Plus size={15} /> Crear presupuesto</Button>
           </Card>
         )}
 
@@ -210,8 +175,35 @@ export default function PresupuestosPage() {
             </div>
           </section>
         ))}
+
+        {/* Presupuestos de varias categorías (con nombre): solo si hay alguno */}
+        {visiblePlans.length > 0 && <SectionTitle>De varias categorías</SectionTitle>}
+        {visiblePlans.length > 0 && (
+          <div className="space-y-2.5">
+            {visiblePlans.map((p) => <PlanCard key={p.id} plan={p} m={metrics.get(p.id)!}
+              onEdit={p.scope === "PERSONAL" && p.owner_user_id !== me.user_id ? undefined : () => editPlan(p)} />)}
+          </div>
+        )}
+        {closedPlans.length > 0 && (
+          <button className="mt-2 px-1 text-sm text-muted underline" onClick={() => setShowClosed(!showClosed)}>
+            {showClosed ? "Ocultar" : "Ver"} cerrados o fuera de fecha ({closedPlans.length})
+          </button>
+        )}
+        {showClosed && (
+          <div className="mt-2 space-y-2">
+            {closedPlans.map((p) => (
+              <button key={p.id} onClick={() => (p.scope === "HOUSEHOLD" || p.owner_user_id === me.user_id) && editPlan(p)} className="flex w-full items-center gap-2 rounded-2xl border border-dashed border-border p-3 text-left text-muted">
+                <span>{p.icon || "•"}</span>{p.name}
+                <span className="ml-auto text-xs">{p.status === "CLOSED" ? "Cerrado" : `${formatDay(p.start_date)}${p.end_date ? ` – ${formatDay(p.end_date)}` : ""}`}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
       </SwipePeriods>
 
+      <NewBudgetChooser open={chooser} onOpenChange={setChooser}
+        onCategory={() => { setChooser(false); editLimit(null); }} onPlan={() => { setChooser(false); editPlan(null); }} />
       <LimitSheet open={limitOpen} onOpenChange={setLimitOpen} limit={limit} />
       <BudgetDetailSheet limit={detail} status={detail ? statuses.get(detail.id) : undefined} onClose={() => setDetail(null)} onEdit={(l) => !isPartners(l) && editLimit(l)} />
       <PlanSheet open={planOpen} onOpenChange={setPlanOpen} plan={plan} />
@@ -282,5 +274,23 @@ function PlanCard({ plan, m, onEdit }: { plan: BudgetPlan; m: PlanMetrics; onEdi
         </div>
       )}
     </div>
+  );
+}
+
+/** “+ Presupuesto”: elegir si es de una categoría o agrupa varias. */
+function NewBudgetChooser({ open, onOpenChange, onCategory, onPlan }: { open: boolean; onOpenChange: (v: boolean) => void; onCategory: () => void; onPlan: () => void }) {
+  const option = (title: string, hint: string, onClick: () => void) => (
+    <button type="button" onClick={onClick} className="w-full rounded-2xl border border-border bg-surface px-4 py-3.5 text-left hover:bg-surface-2">
+      <span className="block font-semibold">{title}</span>
+      <span className="mt-0.5 block text-sm text-muted">{hint}</span>
+    </button>
+  );
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange} title="Nuevo presupuesto">
+      <div className="space-y-2.5 pb-2">
+        {option("De una categoría", "Un límite para una categoría (ej. Mercado o Ropa). Ahí decides si es del hogar o personal y quién lo asume.", onCategory)}
+        {option("De varias categorías", "Un solo límite para un grupo (ej. “Mis gustos” = Restaurantes + Ropa + Salidas), por periodo o por fechas.", onPlan)}
+      </div>
+    </Sheet>
   );
 }

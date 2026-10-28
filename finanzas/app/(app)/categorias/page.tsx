@@ -119,11 +119,6 @@ export default function CategoriasPage() {
         <div key={c.id} className="divide-y divide-border">
           {row(c)}
           {(childrenOf.get(c.id) ?? []).map((sub) => row(sub, true))}
-          {c.kind !== "INCOME" && !c.archived && (
-            <button onClick={() => edit(null, "EXPENSE", c.id)} className="flex w-full items-center gap-2 py-2 pl-8 text-left text-xs font-medium text-olive hover:bg-surface-2">
-              <Plus size={13} /> Subcategoría en {c.name}
-            </button>
-          )}
         </div>
       ))}
     </div>
@@ -140,7 +135,7 @@ export default function CategoriasPage() {
       </div>
       <p className="px-1 text-sm text-muted">
         Son las mismas de <Link href="/presupuestos" className="font-semibold text-olive underline">Presupuesto</Link> y
-        las que eliges al registrar un pago. Las usan los dos: solo dicen en qué se gastó. Si un gasto es del hogar o personal, y quién lo asume, se define en Presupuesto y en cada movimiento.
+        las que eliges al registrar un pago. Para crear una subcategoría (ej. Energía dentro de Servicios), toca “Nueva” y elige en qué categoría va.
       </p>
 
       <div className="mt-3 space-y-1.5 rounded-2xl bg-surface-2 p-3">

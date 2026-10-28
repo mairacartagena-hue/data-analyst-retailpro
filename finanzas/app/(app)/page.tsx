@@ -8,7 +8,6 @@ import { ArrowRightLeft, ChevronDown, Info, Settings } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { useShell } from "@/components/AppShell";
 import { PeriodSwitcher, SwipePeriods } from "@/components/PeriodSwitcher";
-import { BudgetBar } from "@/components/BudgetBar";
 import { MemberBadge } from "@/components/MemberBadge";
 import { PendingReview } from "@/components/PendingReview";
 import { BudgetDetailSheet } from "@/components/BudgetDetailSheet";
@@ -20,7 +19,7 @@ import { Card, SectionTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
 import { Sheet } from "@/components/ui/sheet";
-import { cashFlow, crossNet, limitResponsible, limitsForScope, netWorth, safeToSpendDetail, safeToSpendFor, statusesFor, type SafeToSpendDetail, type Scope } from "@/lib/finance/derive";
+import { cashFlow, crossNet, limitsForScope, netWorth, safeToSpendDetail, safeToSpendFor, statusesFor, type SafeToSpendDetail, type Scope } from "@/lib/finance/derive";
 import { formatCop } from "@/lib/finance/money";
 import { categoryPath } from "@/lib/finance/spaces";
 import { categoryLabel } from "@/lib/finance/labels";
@@ -30,8 +29,8 @@ const SCOPE_KEY = "home-scope";
 
 export default function HomePage() {
   const state = useFinance();
-  const { me, partner, period, memberById } = state;
-  const { openSettle, openTransaction, openPayment } = useShell();
+  const { me, partner, period } = state;
+  const { openSettle } = useShell();
   const [detail, setDetail] = useState<CategoryLimit | null>(null);
   const router = useRouter();
   const [scope, setScopeState] = useState<Scope>("me");
@@ -55,19 +54,6 @@ export default function HomePage() {
   const [withPending, setWithPending] = useState(false);
   const [flowInfo, setFlowInfo] = useState(false);
   const cats = limitsForScope(state, scope);
-  const obligations = cats.filter((l) => l.is_household_obligation);
-  const others = cats.filter((l) => !l.is_household_obligation);
-  const bar = (l: CategoryLimit) => {
-    const category = state.categories.find((c) => c.id === l.category_id);
-    if (!category) return null;
-    return (
-      <BudgetBar key={l.id} category={category} limit={l} status={statuses.get(l.id)} memberById={memberById} meId={me.user_id}
-        label={categoryPath(state.categories, category.id)} icon={categoryLabel(state.categories, category.id).icon}
-        onPay={l.scope === "PERSONAL" && l.owner_user_id !== me.user_id ? undefined
-          : (amount) => openPayment({ categoryId: category.id, amount, scope: l.scope, responsibleId: limitResponsible(l, me, partner) ?? me.user_id })}
-        onClick={() => setDetail(l)} />
-    );
-  };
   const upcoming = useUpcoming(period);
   const pendingDues = upcoming.occurrences.filter((o) => !o.paid && (scope !== "household" || o.payment.scope === "HOUSEHOLD"));
   const cardDues = scope === "household" ? [] : upcoming.cards;
@@ -141,19 +127,10 @@ export default function HomePage() {
             <Link href="/presupuestos" className="inline-block font-semibold text-olive underline">Crear un presupuesto</Link>
           </Card>
         ) : (
-          <>
-            {obligations.length > 0 && <SectionTitle>Obligaciones del hogar</SectionTitle>}
-            <div className="space-y-2.5">
-              {obligations.map(bar)}
-            </div>
-            {others.length > 0 && <SectionTitle>{scope === "me" ? "Mis presupuestos" : "Otros presupuestos"}</SectionTitle>}
-            <div className="space-y-2.5">
-              {others.map(bar)}
-            </div>
-          </>
+          <BudgetAlerts cats={cats} statuses={statuses} onOpen={setDetail} />
         )}
 
-        <SectionTitle>Patrimonio y flujo de caja</SectionTitle>
+        <SectionTitle>Patrimonio y flujo</SectionTitle>
         <div className="grid grid-cols-2 gap-3">
           <Card>
             <p className="text-xs text-muted">Patrimonio neto</p>
@@ -185,11 +162,52 @@ export default function HomePage() {
           </div>
         )}
 
-        <Button variant="outline" className="mt-6 w-full" onClick={() => openTransaction(null)}>Registrar un movimiento</Button>
       </SwipePeriods>
       <BudgetDetailSheet limit={detail} status={detail ? statuses.get(detail.id) : undefined} onClose={() => setDetail(null)}
         onEdit={(l) => router.push(`/presupuestos?limite=${l.id}`)} />
     </main>
+  );
+}
+
+/** Inicio: solo los presupuestos que pasan del 80 % (los demás están en Presupuesto). */
+function BudgetAlerts({ cats, statuses, onOpen }: { cats: CategoryLimit[]; statuses: ReturnType<typeof statusesFor>; onOpen: (l: CategoryLimit) => void }) {
+  const { categories } = useFinance();
+  const watch = cats
+    .map((l) => ({ l, st: statuses.get(l.id) }))
+    .filter((x) => x.st && categories.some((c) => c.id === x.l.category_id) && x.st.ratio >= 0.8)
+    .sort((x, y) => y.st!.ratio - x.st!.ratio);
+  return (
+    <>
+      <div className="mt-5 flex items-center justify-between">
+        <SectionTitle className="m-0">Presupuestos en alerta</SectionTitle>
+        <Link href="/presupuestos" className="text-sm font-semibold text-olive">Ver todos ({cats.length})</Link>
+      </div>
+      {watch.length === 0 ? (
+        <Card className="text-sm text-muted">Todos tus presupuestos van bien este periodo.</Card>
+      ) : (
+        <Card className="divide-y divide-border p-0">
+          {watch.slice(0, 3).map(({ l, st }) => {
+            const left = st!.totalAvailable - st!.totalSpent;
+            const icon = categoryLabel(categories, l.category_id).icon;
+            return (
+              <button key={l.id} type="button" onClick={() => onOpen(l)} className="block w-full px-4 py-3 text-left">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="truncate font-medium">{icon} {categoryPath(categories, l.category_id)}</span>
+                  <span className={cn("num shrink-0 text-sm font-semibold", left < 0 ? "text-danger" : "text-warning")}>
+                    {left < 0 ? `Te pasaste ${formatCop(-left)}` : `Quedan ${formatCop(left)}`}
+                  </span>
+                </div>
+                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-2">
+                  <div className={cn("h-full rounded-full", left < 0 ? "bg-danger" : "bg-warning")} style={{ width: `${Math.min(100, Math.round(st!.ratio * 100))}%` }} />
+                </div>
+                <p className="num mt-1 text-xs text-muted">{Math.round(st!.ratio * 100)} % de {formatCop(st!.totalAvailable)}</p>
+              </button>
+            );
+          })}
+          {watch.length > 3 && <Link href="/presupuestos" className="block px-4 py-2.5 text-center text-sm font-semibold text-olive">Y {watch.length - 3} más en alerta</Link>}
+        </Card>
+      )}
+    </>
   );
 }
 
