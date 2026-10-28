@@ -86,6 +86,8 @@ export interface TxPreset {
   toAccountId?: string;
   /** Vencimiento que se paga con este movimiento. */
   scheduledPaymentId?: string;
+  /** Gasto compartido: una parte por persona (se abre ya dividido). */
+  shares?: { userId: string; amount: number }[];
   scheduledFor?: string;
   /** Aviso de ingest_logs que se marca como registrado al guardar. */
   logId?: string;
@@ -212,8 +214,10 @@ export function TransactionSheet({
     // Desde un presupuesto: su espacio y quien lo asume. Si no: quien paga y el último espacio usado.
     setResponsibleId(preset?.responsibleId ?? me.user_id);
     setScope(preset?.scope ?? lastScope());
-    setSplitMode(false);
-    setSplits([]);
+    // Vencimiento compartido: ya dividido, una parte por persona en la misma categoría
+    const shares = (preset?.shares ?? []).filter((x) => x.amount > 0);
+    setSplitMode(shares.length > 1);
+    setSplits(shares.length > 1 ? shares.map((x) => ({ key: newKey(), amount: String(x.amount), categoryId: presetCategory?.id ?? "", responsibleId: x.userId })) : []);
     setCreatesDebt(true);
     setInstallments("1");
     setPurchaseRate("");
