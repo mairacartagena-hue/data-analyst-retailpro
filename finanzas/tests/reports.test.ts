@@ -136,7 +136,7 @@ describe("informes de la etapa 4", () => {
   it("resumen para la renta: ingresos, 4x1000 de mis cuentas e intereses de mis créditos", () => {
     const accounts = [
       { id: "ah", name: "Ahorros", kind: "DEPOSIT", owner_user_id: A },
-      { id: "hip", name: "Hipoteca", kind: "CREDIT", owner_user_id: A },
+      { id: "hip", name: "Hipoteca", kind: "CREDIT", owner_user_id: A, monthly_costs: 68_000 },
       { id: "otra", name: "De Beto", kind: "DEPOSIT", owner_user_id: B },
     ];
     const r = taxSummary([
@@ -149,17 +149,19 @@ describe("informes de la etapa 4", () => {
     ], { userId: A, year: 2026, categories: cats, accounts });
     expect(r.income).toBe(6_000_000);
     expect(r.gmf).toBe(15_600);
-    expect(r.credits).toEqual([{ id: "hip", name: "Hipoteca", charges: 1_020_000, capital: 930_000, payments: 1 }]);
+    // Intereses sin el seguro mensual del crédito
+    expect(r.credits).toEqual([{ id: "hip", name: "Hipoteca", interest: 952_000, insurance: 68_000, charges: 1_020_000, capital: 930_000, payments: 1 }]);
   });
 
   it("gastos fijos frente a variables", () => {
     const r = fixedVsVariable([
       tx({ amount: 420_000, scheduled_payment_id: "adm", splits: [split(420_000, "merc")] }),
       tx({ amount: 44_900, tags: ["#suscripcion"], splits: [split(44_900, "ropa")] }),
+      tx({ amount: 70_000, tags: ["#suscripcion"], movement_type: "TRANSFER_OUT", splits: [split(70_000, "ropa")] }), // a un familiar: no es suscripción
       tx({ amount: 1_020_000, account_id: "hip", splits: [split(1_020_000, "merc")] }),
       tx({ amount: 80_000, splits: [split(80_000, "merc")] }),
       tx({ kind: "TRANSFER", amount: 930_000, to_account_id: "hip" }),
     ], oct, { categories: cats, creditIds: new Set(["hip"]) });
-    expect(r).toEqual({ scheduled: 420_000, subscriptions: 44_900, creditCharges: 1_020_000, variable: 80_000, creditCapital: 930_000 });
+    expect(r).toEqual({ scheduled: 420_000, subscriptions: 44_900, creditCharges: 1_020_000, variable: 150_000, creditCapital: 930_000 });
   });
 });

@@ -15,13 +15,13 @@ import { categoryPath } from "@/lib/finance/spaces";
 import { shortPeriod } from "@/lib/finance/periodLabels";
 import { cn } from "@/lib/utils";
 
-/** Cuánto se usó de cada presupuesto de categoría en los últimos 4 periodos (más de 100 % = se pasó). */
+/** Cuánto se usó de cada presupuesto de categoría en los últimos 3 periodos (más de 100 % = se pasó). */
 export function BudgetVsActual({ space }: { space: ReportSpace }) {
   const state = useFinance();
   const { limits, categories, settings, me } = state;
   const periods = useMemo(() => {
     const cur = periodFor(settings, todayBogota());
-    return Array.from({ length: 4 }, (_, i) => shiftPeriod(settings, cur, i - 3));
+    return Array.from({ length: 3 }, (_, i) => shiftPeriod(settings, cur, i - 2));
   }, [settings]);
   const statuses = useMemo(() => periods.map((p) => statusesFor(state, p)), [state, periods]);
   const shown = limits.filter((l) => categories.some((c) => c.id === l.category_id && !c.archived)
@@ -36,15 +36,15 @@ export function BudgetVsActual({ space }: { space: ReportSpace }) {
   const over = rows.filter((r) => r.cells.filter((c) => c && c.pct > 100).length >= 2);
 
   return (
-    <ChartCard title="Presupuesto frente a gasto real" subtitle="Cuánto usaste de cada presupuesto en los últimos 4 periodos. Más de 100 % es que te pasaste"
+    <ChartCard title="Presupuesto frente a gasto real" subtitle="Cuánto usaste de cada presupuesto en los últimos 3 periodos. Más de 100 % es que te pasaste"
       table={{ columns: ["Presupuesto", ...periods.map(shortPeriod)], rows: rows.map((r) => [r.name, ...r.cells.map((c) => (c ? `${formatCop(c.spent)} de ${formatCop(c.budget)}` : "—"))]) }}>
       {rows.length === 0 ? <p className="text-sm text-muted">No hay presupuestos de categoría en esta vista.</p> : (
         <div className="space-y-1">
-          <div className="grid grid-cols-[1fr_repeat(4,3rem)] gap-1 text-[11px] text-muted">
+          <div className="grid grid-cols-[1fr_repeat(3,3.5rem)] gap-1 text-[11px] text-muted">
             <span />{periods.map((p) => <span key={p.start} className="text-center">{shortPeriod(p)}</span>)}
           </div>
           {rows.map((r) => (
-            <div key={r.name} className="grid grid-cols-[1fr_repeat(4,3rem)] items-center gap-1 text-sm">
+            <div key={r.name} className="grid grid-cols-[1fr_repeat(3,3.5rem)] items-center gap-1 text-sm">
               <span className="truncate">{r.name}</span>
               {r.cells.map((c, i) => (
                 <span key={i} className={cn("num rounded-lg py-1 text-center text-xs font-semibold",
@@ -76,6 +76,8 @@ export function FixedVsVariable({ consumption, period }: { consumption: Transact
     const map = new Map<string, { name: string; amount: number; last: string }>();
     for (const t of transactions) {
       if (t.kind !== "EXPENSE" || t.payer_user_id !== me.user_id || t.occurred_on < since) continue;
+      // Solo compras: una transferencia que se repite cada mes (a un familiar) no es una suscripción
+      if (t.movement_type && t.movement_type !== "PURCHASE") continue;
       const isSub = t.tags.includes("#suscripcion") || t.splits.some((x) => x.category_id && subsCats.has(x.category_id)) || isKnownSubscription(t.merchant_norm);
       if (!isSub) continue;
       const k = (t.merchant_norm ?? t.merchant ?? t.description ?? "").toLowerCase();
@@ -128,13 +130,13 @@ export function TaxSummaryCard() {
   );
   return (
     <ChartCard title="Resumen para la renta" subtitle="Lo tuyo del año según lo registrado en la app. Es una guía: los valores oficiales salen de los certificados de tus bancos"
-      table={{ columns: ["Concepto", "Valor"], rows: [["Ingresos", s.income], ...s.incomeByCategory.map((i) => [`  ${i.name}`, i.total] as [string, number]), ["4x1000 pagado", s.gmf], ...s.credits.flatMap((c) => [[`${c.name}: intereses y seguros`, c.charges], [`${c.name}: abono a capital`, c.capital]] as [string, number][])] }}>
+      table={{ columns: ["Concepto", "Valor"], rows: [["Ingresos", s.income], ...s.incomeByCategory.map((i) => [`  ${i.name}`, i.total] as [string, number]), ["4x1000 pagado", s.gmf], ...s.credits.flatMap((c) => [[`${c.name}: intereses`, c.interest], [`${c.name}: seguros y otros cargos`, c.insurance], [`${c.name}: abono a capital`, c.capital]] as [string, number][])] }}>
       <Segmented className="mb-2" value={String(year)} onChange={(v) => setYear(Number(v))}
         options={[{ value: String(thisYear - 1), label: String(thisYear - 1) }, { value: String(thisYear), label: `${thisYear} (en curso)` }]} />
       <div className="divide-y divide-border">
         {row("Ingresos del año", s.income, s.incomeByCategory.length ? s.incomeByCategory.slice(0, 4).map((i) => `${i.name} ${formatCopShort(i.total)}`).join(" · ") : "Ninguno registrado")}
         {row("4x1000 (GMF) pagado", s.gmf, "La mitad es deducible con el certificado del banco.")}
-        {s.credits.map((c) => row(`${c.name}: intereses y seguros`, c.charges, `${c.payments} cuota${c.payments === 1 ? "" : "s"} · abono a capital ${formatCop(c.capital)}. Los intereses de un crédito de vivienda son deducibles; el certificado del banco los separa de los seguros.`))}
+        {s.credits.map((c) => row(`${c.name}: intereses`, c.interest, `${c.payments} cuota${c.payments === 1 ? "" : "s"} · sin seguros y otros cargos (${formatCop(c.insurance)}, según el valor mensual del crédito) · abono a capital ${formatCop(c.capital)}. Los intereses de un crédito de vivienda son deducibles; confírmalos con el certificado del banco.`))}
         {s.credits.length === 0 && <p className="py-2 text-xs text-muted">No hay cuotas de créditos registradas en {year}.</p>}
       </div>
       {year === thisYear && <p className="mt-2 text-xs text-muted">El año va en curso: los valores crecen hasta el 31 de diciembre.</p>}

@@ -203,9 +203,9 @@ Pestañas: **Inicio · Movimientos · + · Presupuesto · Informes · Más**. �
   - Si hay movimientos **por revisar** dentro del periodo, Informes avisa cuánto suman (pueden cambiar de categoría).
   - **Tendencia de 6 periodos:** usa los periodos del hogar (mensual con su día de inicio o quincenal), no meses de calendario.
   - **CSV:** cada compra a cuotas sale con la cuota del periodo y la columna “Cuota” (ej. “2 de 12”), igual que los gráficos.
-  - **Presupuesto frente a gasto real:** % usado de cada presupuesto de categoría en los últimos 4 periodos; avisa en cuáles te pasaste 2 o más veces.
-  - **Gastos fijos y variables:** vencimientos programados, suscripciones e intereses y seguros de créditos frente al resto; abonos a capital aparte. Lista las suscripciones activas (marcadas, en una categoría de suscripciones o servicios conocidos, últimos 45 días).
-  - **Resumen para la renta** (de quien mira, por año): ingresos por categoría, 4x1000 de sus cuentas (marca `#gmf`; la mitad es deducible) e intereses y seguros pagados de sus créditos (`taxSummary`, con `creditPayments`). Es una guía: los valores oficiales salen de los certificados de los bancos.
+  - **Presupuesto frente a gasto real:** % usado de cada presupuesto de categoría en los últimos 3 periodos; avisa en cuáles te pasaste 2 o más veces.
+  - **Gastos fijos y variables:** vencimientos programados, suscripciones e intereses y seguros de créditos frente al resto; abonos a capital aparte. Lista las suscripciones activas (compras marcadas, en una categoría de suscripciones o servicios conocidos, últimos 45 días). La marca `#suscripcion` solo queda en compras: una transferencia que se repite cada mes (a un familiar) no es suscripción (migración 0042).
+  - **Resumen para la renta** (de quien mira, por año): ingresos por categoría, 4x1000 de sus cuentas (marca `#gmf`; la mitad es deducible) e **intereses** pagados de sus créditos, sin seguros (los seguros de cada cuota se toman de “Seguros y otros costos al mes” del crédito y se muestran aparte) (`taxSummary`, con `creditPayments`). Es una guía: los valores oficiales salen de los certificados de los bancos.
 - **Captura automática:** si el token ya recibió avisos, la guía de configuración queda plegada detrás de “Configuración”.
 - **Cierre del mes:** se abre una cuenta a la vez (la primera sin conciliar); al conciliarla se abre la siguiente.
 - **Enviarle plata a la pareja** (+ → Transferir → “A {nombre}”): sale de tu cuenta, llega a su cuenta si la dejó visible (opcional) y queda anotado en el cruce (él te la debe). Sirve para cuando le mandas dinero para que haga una compra: cuando la registra a tu cargo, el cruce se compensa solo. El motivo se escribe libre en la descripción. El interruptor **“Anotar como deuda de {nombre}”** (activado por defecto) se apaga cuando la plata no es un préstamo (un regalo, plata que ya era de él): entonces solo se mueve entre cuentas y el cruce no cambia (migración 0022). También convierte un aviso pendiente (ej. “Cuenta ···4993”) en un envío a la pareja, sin dejar duplicados. Requiere que la pareja ya esté en el hogar; si no, el formulario muestra su enlace de invitación. Por debajo es una liquidación (`SETTLEMENT`).
@@ -257,7 +257,7 @@ Ej. un pago mensual que se hace por un familiar que luego envía la plata: se us
 ## Configuración
 
 ### 1. Base de datos (Supabase, proyecto `finanzas-pareja`)
-Las migraciones están en `supabase/migrations/` (0001 → 0041). Para aplicarlas a mano, pega cada archivo completo en **SQL Editor → Run**, en orden. Se pueden correr más de una vez.
+Las migraciones están en `supabase/migrations/` (0001 → 0042). Para aplicarlas a mano, pega cada archivo completo en **SQL Editor → Run**, en orden. Se pueden correr más de una vez.
 
 ### 2. Autenticación
 En Supabase → **Authentication → URL Configuration**:

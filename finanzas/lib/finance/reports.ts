@@ -227,8 +227,11 @@ export interface TaxSummary {
   incomeByCategory: { name: string; total: number }[];
   /** 4x1000 registrado (marca #gmf). La mitad es deducible con el certificado del banco. */
   gmf: number;
-  /** Por crédito: intereses y seguros pagados en el año y abono a capital. */
-  credits: { id: string; name: string; charges: number; capital: number; payments: number }[];
+  /**
+   * Por crédito: intereses pagados en el año (sin seguros), seguros y otros cargos, y abono a capital. Los seguros de cada
+   * cuota se toman del valor mensual del crédito (“Seguros y otros costos al mes”); el resto de lo cobrado son intereses.
+   */
+  credits: { id: string; name: string; interest: number; insurance: number; charges: number; capital: number; payments: number }[];
 }
 
 /**
@@ -237,7 +240,7 @@ export interface TaxSummary {
  */
 export function taxSummary(
   txs: Transaction[],
-  ctx: { userId: string; year: number; categories: Category[]; accounts: { id: string; name: string; kind: string; owner_user_id: string; responsible_user_id?: string | null }[] },
+  ctx: { userId: string; year: number; categories: Category[]; accounts: { id: string; name: string; kind: string; owner_user_id: string; responsible_user_id?: string | null; monthly_costs?: number | null }[] },
 ): TaxSummary {
   const inYear = (d: string) => d.startsWith(`${ctx.year}-`);
   const mine = new Set(ctx.accounts.filter((a) => a.owner_user_id === ctx.userId).map((a) => a.id));
@@ -255,7 +258,10 @@ export function taxSummary(
     .filter((a) => a.kind === "CREDIT" && (a.responsible_user_id ?? a.owner_user_id) === ctx.userId)
     .map((a) => {
       const paid = creditPayments(a, txs, `${ctx.year}-01-01`).filter((p) => inYear(p.date));
-      return { id: a.id, name: a.name, charges: paid.reduce((s, p) => s + p.charges, 0), capital: paid.reduce((s, p) => s + p.capital, 0), payments: paid.length };
+      const monthly = Math.max(0, Math.round(Number(a.monthly_costs ?? 0)));
+      const insurance = paid.reduce((s, p) => s + Math.min(p.charges, monthly), 0);
+      const charges = paid.reduce((s, p) => s + p.charges, 0);
+      return { id: a.id, name: a.name, interest: charges - insurance, insurance, charges, capital: paid.reduce((s, p) => s + p.capital, 0), payments: paid.length };
     })
     .filter((c) => c.payments > 0);
   const incomeByCategory = [...income.entries()].map(([name, total]) => ({ name, total })).sort((a, b) => b.total - a.total);
@@ -289,7 +295,7 @@ export function fixedVsVariable(txs: Transaction[], period: Period, ctx: { categ
     if (!sign) continue;
     const amount = sign * (t.splits.reduce((a, s) => a + s.amount, 0) || t.amount);
     if (t.scheduled_payment_id) out.scheduled += amount;
-    else if (t.tags.includes("#suscripcion") || t.splits.some((s) => s.category_id && subsCats.has(s.category_id))) out.subscriptions += amount;
+    else if ((t.tags.includes("#suscripcion") && (!t.movement_type || t.movement_type === "PURCHASE")) || t.splits.some((s) => s.category_id && subsCats.has(s.category_id))) out.subscriptions += amount;
     else if (t.account_id && ctx.creditIds.has(t.account_id)) out.creditCharges += amount;
     else out.variable += amount;
   }
