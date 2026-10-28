@@ -24,17 +24,20 @@ const SOURCE: Record<string, { label: string; icon: typeof Mail }> = {
 };
 
 /** Qué pagos forman la barra de un presupuesto de categoría en el periodo y cómo llegó cada uno. */
-export function BudgetDetailSheet({ limit, status, onClose, onEdit }: {
+export function BudgetDetailSheet({ limit: picked, status, onClose, onEdit }: {
   limit: CategoryLimit | null;
   status: CategoryStatus | undefined;
   onClose: () => void;
   onEdit: (l: CategoryLimit) => void;
 }) {
-  const { consumption: transactions, accounts, period, memberById, me, partner, categories, supabase, reload } = useFinance();
+  const { consumption: transactions, accounts, limits, period, memberById, me, partner, categories, supabase, reload } = useFinance();
   const { openTransaction, openPayment } = useShell();
+  // Siempre la versión más reciente del presupuesto (la que se abrió puede ser de antes de guardar)
+  const limit = picked ? limits.find((l) => l.id === picked.id) ?? picked : null;
   const [obligation, setObligation] = useState<boolean | null>(null);
+  const [obligationState, setObligationState] = useState<"saving" | "saved" | null>(null);
   const [obligationError, setObligationError] = useState<string | null>(null);
-  useEffect(() => { setObligation(null); setObligationError(null); }, [limit?.id]);
+  useEffect(() => { setObligation(null); setObligationState(null); setObligationError(null); }, [picked?.id]);
   const category: Category | null = limit ? categories.find((c) => c.id === limit.category_id) ?? null : null;
   if (!limit || !category) return null;
   const partners = limit.scope === "PERSONAL" && limit.owner_user_id !== me.user_id;
@@ -67,10 +70,11 @@ export function BudgetDetailSheet({ limit, status, onClose, onEdit }: {
   const left = available - spent;
   const isObligation = obligation ?? limit.is_household_obligation;
 
-  // Solo cambia la marca: sin "budget", el monto del presupuesto queda igual
+  // Solo cambia la marca: sin "budget", el monto del presupuesto queda igual. Se guarda al tocarlo.
   async function toggleObligation(v: boolean) {
     if (!limit) return;
     setObligation(v);
+    setObligationState("saving");
     setObligationError(null);
     const { error } = await supabase.rpc("save_category_limit", {
       p: {
@@ -80,9 +84,11 @@ export function BudgetDetailSheet({ limit, status, onClose, onEdit }: {
     });
     if (error) {
       setObligation(!v);
+      setObligationState(null);
       return setObligationError(errMsg(error));
     }
-    void reload();
+    await reload();
+    setObligationState("saved");
   }
 
   return (
@@ -99,6 +105,7 @@ export function BudgetDetailSheet({ limit, status, onClose, onEdit }: {
             <SwitchRow label="Obligación del hogar"
               hint={isObligation ? "Lo que falte por pagar se aparta de tu Saldo Seguro." : "No afecta tu Saldo Seguro: es un gasto opcional."}
               checked={isObligation} onCheckedChange={(v) => void toggleObligation(v)} />
+            {obligationState && <p className="pb-2 text-xs text-muted">{obligationState === "saving" ? "Guardando…" : "Guardado ✓"}</p>}
             {obligationError && <p className="pb-2 text-xs text-danger">{obligationError}</p>}
           </div>
         )}
