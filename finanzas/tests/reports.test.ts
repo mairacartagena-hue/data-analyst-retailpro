@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fixedVsVariable, matchesFilter, monthlyTrend, pendingInPeriod, periodTrend, spendingByCategory, spendingByPerson, tagStats, taxSummary, toCsv } from "@/lib/finance/reports";
+import { fixedVsVariable, matchesFilter, monthlyTrend, pendingInPeriod, periodTrend, spendingByCategory, spendingByPerson, tagStats, taxSummary, toCsv, withCreditCapital } from "@/lib/finance/reports";
 import { expandInstallments } from "@/lib/finance/installments";
 import { periodFor, shiftPeriod } from "@/lib/finance/periods";
 import type { Category, Member, Transaction } from "@/lib/types";
@@ -162,6 +162,21 @@ describe("informes de la etapa 4", () => {
       tx({ amount: 80_000, splits: [split(80_000, "merc")] }),
       tx({ kind: "TRANSFER", amount: 930_000, to_account_id: "hip" }),
     ], oct, { categories: cats, creditIds: new Set(["hip"]) });
-    expect(r).toEqual({ scheduled: 420_000, subscriptions: 44_900, creditCharges: 1_020_000, variable: 150_000, creditCapital: 930_000 });
+    expect(r).toEqual({ scheduled: 420_000, subscriptions: 44_900, creditCharges: 1_020_000, variable: 150_000 });
+  });
+
+  it("la cuota de un crédito cuenta completa: capital más intereses y seguros, en la categoría de la cuota", () => {
+    const accounts = [{ id: "hip", name: "Hipoteca", kind: "CREDIT", budget_category_id: "merc" }];
+    const txs = withCreditCapital([
+      // Cargado al crédito: transferencia por el total y gasto de intereses en el crédito
+      tx({ kind: "TRANSFER", amount: 1_953_000, account_id: "ah", to_account_id: "hip", scope: "HOUSEHOLD", occurred_on: "2026-10-23" }),
+      tx({ amount: 1_020_417, account_id: "hip", scope: "HOUSEHOLD", occurred_on: "2026-10-23", splits: [split(600_000, "merc"), split(420_417, "merc", B)] }),
+    ], accounts);
+    expect(spendingByCategory(txs, cats, oct)).toEqual([{ key: "merc", name: "Mercado", icon: expect.any(String), total: 1_953_000 }]);
+    expect(spendingByPerson(txs, cats, oct, members).map((p) => p.household)).toEqual([600_000 + 548_354, 420_417 + 384_229]);
+    expect(fixedVsVariable(txs, oct, { categories: cats, creditIds: new Set(["hip"]) }).creditCharges).toBe(1_953_000);
+    // Sin gasto de intereses: todo es capital, en la categoría del presupuesto del crédito
+    const solo = withCreditCapital([tx({ kind: "TRANSFER", amount: 500_000, account_id: "ah", to_account_id: "hip" })], accounts);
+    expect(spendingByCategory(solo, cats, oct).map((c) => [c.key, c.total])).toEqual([["merc", 500_000]]);
   });
 });

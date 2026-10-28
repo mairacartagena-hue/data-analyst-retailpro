@@ -268,29 +268,57 @@ export function taxSummary(
   return { year: ctx.year, income: incomeByCategory.reduce((s, r) => s + r.total, 0), incomeByCategory, gmf, credits };
 }
 
+/**
+ * Para los informes: cada cuota de un crédito cuenta completa (capital, intereses y seguros). Los intereses y seguros
+ * ya son un gasto; aquí se agrega el abono a capital como un gasto más de la misma categoría (la del gasto de
+ * intereses o, si no hay, la del presupuesto del crédito), con fecha del pago y cargado a la cuenta del crédito.
+ */
+export function withCreditCapital(
+  txs: Transaction[],
+  accounts: { id: string; name: string; kind: string; budget_category_id?: string | null }[],
+): Transaction[] {
+  const extra: Transaction[] = [];
+  for (const a of accounts) {
+    if (a.kind !== "CREDIT" && a.kind !== "LOAN") continue;
+    for (const p of creditPayments(a, txs)) {
+      if (p.capital <= 0) continue;
+      const base = p.charge?.splits.length ? p.charge.splits : null;
+      const baseTotal = base ? base.reduce((s, x) => s + x.amount, 0) : 0;
+      const id = `capital:${p.transfer.id}`;
+      let left = p.capital;
+      const splits = base && baseTotal > 0
+        ? base.map((x, i) => {
+          const amount = i === base.length - 1 ? left : Math.round((p.capital * x.amount) / baseTotal);
+          left -= amount;
+          return { ...x, id: `${id}:${i}`, transaction_id: id, amount };
+        })
+        : [{ id: `${id}:0`, transaction_id: id, amount: p.capital, category_id: a.budget_category_id ?? null, responsible_user_id: p.transfer.payer_user_id, origin: "NORMAL" as const, note: null }];
+      extra.push({
+        ...p.transfer, id, kind: "EXPENSE", amount: p.capital, account_id: a.id, to_account_id: null,
+        description: `Abono a capital · ${a.name}`, merchant: null, tags: [], scheduled_payment_id: null, splits,
+      });
+    }
+  }
+  return extra.length ? [...txs, ...extra] : txs;
+}
+
 export interface FixedVariable {
   /** Pagos enlazados a un vencimiento programado. */
   scheduled: number;
   /** Cobros de suscripciones (marca #suscripcion o categoría “Suscripciones”). */
   subscriptions: number;
-  /** Intereses y seguros de los créditos (gastos cargados al crédito). */
+  /** Cuotas de los créditos: capital (ver `withCreditCapital`), intereses y seguros cargados al crédito. */
   creditCharges: number;
   /** El resto de los gastos. */
   variable: number;
-  /** Abonos a capital de los créditos (no son gasto, pero salen cada mes). */
-  creditCapital: number;
 }
 
-/** Gastos fijos (vencimientos, suscripciones, intereses de créditos) frente a variables en el periodo. */
+/** Gastos fijos (vencimientos, suscripciones, cuotas de créditos) frente a variables en el periodo. */
 export function fixedVsVariable(txs: Transaction[], period: Period, ctx: { categories: Category[]; creditIds: Set<string> }): FixedVariable {
   const subsCats = new Set(ctx.categories.filter((c) => /suscrip/i.test(c.name)).map((c) => c.id));
-  const out: FixedVariable = { scheduled: 0, subscriptions: 0, creditCharges: 0, variable: 0, creditCapital: 0 };
+  const out: FixedVariable = { scheduled: 0, subscriptions: 0, creditCharges: 0, variable: 0 };
   for (const t of txs) {
     if (!isWithin(t.occurred_on, period)) continue;
-    if (t.kind === "TRANSFER" && t.to_account_id && ctx.creditIds.has(t.to_account_id)) {
-      out.creditCapital += t.amount;
-      continue;
-    }
     const sign = consumptionSign(t.kind);
     if (!sign) continue;
     const amount = sign * (t.splits.reduce((a, s) => a + s.amount, 0) || t.amount);

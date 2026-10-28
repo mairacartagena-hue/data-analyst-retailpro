@@ -63,10 +63,10 @@ export function BudgetVsActual({ space }: { space: ReportSpace }) {
   );
 }
 
-/** Gastos fijos (vencimientos, suscripciones, intereses de créditos) frente a variables, y las suscripciones activas. */
+/** Gastos fijos (vencimientos, suscripciones, cuotas de créditos) frente a variables, y las suscripciones activas. */
 export function FixedVsVariable({ consumption, period }: { consumption: Transaction[]; period: Period }) {
   const { categories, accounts, transactions, me } = useFinance();
-  const creditIds = useMemo(() => new Set(accounts.filter((a) => a.kind === "CREDIT").map((a) => a.id)), [accounts]);
+  const creditIds = useMemo(() => new Set(accounts.filter((a) => a.kind === "CREDIT" || a.kind === "LOAN").map((a) => a.id)), [accounts]);
   const r = useMemo(() => fixedVsVariable(consumption, period, { categories, creditIds }), [consumption, period, categories, creditIds]);
   // Suscripciones activas: cobros de los últimos 45 días marcados como suscripción, en una categoría de suscripciones
   // o de un servicio conocido (Netflix, Spotify…). Un mercado que se repite cada mes no es una suscripción.
@@ -92,12 +92,12 @@ export function FixedVsVariable({ consumption, period }: { consumption: Transact
   const items = [
     { key: "sch", label: "Vencimientos programados", value: r.scheduled },
     { key: "sub", label: "Suscripciones", value: r.subscriptions },
-    { key: "cred", label: "Intereses y seguros de créditos", value: r.creditCharges },
+    { key: "cred", label: "Cuotas de créditos", value: r.creditCharges },
   ].filter((i) => i.value > 0);
   const pct = (v: number) => (total > 0 ? Math.round((v / total) * 100) : 0);
 
   return (
-    <ChartCard id="fijos" defaultOpen={false} summary={total > 0 ? `Fijos ${formatCopShort(fixed)} (${Math.round((fixed / total) * 100)} %) · variables ${formatCopShort(r.variable)}` : "Sin gastos en el periodo"} title="Gastos fijos y variables" subtitle="Fijos: vencimientos programados, suscripciones e intereses y seguros de créditos. Variables: todo lo demás"
+    <ChartCard id="fijos" defaultOpen={false} summary={total > 0 ? `Fijos ${formatCopShort(fixed)} (${Math.round((fixed / total) * 100)} %) · variables ${formatCopShort(r.variable)}` : "Sin gastos en el periodo"} title="Gastos fijos y variables" subtitle="Fijos: vencimientos programados, suscripciones y cuotas de créditos (capital, intereses y seguros). Variables: todo lo demás"
       table={{ columns: ["Tipo", "Total"], rows: [["Fijos", fixed], ...items.map((i) => [`  ${i.label}`, i.value] as [string, number]), ["Variables", r.variable]] }}>
       {total === 0 ? <p className="text-sm text-muted">No hay gastos en este periodo.</p> : (
         <>
@@ -123,7 +123,6 @@ export function FixedVsVariable({ consumption, period }: { consumption: Transact
           )}
         </>
       )}
-      {r.creditCapital > 0 && <p className="mt-2 text-xs text-muted">Además abonaste {formatCop(r.creditCapital)} a capital de tus créditos (no es gasto: baja la deuda).</p>}
       {list.length > 0 && (
         <div className="mt-4 border-t border-border pt-3">
           <p className="mb-1.5 text-sm font-medium">Tus suscripciones activas · {formatCop(list.reduce((s, x) => s + x.amount, 0))} al mes</p>
