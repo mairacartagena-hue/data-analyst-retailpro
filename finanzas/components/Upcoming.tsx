@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo } from "react";
-import { CalendarClock, Check, CreditCard, Home, Lock } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Building2, CalendarClock, Check, CreditCard, Home, Lock } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { useShell } from "@/components/AppShell";
 import type { ScheduledPayment } from "@/lib/types";
@@ -9,7 +10,8 @@ import { dueDatesBetween, occurrencesIn, type Occurrence } from "@/lib/finance/c
 import { formatCop } from "@/lib/finance/money";
 import { formatDay, todayBogota, type Period } from "@/lib/finance/periods";
 import { accountLabel } from "@/lib/finance/labels";
-import { cardDue } from "@/lib/finance/installments";
+import { cardDue, statementsDueIn } from "@/lib/finance/installments";
+import { creditReserve, nextCuota } from "@/lib/finance/credit";
 import { responsibleOf } from "@/lib/finance/derive";
 import { cn } from "@/lib/utils";
 
@@ -20,6 +22,10 @@ export interface CardDue {
   amount: number;
   debt: number;
   interest: number;
+  /** Cuota de un crédito (no tarjeta): se paga desde la hoja del crédito. */
+  credit?: boolean;
+  /** La cuota ya se pagó (abono al crédito después del corte anterior). */
+  paid?: boolean;
 }
 
 /** Vencimientos visibles del periodo (hogar + mis personales) y fechas de pago de mis tarjetas con deuda. */
@@ -35,6 +41,18 @@ export function useUpcoming(period: Period) {
       if (d.due <= 0) continue;
       const fake = { frequency: "MONTHLY", day_of_month: a.due_day, start_date: period.start, end_date: null, due_date: null } as ScheduledPayment;
       for (const due of dueDatesBetween(fake, period.start, period.end)) cards.push({ accountId: a.id, due, amount: d.due, debt: d.debt, interest: d.interest });
+    }
+    // Cuotas de créditos con día de pago: vencen en el periodo y quedan pagadas con el abono después del corte anterior
+    for (const a of accounts) {
+      if (responsibleOf(a) !== me.user_id || a.archived || (a.kind !== "CREDIT" && a.kind !== "LOAN") || !a.due_day) continue;
+      const owed = Math.max(0, -(balances[a.id] ?? 0));
+      const cuota = nextCuota(owed, a, today);
+      if (cuota <= 0) continue;
+      for (const { due } of statementsDueIn(a.due_day, a.due_day, period)) {
+        // Lo que falta reservar de la cuota de ese día de pago: 0 = ya se pagó
+        const paid = creditReserve(a, balances[a.id] ?? 0, transactions, { ...period, start: due, end: due }, today) === 0;
+        cards.push({ accountId: a.id, due, amount: cuota, debt: owed, interest: 0, credit: true, paid });
+      }
     }
     return { occurrences: occ, cards, today };
   }, [commitments, transactions, accounts, balances, me.user_id, period, cardItems]);
@@ -60,6 +78,7 @@ export function UpcomingList({
 }) {
   const { labels, memberById } = useFinance();
   const { openPayment } = useShell();
+  const router = useRouter();
   type Row = { key: string; due: string; node: React.ReactNode };
   const rows: Row[] = [];
 
@@ -100,7 +119,35 @@ export function UpcomingList({
     });
   }
   for (const c of cards) {
-    const w = whenLabel(c.due, today, false);
+    const w = whenLabel(c.due, today, !!c.paid);
+    if (c.credit) {
+      rows.push({
+        key: `credit-${c.accountId}-${c.due}`,
+        due: c.due,
+        node: (
+          <div className="flex items-center gap-3 px-3.5 py-3">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-2">
+              {c.paid ? <Check size={17} className="text-olive" /> : <Building2 size={17} className="text-muted" />}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className={cn("block truncate font-medium", c.paid && "text-muted line-through")}>Cuota {accountLabel(labels, c.accountId)}</span>
+              <span className="flex items-center gap-1 truncate text-xs text-muted">
+                <Lock size={11} className="shrink-0" />
+                <span className={cn("truncate", w.tone === "danger" && "font-semibold text-danger", w.tone === "warn" && "font-semibold text-warning", w.tone === "ok" && "text-olive")}>{w.text}{c.paid ? ` · vencía el ${formatDay(c.due)}` : " · cuota estimada"}</span>
+              </span>
+            </span>
+            <span className={cn("num shrink-0 text-sm font-semibold", c.paid && "text-muted")}>{formatCop(c.amount)}</span>
+            {!c.paid && (
+              <button className="shrink-0 rounded-full bg-olive-soft px-3 py-1.5 text-sm font-semibold"
+                onClick={() => router.push(`/cuentas?vista=creditos&cuenta=${c.accountId}&cuota=1`)}>
+                Pagar
+              </button>
+            )}
+          </div>
+        ),
+      });
+      continue;
+    }
     rows.push({
       key: `card-${c.accountId}-${c.due}`,
       due: c.due,
