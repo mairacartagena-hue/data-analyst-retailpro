@@ -1,17 +1,20 @@
 "use client";
 
 import { motion } from "motion/react";
-import { AlertTriangle, Check, Home, List, Lock, Plus, Users } from "lucide-react";
+import { AlertTriangle, CalendarClock, Check, Home, List, Lock, Plus, Users } from "lucide-react";
 import type { Category, CategoryLimit, Member } from "@/lib/types";
 import type { CategoryStatus } from "@/lib/finance/budget";
 import { formatCop, formatCopShort } from "@/lib/finance/money";
 import { MemberBadge } from "@/components/MemberBadge";
+import { formatDay, todayBogota } from "@/lib/finance/periods";
 import { cn } from "@/lib/utils";
 
 /** Barra de un presupuesto de categoría: quién lo asume, cuánto lleva cada uno y alerta de tope. */
 export function BudgetBar({
-  category, limit, status, memberById, onClick, onPay, meId, label, icon,
+  category, limit, status, memberById, onClick, onPay, meId, label, icon, due,
 }: {
+  /** Fecha de vencimiento de la cuota en el periodo (presupuestos de créditos). */
+  due?: string;
   /** Ícono a mostrar (ej. el de la principal en una subcategoría). */
   icon?: string;
   category: Category;
@@ -75,6 +78,13 @@ export function BudgetBar({
           {left < 0 ? `Pasó ${formatCop(-left)}` : `Quedan ${formatCop(left)}`}
         </span>
       </div>
+
+      {due && (() => {
+        const today = todayBogota();
+        const tone = covered ? "text-muted" : due < today ? "text-danger" : due === today ? "text-warning" : "text-muted";
+        const text = covered ? `Pagada · vencía el ${formatDay(due)}` : due < today ? `Vencida el ${formatDay(due)}` : due === today ? "Vence hoy" : `Vence el ${formatDay(due)}`;
+        return <p className={cn("mt-1 flex items-center gap-1 text-xs", tone)}><CalendarClock size={13} /> {text}</p>;
+      })()}
 
       {limit.responsibility === "FIXED_AMOUNTS" && allocations.length > 1 && (
         <div className="mt-2 grid grid-cols-2 gap-2">
