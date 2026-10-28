@@ -47,6 +47,7 @@ export function LimitSheet({
   const [fixedA, setFixedA] = useState("");
   const [fixedB, setFixedB] = useState("");
   const [obligation, setObligation] = useState(false);
+  // El rollover ya no se ofrece; se conserva el valor que tenga el presupuesto
   const [rollover, setRollover] = useState(false);
   const [shared, setShared] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -207,8 +208,6 @@ export function LimitSheet({
             hint="Verá el límite y cuánto llevas, pero no tus movimientos. Solo tú lo editas."
             checked={shared} onCheckedChange={setShared} />
         )}
-        <SwitchRow label="Pasar el saldo al siguiente periodo" hint="Rollover: el sobrante suma y el sobregiro resta en el siguiente periodo."
-          checked={rollover} onCheckedChange={setRollover} />
       </div>
     </Sheet>
   );

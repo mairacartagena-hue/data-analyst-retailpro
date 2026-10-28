@@ -250,7 +250,7 @@ Ej. un pago mensual que se hace por un familiar que luego envía la plata: se us
 2. **Montos fijos:** lo ejecutado cuenta para el responsable de cada parte. Si quien paga se pasa de su parte fija, la app pregunta cuánto cobrarle a la pareja (propone el excedente hasta lo que a la pareja le falte); si se cobra, esa parte queda a cargo de la pareja y genera un asiento de cruce.
 3. **Cuenta privada en categoría compartida:** la pareja ve monto, fecha y concepto; la cuenta aparece como “Cuenta privada”, salvo que su dueño active “Mostrar el nombre en gastos compartidos”.
 4. **Ingresos:** privados por defecto; se pueden compartir (la pareja los ve y cuentan en el flujo del hogar).
-5. **Rollover:** opcional por categoría; pasan sobrantes y sobregiros.
+5. **Rollover:** el cálculo existe (pasan sobrantes y sobregiros), pero ya no se ofrece el interruptor al editar un presupuesto.
 6. **Moneda:** solo pesos colombianos.
 7. **Patrimonio:** cuentas y tarjetas + activos y pasivos manuales.
 8. **Privacidad (desde 0017):** la decide el ámbito del movimiento, no la categoría ni la cuenta. Las barras compartidas suman solo movimientos del hogar.
