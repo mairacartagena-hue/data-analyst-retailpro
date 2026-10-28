@@ -88,17 +88,41 @@ export function FixedVsVariable({ consumption, period }: { consumption: Transact
   }, [transactions, categories, me.user_id]);
   const fixed = r.scheduled + r.subscriptions + r.creditCharges;
   const total = fixed + r.variable;
+  // Detalle de lo fijo (lo variable es un solo total)
   const items = [
     { key: "sch", label: "Vencimientos programados", value: r.scheduled },
     { key: "sub", label: "Suscripciones", value: r.subscriptions },
     { key: "cred", label: "Intereses y seguros de créditos", value: r.creditCharges },
-    { key: "var", label: "Variables (el resto)", value: r.variable },
   ].filter((i) => i.value > 0);
+  const pct = (v: number) => (total > 0 ? Math.round((v / total) * 100) : 0);
 
   return (
-    <ChartCard id="fijos" defaultOpen={false} summary={total > 0 ? `Fijos ${Math.round((fixed / total) * 100)} %${list.length ? ` · suscripciones ${formatCop(list.reduce((s, x) => s + x.amount, 0))} al mes` : ""}` : "Sin gastos en el periodo"} title="Gastos fijos y variables" subtitle={total > 0 ? `Fijos: ${Math.round((fixed / total) * 100)} % de lo gastado en el periodo` : "Lo que se repite cada periodo frente a lo que cambia"}
-      table={{ columns: ["Tipo", "Total"], rows: items.map((i) => [i.label, i.value]) }}>
-      {items.length === 0 ? <p className="text-sm text-muted">No hay gastos en este periodo.</p> : <BarList items={items} color="var(--series-1)" />}
+    <ChartCard id="fijos" defaultOpen={false} summary={total > 0 ? `Fijos ${formatCopShort(fixed)} (${Math.round((fixed / total) * 100)} %) · variables ${formatCopShort(r.variable)}` : "Sin gastos en el periodo"} title="Gastos fijos y variables" subtitle="Fijos: vencimientos programados, suscripciones e intereses y seguros de créditos. Variables: todo lo demás"
+      table={{ columns: ["Tipo", "Total"], rows: [["Fijos", fixed], ...items.map((i) => [`  ${i.label}`, i.value] as [string, number]), ["Variables", r.variable]] }}>
+      {total === 0 ? <p className="text-sm text-muted">No hay gastos en este periodo.</p> : (
+        <>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="rounded-2xl bg-surface-2 px-3 py-2.5">
+              <p className="text-xs text-muted">Fijos · {pct(fixed)} %</p>
+              <p className="num font-display text-xl">{formatCop(fixed)}</p>
+            </div>
+            <div className="rounded-2xl bg-surface-2 px-3 py-2.5">
+              <p className="text-xs text-muted">Variables · {pct(r.variable)} %</p>
+              <p className="num font-display text-xl">{formatCop(r.variable)}</p>
+            </div>
+          </div>
+          <div className="mt-2 flex h-2.5 overflow-hidden rounded-full bg-surface-2" aria-hidden>
+            <span className="h-full" style={{ width: `${pct(fixed)}%`, background: "var(--series-1)" }} />
+            <span className="h-full" style={{ width: `${pct(r.variable)}%`, background: "var(--series-2)" }} />
+          </div>
+          {items.length > 0 && (
+            <div className="mt-3">
+              <p className="mb-1.5 text-sm font-medium">De qué son los fijos</p>
+              <BarList items={items} color="var(--series-1)" />
+            </div>
+          )}
+        </>
+      )}
       {r.creditCapital > 0 && <p className="mt-2 text-xs text-muted">Además abonaste {formatCop(r.creditCapital)} a capital de tus créditos (no es gasto: baja la deuda).</p>}
       {list.length > 0 && (
         <div className="mt-4 border-t border-border pt-3">
