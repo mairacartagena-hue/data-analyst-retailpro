@@ -36,7 +36,7 @@ export function BudgetVsActual({ space }: { space: ReportSpace }) {
   const over = rows.filter((r) => r.cells.filter((c) => c && c.pct > 100).length >= 2);
 
   return (
-    <ChartCard title="Presupuesto frente a gasto real" subtitle="Cuánto usaste de cada presupuesto en los últimos 3 periodos. Más de 100 % es que te pasaste"
+    <ChartCard id="presupuesto-real" defaultOpen={false} summary={(() => { const n = rows.filter((r) => (r.cells[r.cells.length - 1]?.pct ?? 0) > 100).length; return n ? `${n} pasado${n === 1 ? "" : "s"} este periodo` : `${rows.length} presupuesto${rows.length === 1 ? "" : "s"}, ninguno pasado este periodo`; })()} title="Presupuesto frente a gasto real" subtitle="Cuánto usaste de cada presupuesto en los últimos 3 periodos. Más de 100 % es que te pasaste"
       table={{ columns: ["Presupuesto", ...periods.map(shortPeriod)], rows: rows.map((r) => [r.name, ...r.cells.map((c) => (c ? `${formatCop(c.spent)} de ${formatCop(c.budget)}` : "—"))]) }}>
       {rows.length === 0 ? <p className="text-sm text-muted">No hay presupuestos de categoría en esta vista.</p> : (
         <div className="space-y-1">
@@ -96,7 +96,7 @@ export function FixedVsVariable({ consumption, period }: { consumption: Transact
   ].filter((i) => i.value > 0);
 
   return (
-    <ChartCard title="Gastos fijos y variables" subtitle={total > 0 ? `Fijos: ${Math.round((fixed / total) * 100)} % de lo gastado en el periodo` : "Lo que se repite cada periodo frente a lo que cambia"}
+    <ChartCard id="fijos" defaultOpen={false} summary={total > 0 ? `Fijos ${Math.round((fixed / total) * 100)} %${list.length ? ` · suscripciones ${formatCop(list.reduce((s, x) => s + x.amount, 0))} al mes` : ""}` : "Sin gastos en el periodo"} title="Gastos fijos y variables" subtitle={total > 0 ? `Fijos: ${Math.round((fixed / total) * 100)} % de lo gastado en el periodo` : "Lo que se repite cada periodo frente a lo que cambia"}
       table={{ columns: ["Tipo", "Total"], rows: items.map((i) => [i.label, i.value]) }}>
       {items.length === 0 ? <p className="text-sm text-muted">No hay gastos en este periodo.</p> : <BarList items={items} color="var(--series-1)" />}
       {r.creditCapital > 0 && <p className="mt-2 text-xs text-muted">Además abonaste {formatCop(r.creditCapital)} a capital de tus créditos (no es gasto: baja la deuda).</p>}
@@ -129,7 +129,7 @@ export function TaxSummaryCard() {
     </div>
   );
   return (
-    <ChartCard title="Resumen para la renta" subtitle="Lo tuyo del año según lo registrado en la app. Es una guía: los valores oficiales salen de los certificados de tus bancos"
+    <ChartCard id="renta" defaultOpen={false} summary={`${year}: ingresos ${formatCopShort(s.income)} · 4x1000 ${formatCopShort(s.gmf)}`} title="Resumen para la renta" subtitle="Lo tuyo del año según lo registrado en la app. Es una guía: los valores oficiales salen de los certificados de tus bancos"
       table={{ columns: ["Concepto", "Valor"], rows: [["Ingresos", s.income], ...s.incomeByCategory.map((i) => [`  ${i.name}`, i.total] as [string, number]), ["4x1000 pagado", s.gmf], ...s.credits.flatMap((c) => [[`${c.name}: intereses`, c.interest], [`${c.name}: seguros y otros cargos`, c.insurance], [`${c.name}: abono a capital`, c.capital]] as [string, number][])] }}>
       <Segmented className="mb-2" value={String(year)} onChange={(v) => setYear(Number(v))}
         options={[{ value: String(thisYear - 1), label: String(thisYear - 1) }, { value: String(thisYear), label: `${thisYear} (en curso)` }]} />

@@ -10,7 +10,7 @@ import { BarList, ChartCard, GroupedColumns, StackedRows } from "@/components/ch
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
 import type { Member } from "@/lib/types";
-import { formatCop } from "@/lib/finance/money";
+import { formatCop, formatCopShort } from "@/lib/finance/money";
 import { isWithin, periodFor, shiftPeriod, todayBogota } from "@/lib/finance/periods";
 import { shortPeriod } from "@/lib/finance/periodLabels";
 import { BudgetVsActual, FixedVsVariable, TaxSummaryCard } from "@/components/reports/ExtraReports";
@@ -101,7 +101,7 @@ export default function InformesPage() {
         )}
 
         <div className="mt-4 space-y-4">
-          <ChartCard title={group === "sub" ? "Gastos por subcategoría" : "Gastos por categoría"}
+          <ChartCard id="categorias" summary={byCategory.length ? `${byCategory[0].name} es la mayor · ${formatCop(byCategory[0].total)}` : "Sin gastos en el periodo"} title={group === "sub" ? "Gastos por subcategoría" : "Gastos por categoría"}
             subtitle={group === "sub" ? "Cada subcategoría con su categoría al lado. Toca una para ver sus movimientos" : "Las subcategorías suman en su principal. Toca una para ver sus movimientos"}
             table={{ columns: [group === "sub" ? "Subcategoría" : "Categoría", "Total"], rows: byCategory.map((c) => [label(c), c.total]) }}>
             <Segmented className="mb-3" value={group} onChange={setGroup} options={[
@@ -115,7 +115,7 @@ export default function InformesPage() {
           </ChartCard>
 
           {tags.length > 0 && (
-            <ChartCard title="Gastos por etiqueta" subtitle="Un movimiento con varias etiquetas cuenta en cada una. Toca una para ver sus movimientos"
+            <ChartCard id="etiquetas" defaultOpen={false} summary={`${byTag.length} etiqueta${byTag.length === 1 ? "" : "s"} con movimientos`} title="Gastos por etiqueta" subtitle="Un movimiento con varias etiquetas cuenta en cada una. Toca una para ver sus movimientos"
               table={{ columns: ["Etiqueta", "Movimientos", "Gastos", "Ingresos"], rows: byTag.map((t) => [t.name, t.count, t.expense, t.income]) }}>
               {byTag.length === 0 ? <p className="text-sm text-muted">Ningún movimiento de este periodo tiene etiqueta.</p> : (
                 <BarList items={byTag.map((t) => ({ key: t.tagId, label: `${t.name} · ${t.count}`, value: Math.max(0, t.expense) }))} color={SERIES_1}
@@ -124,14 +124,14 @@ export default function InformesPage() {
             </ChartCard>
           )}
 
-          <ChartCard title="Por persona y hogar" subtitle="Lo que asumió cada uno: gastos del hogar y personales"
+          <ChartCard id="personas" defaultOpen={false} summary={people.map((p) => `${p.name} ${formatCopShort(p.household + p.personal)}`).join(" · ")} title="Por persona y hogar" subtitle="Lo que asumió cada uno: gastos del hogar y personales"
             table={{ columns: ["Persona", "Hogar", "Personal"], rows: people.map((p) => [p.name, p.household, p.personal]) }}>
             <StackedRows rows={people.map((p) => ({ label: p.userId === me.user_id ? `${p.name} (tú)` : p.name, values: [p.household, p.personal] }))}
               series={[{ label: "Hogar", color: SERIES_1 }, { label: "Personal", color: SERIES_2 }]} />
             {partner && <p className="mt-3 text-xs text-muted">Lo personal de tu pareja solo aparece si lo compartió contigo.</p>}
           </ChartCard>
 
-          <ChartCard title="Tendencia de 6 periodos" subtitle="Ingresos y consumo por periodo (los mismos de arriba)"
+          <ChartCard id="tendencia" defaultOpen={false} summary={trend.length ? `${shortPeriod(trend[trend.length - 1].period)}: ingresos ${formatCopShort(trend[trend.length - 1].income)} · gastos ${formatCopShort(trend[trend.length - 1].expense)}` : undefined} title="Tendencia de 6 periodos" subtitle="Ingresos y consumo por periodo (los mismos de arriba)"
             table={{ columns: ["Periodo", "Ingresos", "Gastos"], rows: trend.map((t) => [shortPeriod(t.period), t.income, t.expense]) }}>
             <GroupedColumns data={trend.map((t) => ({ label: shortPeriod(t.period), values: [t.income, t.expense] }))}
               series={[{ label: "Ingresos", color: SERIES_1 }, { label: "Gastos", color: SERIES_2 }]} />

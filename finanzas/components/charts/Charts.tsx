@@ -3,33 +3,58 @@
 // Gráficos simples en HTML/SVG con la guía de visualización: marcas delgadas, extremos redondeados de 4px,
 // 2px de separación entre segmentos, leyenda con 2 series, detalle al tocar y vista de tabla.
 
-import { useState } from "react";
-import { Table2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ChevronDown, Table2 } from "lucide-react";
 import { formatCop, formatCopShort } from "@/lib/finance/money";
 import { cn } from "@/lib/utils";
 
-export function ChartCard({ title, subtitle, children, table }: {
+/**
+ * Tarjeta de un informe. Se pliega y despliega tocando el título; plegada muestra solo el título y un resumen.
+ * Con `id`, el celular recuerda si quedó abierta o cerrada.
+ */
+export function ChartCard({ id, title, subtitle, summary, defaultOpen = true, children, table }: {
+  id?: string;
   title: string;
   subtitle?: string;
+  /** Texto corto que se ve con la tarjeta plegada (ej. un total). */
+  summary?: React.ReactNode;
+  defaultOpen?: boolean;
   children: React.ReactNode;
   table?: { columns: string[]; rows: (string | number)[][] };
 }) {
   const [showTable, setShowTable] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
+  useEffect(() => {
+    if (!id) return;
+    try {
+      const saved = localStorage.getItem(`informe:${id}`);
+      if (saved === "1" || saved === "0") setOpen(saved === "1");
+    } catch {}
+  }, [id]);
+  const toggle = () => {
+    const next = !open;
+    setOpen(next);
+    if (id) try { localStorage.setItem(`informe:${id}`, next ? "1" : "0"); } catch {}
+  };
   return (
     <section className="rounded-3xl border border-border bg-surface p-4 shadow-soft">
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <div>
-          <h2 className="font-semibold">{title}</h2>
-          {subtitle && <p className="text-xs text-muted">{subtitle}</p>}
-        </div>
-        {table && (
+      <div className={cn("flex items-start justify-between gap-3", open && "mb-3")}>
+        <button type="button" onClick={toggle} aria-expanded={open} className="flex min-w-0 flex-1 items-start gap-2 text-left">
+          <ChevronDown size={18} className={cn("mt-0.5 shrink-0 text-muted transition-transform", !open && "-rotate-90")} />
+          <span className="min-w-0">
+            <h2 className="font-semibold">{title}</h2>
+            {open && subtitle && <span className="block text-xs text-muted">{subtitle}</span>}
+            {!open && summary != null && <span className="num block text-xs text-muted">{summary}</span>}
+          </span>
+        </button>
+        {open && table && (
           <button onClick={() => setShowTable(!showTable)} aria-pressed={showTable}
             className={cn("flex items-center gap-1 rounded-full px-2.5 py-1 text-xs", showTable ? "bg-olive-soft text-text" : "text-muted hover:bg-surface-2")}>
             <Table2 size={14} /> Tabla
           </button>
         )}
       </div>
-      {showTable && table ? (
+      {!open ? null : showTable && table ? (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead><tr>{table.columns.map((c, i) => <th key={c} className={cn("pb-1 font-medium text-muted", i > 0 ? "text-right" : "text-left")}>{c}</th>)}</tr></thead>
