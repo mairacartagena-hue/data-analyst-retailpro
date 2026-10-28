@@ -29,9 +29,21 @@ export default function CuentasPage() {
   const [asset, setAsset] = useState<ManualAsset | null>(null);
   const [assetOpen, setAssetOpen] = useState(false);
   const [view, setView] = useState<View>("cuentas");
+  const [startCuota, setStartCuota] = useState(false);
   useEffect(() => {
-    const v = new URLSearchParams(window.location.search).get("vista");
+    const q = new URLSearchParams(window.location.search);
+    const v = q.get("vista");
     if (v === "cruce" || v === "creditos") setView(v);
+    // Desde Vencimientos: abrir el crédito con el registro de la cuota listo
+    const id = q.get("cuenta");
+    const a = id ? accounts.find((x) => x.id === id) : null;
+    if (a) {
+      setEditing(a);
+      setStartCuota(q.get("cuota") === "1");
+      setOpen(true);
+      window.history.replaceState(null, "", v ? `/cuentas?vista=${v}` : "/cuentas");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   function changeView(v: View) {
     setView(v);
@@ -191,7 +203,7 @@ export default function CuentasPage() {
 
       </>)}
 
-      <AccountSheet open={open} onOpenChange={setOpen} account={editing} defaultKind={newKind} />
+      <AccountSheet open={open} onOpenChange={(v) => { setOpen(v); if (!v) setStartCuota(false); }} account={editing} defaultKind={newKind} startCuota={startCuota} />
       <AssetSheet open={assetOpen} onOpenChange={setAssetOpen} asset={asset} />
     </main>
   );

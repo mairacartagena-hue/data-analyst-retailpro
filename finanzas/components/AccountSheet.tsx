@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { Archive, ArchiveRestore, FileUp } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import type { Account, ManualAsset, Visibility } from "@/lib/types";
@@ -32,7 +32,7 @@ import { CreditPaymentAdjust } from "@/components/CreditPaymentAdjust";
 const KINDS: AccountKind[] = ["DEPOSIT", "WALLET", "CASH", "CREDIT_CARD", "LOAN", "CREDIT"];
 const VISIBILITIES: Visibility[] = ["PRIVATE", "BALANCE_ONLY", "PUBLIC"];
 
-export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOSIT" }: { open: boolean; onOpenChange: (v: boolean) => void; account: Account | null; defaultKind?: AccountKind }) {
+export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOSIT", startCuota = false }: { open: boolean; onOpenChange: (v: boolean) => void; account: Account | null; defaultKind?: AccountKind; startCuota?: boolean }) {
   const finance = useFinance();
   const { me, supabase, reload, partner, categories } = finance;
   const [name, setName] = useState("");
@@ -304,7 +304,7 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
             )}
           </div>
         )}
-        {isCredit && account && <CreditPayments account={account} />}
+        {isCredit && account && <CreditPayments account={account} autoOpen={startCuota} />}
         {isCredit && account && <CreditPaymentAdjust account={account} />}
         {isCard && (
           <div className="grid grid-cols-2 gap-3">
@@ -526,7 +526,7 @@ function CardProjection({ account }: { account: Account }) {
 }
 
 /** Registrar una cuota del crédito: el capital baja la deuda (transferencia) y los intereses y costos son gastos. */
-function CreditPayments({ account }: { account: Account }) {
+function CreditPayments({ account, autoOpen = false }: { account: Account; autoOpen?: boolean }) {
   const { accounts, balances, categories, me, supabase, reload, transactions } = useFinance();
   const [open, setOpen] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -562,6 +562,16 @@ function CreditPayments({ account }: { account: Account }) {
     setCategoryId(account.budget_category_id ?? "");
   }
 
+  // Desde Vencimientos → Pagar: el formulario de la cuota ya abierto
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!autoOpen || owed <= 0) return;
+    openForm();
+    const t = setTimeout(() => box.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 350);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoOpen]);
+
   async function save() {
     setErr(null);
     if (totalN <= 0) return setErr("Escribe el valor de la cuota.");
@@ -592,7 +602,7 @@ function CreditPayments({ account }: { account: Account }) {
   }
 
   return (
-    <div className="space-y-2 rounded-2xl border border-border p-3">
+    <div ref={box} className="scroll-mt-2 space-y-2 rounded-2xl border border-border p-3">
       <p className="text-sm font-medium">Cuotas del crédito</p>
       <p className="text-xs text-muted">
         Debe {formatCop(owed)} · cuota estimada {formatCop(next)}{progress ? ` · ${progress}` : ""}
