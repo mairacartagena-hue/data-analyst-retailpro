@@ -89,6 +89,20 @@ export function CommitmentSheet({ open, onOpenChange, payment }: { open: boolean
       : await supabase.from("scheduled_payments").insert({ ...row, household_id: household.id, owner_user_id: me.user_id });
     setBusy(false);
     if (error) return setError(errMsg(error));
+    // Amarrado al presupuesto del hogar de su categoría: si cambia quién lo asume, cambia también en el presupuesto
+    const own = scope === "HOUSEHOLD" && categoryId ? limits.find((l) => l.scope === "HOUSEHOLD" && l.category_id === categoryId) ?? null : null;
+    const who = responsible ? [me, partner].find((m) => m?.user_id === responsible) ?? null : null;
+    const resp = who ? (who.slot === "B" ? "MEMBER_B_100" : "MEMBER_A_100") : null;
+    if (own && resp && own.responsibility !== resp) {
+      const r = await supabase.rpc("save_category_limit", { p: {
+        id: own.id, category_id: own.category_id, scope: "HOUSEHOLD", responsibility: resp,
+        is_household_obligation: own.is_household_obligation, rollover_enabled: own.rollover_enabled, shared_with_partner: false,
+      } });
+      if (r.error) {
+        void reload();
+        return setError(`El vencimiento quedó guardado, pero no se pudo cambiar quién asume el presupuesto: ${errMsg(r.error)}`);
+      }
+    }
     // Sin presupuesto del hogar para su categoría: se crea como pago obligatorio por el monto del vencimiento
     if (canBudget && !covering && toBudget) {
       const who = [me, partner].find((m) => m?.user_id === (responsible || me.user_id)) ?? me;
@@ -158,7 +172,8 @@ export function CommitmentSheet({ open, onOpenChange, payment }: { open: boolean
             checked={toBudget} onCheckedChange={setToBudget} />
         ))}
         {partner && (
-          <Field label="¿A quién le corresponde? (opcional)">
+          <Field label="¿Quién lo asume? (opcional)"
+            hint={scope === "HOUSEHOLD" && covering?.category_id === categoryId ? `Va amarrado al presupuesto de ${categoryPath(categories, categoryId)}: si lo cambias aquí, cambia allá${covering.responsibility === "FIXED_AMOUNTS" ? " (deja de ser compartido con montos fijos)" : ""}.` : undefined}>
             <ChipGroup value={responsible} onChange={(v) => setResponsible(v === responsible ? "" : v)} options={members} />
           </Field>
         )}

@@ -119,6 +119,12 @@ export function LimitSheet({
         },
       },
     });
+    if (!error && household) {
+      // Amarrado: los vencimientos del hogar de esta categoría quedan a cargo de la misma persona (compartido: sin una sola persona)
+      const who = resp === "MEMBER_A_100" ? memberA?.user_id : resp === "MEMBER_B_100" ? memberB?.user_id : null;
+      await supabase.from("scheduled_payments").update({ responsible_user_id: who ?? null })
+        .eq("household_id", me.household_id).eq("scope", "HOUSEHOLD").eq("category_id", category);
+    }
     setBusy(false);
     if (error) return setError(errMsg(error));
     onOpenChange(false);
