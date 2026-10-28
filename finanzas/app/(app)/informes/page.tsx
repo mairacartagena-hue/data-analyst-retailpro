@@ -28,8 +28,15 @@ export default function InformesPage() {
   // Gastos por periodo: una compra a cuotas cuenta cada cuota en su mes (el CSV lista los movimientos tal cual)
   const consumption = useMemo(() => allConsumption.filter((t) => inReportSpace(t, space)), [allConsumption, space]);
 
-  const byCategory = useMemo(() => spendingByCategory(consumption, categories, period, true), [consumption, categories, period]);
+  // Primero por subcategoría (la categoría principal va al lado); con "Categoría" las subcategorías suman en su principal
+  const [group, setGroup] = useState<"sub" | "parent">("sub");
+  const byCategory = useMemo(() => spendingByCategory(consumption, categories, period, group === "parent"), [consumption, categories, period, group]);
   const totalExpense = byCategory.reduce((a, c) => a + c.total, 0);
+  const label = (c: { key: string; name: string; icon: string }) => {
+    const cat = categories.find((x) => x.id === c.key);
+    const parent = cat?.parent_id ? categories.find((x) => x.id === cat.parent_id) : null;
+    return group === "sub" && cat && parent ? `${parent.icon || c.icon} ${cat.name} · ${parent.name}` : `${c.icon} ${cat?.name ?? c.name}`;
+  };
   const totalIncome = transactions.filter((t) => t.kind === "INCOME" && isWithin(t.occurred_on, period)).reduce((a, t) => a + t.amount, 0);
 
   const months = useMemo(() => {
@@ -86,10 +93,15 @@ export default function InformesPage() {
         </p>
 
         <div className="mt-4 space-y-4">
-          <ChartCard title="Gastos por categoría" subtitle="Las subcategorías suman en su principal. Toca una para ver sus movimientos"
-            table={{ columns: ["Categoría", "Total"], rows: byCategory.map((c) => [`${c.icon} ${c.name}`, c.total]) }}>
+          <ChartCard title={group === "sub" ? "Gastos por subcategoría" : "Gastos por categoría"}
+            subtitle={group === "sub" ? "Cada subcategoría con su categoría al lado. Toca una para ver sus movimientos" : "Las subcategorías suman en su principal. Toca una para ver sus movimientos"}
+            table={{ columns: [group === "sub" ? "Subcategoría" : "Categoría", "Total"], rows: byCategory.map((c) => [label(c), c.total]) }}>
+            <Segmented className="mb-3" value={group} onChange={setGroup} options={[
+              { value: "sub", label: "Subcategoría" },
+              { value: "parent", label: "Categoría" },
+            ]} />
             {byCategory.length === 0 ? <p className="text-sm text-muted">No hay gastos en este periodo.</p> : (
-              <BarList items={byCategory.map((c) => ({ key: c.key, label: `${c.icon} ${c.name}`, value: c.total }))} color={SERIES_1}
+              <BarList items={byCategory.map((c) => ({ key: c.key, label: label(c), value: c.total }))} color={SERIES_1}
                 onSelect={(key) => key !== "none" && key !== "private" && router.push(`/movimientos?categoria=${key}`)} />
             )}
           </ChartCard>
