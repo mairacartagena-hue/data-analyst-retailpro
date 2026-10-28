@@ -163,8 +163,10 @@ export default function PresupuestosPage() {
             <div className="space-y-2.5">
               {g.items.map((l) => {
                 const c = categories.find((x) => x.id === l.category_id)!;
+                // Sangría solo si la principal está justo arriba en la misma lista; si no, se alinea con las demás
+                const underParent = !!c.parent_id && g.items.some((x) => x.category_id === c.parent_id);
                 return (
-                  <div key={l.id} className={cn(c.parent_id && "ml-4")}>
+                  <div key={l.id} className={cn(underParent && "ml-4")}>
                     <BudgetBar category={c} limit={l} status={statuses.get(l.id)} memberById={memberById} meId={me.user_id}
                       label={categoryPath(categories, c.id) + (isPartners(l) ? ` (de ${partner?.display_name ?? "tu pareja"})` : "")} icon={categoryLabel(categories, c.id).icon}
                       onPay={isPartners(l) ? undefined : (amount) => openPayment({ categoryId: c.id, amount, scope: l.scope, responsibleId: limitResponsible(l, me, partner) ?? me.user_id })}
