@@ -22,6 +22,7 @@ import { committedTotal, occurrencesOfSpace } from "@/lib/finance/commitments";
 import { planAppliesTo, planMetrics, sharedAsTransactions, type PlanMetrics } from "@/lib/finance/plans";
 import { categoryPath, categoryTree } from "@/lib/finance/spaces";
 import { formatDay } from "@/lib/finance/periods";
+import { statementsDueIn } from "@/lib/finance/installments";
 import { cn } from "@/lib/utils";
 import { categoryLabel } from "@/lib/finance/labels";
 
@@ -84,6 +85,14 @@ export default function PresupuestosPage() {
     }
     return { member: m!, available, spent };
   });
+
+  // Cuotas de créditos: fecha de pago dentro del periodo, según el día de pago del crédito
+  const creditDue = new Map<string, string>();
+  for (const a of state.accounts) {
+    if ((a.kind !== "CREDIT" && a.kind !== "LOAN") || a.archived || !a.budget_category_id || !a.due_day) continue;
+    const d = statementsDueIn(a.due_day, a.due_day, period)[0]?.due;
+    if (d) creditDue.set(a.budget_category_id, d);
+  }
 
   const visiblePlans = plans.filter((p) => planAppliesTo(p, period));
   const closedPlans = plans.filter((p) => !planAppliesTo(p, period));
@@ -169,7 +178,7 @@ export default function PresupuestosPage() {
                 const underParent = !!c.parent_id && g.items.some((x) => x.category_id === c.parent_id);
                 return (
                   <div key={l.id} className={cn(underParent && "ml-4")}>
-                    <BudgetBar category={c} limit={l} status={statuses.get(l.id)} memberById={memberById} meId={me.user_id}
+                    <BudgetBar category={c} limit={l} status={statuses.get(l.id)} memberById={memberById} meId={me.user_id} due={l.scope === "HOUSEHOLD" ? creditDue.get(l.category_id) : undefined}
                       label={categoryPath(categories, c.id) + (isPartners(l) ? ` (de ${partner?.display_name ?? "tu pareja"})` : "")} icon={categoryLabel(categories, c.id).icon}
                       onPay={isPartners(l) ? undefined : (amount) => openPayment({ categoryId: c.id, amount, scope: l.scope, responsibleId: limitResponsible(l, me, partner) ?? me.user_id })}
                       onClick={() => setDetail(l)} />
