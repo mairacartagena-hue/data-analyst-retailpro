@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { AmountInput } from "@/components/AmountInput";
 import { Button } from "@/components/ui/button";
+import { Collapsible } from "@/components/ui/collapsible";
 import type { Account, Transaction } from "@/lib/types";
 import { creditPayments, fixWithRealCapital, type CreditPayment } from "@/lib/finance/creditPayments";
 import { ensureCategory } from "@/lib/finance/ensureCategory";
@@ -38,19 +39,18 @@ function scaleSplits(t: Transaction, amount: number) {
  * Cuotas pagadas del crédito con su reparto, y "Ajustar con el pago real": se escribe el capital que dice el
  * banco y la app deja el resto como intereses y seguros, sin cambiar lo que salió de la cuenta que pagó.
  */
-export function CreditPaymentAdjust({ account, since }: { account: Account; since?: string }) {
+export function CreditPaymentAdjust({ account, since, defaultOpen = false }: { account: Account; since?: string; defaultOpen?: boolean }) {
   const { transactions } = useFinance();
   const from = since ?? addDays(todayBogota(), -120);
   const payments = useMemo(() => creditPayments(account, transactions, from), [account, transactions, from]);
   if (payments.length === 0) return null;
   return (
-    <div className="space-y-2 rounded-2xl border border-border p-3">
-      <p className="text-sm font-medium">Cuotas pagadas</p>
+    <Collapsible title="Cuotas pagadas" summary={String(payments.length)} defaultOpen={defaultOpen}>
       <p className="text-xs text-muted">Si el banco repartió distinto (capital, intereses y seguros), ajústala con el pago real. Lo que salió de tu cuenta no cambia.</p>
       <div className="divide-y divide-border">
         {payments.map((p) => <PaymentRow key={p.transfer.id} account={account} payment={p} />)}
       </div>
-    </div>
+    </Collapsible>
   );
 }
 

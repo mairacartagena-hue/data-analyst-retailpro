@@ -276,7 +276,7 @@ function AccountClose({ account, month }: { account: Account; month: string }) {
             <button className="text-xs text-olive underline" onClick={() => openTransaction(null)}>Registrar otro movimiento que falte</button>
           </div>}
 
-          {account.kind === "CREDIT" && <CreditPaymentAdjust account={account} since={addDays(range.start, -15)} />}
+          {account.kind === "CREDIT" && <CreditPaymentAdjust account={account} since={addDays(range.start, -15)} defaultOpen />}
 
           {isCredit && diff !== null && (
             <div className="space-y-2">

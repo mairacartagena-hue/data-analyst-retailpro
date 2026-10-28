@@ -79,7 +79,15 @@ export function CategorySheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange} title={category ? "Editar categoría" : isIncome ? "Nueva categoría de ingreso" : "Nueva categoría"}
-      description="Las categorías las usan los dos. Si es del hogar o personal, y quién lo asume, se define en el presupuesto y en cada movimiento.">
+      description="Las categorías las usan los dos. Si es del hogar o personal, y quién lo asume, se define en el presupuesto y en cada movimiento."
+      footer={<div className="space-y-2"><ErrorText>{error}</ErrorText><div className="flex gap-3">
+          {category && (
+            <Button variant="secondary" size="icon" onClick={toggleArchive} disabled={busy} aria-label={category.archived ? "Restaurar" : "Archivar"}>
+              {category.archived ? <ArchiveRestore size={18} /> : <Archive size={18} />}
+            </Button>
+          )}
+          <Button className="flex-1" size="lg" onClick={save} disabled={busy}>{busy ? "Guardando..." : "Guardar"}</Button>
+        </div></div>}>
       <div className="space-y-4 pb-2">
         <div className="grid grid-cols-[72px_1fr] gap-3">
           <Field label="Ícono" htmlFor="icon">
@@ -105,16 +113,6 @@ export function CategorySheet({
             </Select>
           </Field>
         )}
-
-        <ErrorText>{error}</ErrorText>
-        <div className="flex gap-3">
-          {category && (
-            <Button variant="secondary" size="icon" onClick={toggleArchive} disabled={busy} aria-label={category.archived ? "Restaurar" : "Archivar"}>
-              {category.archived ? <ArchiveRestore size={18} /> : <Archive size={18} />}
-            </Button>
-          )}
-          <Button className="flex-1" size="lg" onClick={save} disabled={busy}>{busy ? "Guardando..." : "Guardar"}</Button>
-        </div>
       </div>
     </Sheet>
   );

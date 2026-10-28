@@ -26,13 +26,13 @@ export default function AjustesPage() {
   const [name, setName] = useState(me.display_name);
   const [color, setColor] = useState(me.color);
   const [avatar, setAvatar] = useState(me.avatar ?? "");
-  const [profileMsg, setProfileMsg] = useState<string | null>(null);
 
   const [cycle, setCycle] = useState(settings.cycle);
   const [monthlyDay, setMonthlyDay] = useState(String(settings.monthlyStartDay));
   const [firstDay, setFirstDay] = useState(String(settings.biweeklyFirstDay));
   const [secondDay, setSecondDay] = useState(String(settings.biweeklySecondDay));
-  const [periodMsg, setPeriodMsg] = useState<string | null>(null);
+  const [savedMsg, setSavedMsg] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [uvtText, setUvtText] = useState(String(uvt));
 
   const [theme, setTheme] = useState<Theme>("system");
@@ -49,30 +49,40 @@ export default function AjustesPage() {
     document.documentElement.classList.toggle("dark", dark);
   }
 
-  async function saveProfile() {
-    setError(null);
-    setProfileMsg(null);
-    if (!name.trim()) return setError("Escribe tu nombre.");
-    const { error } = await supabase.rpc("update_my_profile", { p_display_name: name, p_color: color, p_avatar: avatar });
-    if (error) return setError(errMsg(error));
-    setProfileMsg("Guardado");
-    void reload();
-  }
+  // Un solo "Guardar" para el perfil y los periodos: aparece abajo cuando hay algo cambiado
+  const profileDirty = name !== me.display_name || color !== me.color || avatar !== (me.avatar ?? "");
+  const periodsDirty = cycle !== settings.cycle || monthlyDay !== String(settings.monthlyStartDay)
+    || firstDay !== String(settings.biweeklyFirstDay) || secondDay !== String(settings.biweeklySecondDay) || uvtText !== String(uvt);
 
-  async function savePeriods() {
+  async function saveAll() {
     setError(null);
-    setPeriodMsg(null);
+    setSavedMsg(false);
+    if (profileDirty && !name.trim()) return setError("Escribe tu nombre.");
     const clamp = (v: string, min: number) => Math.min(28, Math.max(min, Number(v) || min));
     const a = clamp(firstDay, 1);
     const b = clamp(secondDay, 2);
-    if (cycle === "BIWEEKLY" && a >= b) return setError("El segundo corte debe ser después del primero.");
-    const { error } = await supabase.from("period_settings").update({
-      cycle, monthly_start_day: clamp(monthlyDay, 1), biweekly_first_day: a, biweekly_second_day: b,
-      uvt_value: Math.max(1, Number(uvtText.replace(/\D/g, "")) || 52374),
-    }).eq("household_id", household.id);
-    if (error) return setError(errMsg(error));
-    setPeriodMsg("Guardado");
-    void reload();
+    if (periodsDirty && cycle === "BIWEEKLY" && a >= b) return setError("El segundo corte debe ser después del primero.");
+    setSaving(true);
+    try {
+      if (profileDirty) {
+        const { error } = await supabase.rpc("update_my_profile", { p_display_name: name, p_color: color, p_avatar: avatar });
+        if (error) throw error;
+      }
+      if (periodsDirty) {
+        const { error } = await supabase.from("period_settings").update({
+          cycle, monthly_start_day: clamp(monthlyDay, 1), biweekly_first_day: a, biweekly_second_day: b,
+          uvt_value: Math.max(1, Number(uvtText.replace(/\D/g, "")) || 52374),
+        }).eq("household_id", household.id);
+        if (error) throw error;
+      }
+      setSavedMsg(true);
+      setTimeout(() => setSavedMsg(false), 2500);
+      await reload();
+    } catch (e) {
+      setError(errMsg(e));
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function regenerate() {
@@ -132,10 +142,6 @@ export default function AjustesPage() {
         <Field label="Avatar (un emoji, opcional)" htmlFor="avatar">
           <Input id="avatar" value={avatar} onChange={(e) => setAvatar(e.target.value)} maxLength={4} placeholder="🌿" className="w-24 text-center text-xl" />
         </Field>
-        <div className="flex items-center gap-3">
-          <Button onClick={saveProfile}>Guardar perfil</Button>
-          {profileMsg && <span className="text-sm text-olive">{profileMsg}</span>}
-        </div>
         {partner && partner.color.toLowerCase() === color.toLowerCase() && (
           <p className="text-xs text-warning">Tu pareja usa el mismo color; conviene elegir otro para diferenciarse.</p>
         )}
@@ -175,10 +181,6 @@ export default function AjustesPage() {
         <Field label="Valor de la UVT del año" htmlFor="uvt" hint="Se usa para el tope exento del 4x1000. 2026: $52.374 (Resolución DIAN 000238 de 2025). Actualízalo cada enero.">
           <Input id="uvt" inputMode="numeric" value={uvtText} onChange={(e) => setUvtText(e.target.value.replace(/\D/g, ""))} />
         </Field>
-        <div className="flex items-center gap-3">
-          <Button onClick={savePeriods}>Guardar periodos</Button>
-          {periodMsg && <span className="text-sm text-olive">{periodMsg}</span>}
-        </div>
       </Card>
 
       <SectionTitle>Apariencia</SectionTitle>
@@ -192,6 +194,15 @@ export default function AjustesPage() {
       <InstallCard />
 
       <Button variant="ghost" className="mt-8 w-full text-muted" onClick={logout}><LogOut size={18} /> Cerrar sesión</Button>
+
+      {(profileDirty || periodsDirty || savedMsg) && (
+        <div className="fixed inset-x-0 bottom-[calc(64px+env(safe-area-inset-bottom))] z-40 border-t border-border bg-surface/95 backdrop-blur">
+          <div className="mx-auto flex max-w-2xl items-center gap-3 px-4 py-3">
+            <p className={cn("min-w-0 flex-1 text-sm", error && "text-danger")}>{error ?? (savedMsg && !profileDirty && !periodsDirty ? "Cambios guardados" : "Tienes cambios sin guardar")}</p>
+            {(profileDirty || periodsDirty) && <Button onClick={saveAll} disabled={saving}>{saving ? "Guardando…" : "Guardar"}</Button>}
+          </div>
+        </div>
+      )}
     </main>
   );
 }

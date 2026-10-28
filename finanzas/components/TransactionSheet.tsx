@@ -133,6 +133,8 @@ export function TransactionSheet({
   const [categoryId, setCategoryId] = useState<string>("");
   const [responsibleId, setResponsibleId] = useState<string>(me.user_id);
   const [splitMode, setSplitMode] = useState(false);
+  /** “Más opciones”: dividir por montos y etiquetas (abierto si ya hay etiquetas). */
+  const [more, setMore] = useState(false);
   const [splits, setSplits] = useState<SplitRow[]>([]);
   const [createsDebt, setCreatesDebt] = useState(true);
   /** Compras con tarjeta de crédito: número de cuotas. */
@@ -156,6 +158,7 @@ export function TransactionSheet({
     setFixedPrompt(null);
     setBusy(false);
     setTagIds(editing ? state.txTags[editing.id] ?? [] : []);
+    setMore(false);
     setToPartner(false);
     if (editing) {
       setKind(editing.kind === "SETTLEMENT" ? "EXPENSE" : editing.kind);
@@ -238,7 +241,6 @@ export function TransactionSheet({
   const selectedCategory = usable.find((c) => c.id === categoryId) ?? null;
   const withSplits = hasSplits(kind);
   // Los comentarios van justo después de la categoría; sin categoría (transferencias, ajustes) quedan al final
-  const showsCategory = withSplits || (kind === "INCOME" && !partnerEdit);
   const commentsBlock = editing ? <TransactionComments txId={editing.id} /> : null;
   const kindGroup: KindGroup = OTHER_KINDS.includes(kind) ? "OTHER" : (kind as KindGroup);
   const scheduledPayment = scheduled ? state.commitments.find((c) => c.id === scheduled.id) ?? null : null;
@@ -505,7 +507,22 @@ export function TransactionSheet({
     : scheduledPayment ? "Pagar vencimiento" : preset?.categoryId ? "Registrar pago" : "Registrar";
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} title={title}>
+    <Sheet open={open} onOpenChange={onOpenChange} title={title}
+      footer={myAccounts.length === 0 && !partnerEdit ? undefined : fixedPrompt ? undefined : (
+        <div className="space-y-2">
+          <ErrorText>{error}</ErrorText>
+          <div className="flex gap-3">
+            {editing && access === "owner" && (
+              <Button variant="danger" size="icon" className="h-14 w-14" onClick={remove} disabled={busy} aria-label="Borrar">
+                <Trash2 size={18} />
+              </Button>
+            )}
+            <Button className="flex-1" size="lg" disabled={busy} onClick={() => save()}>
+              {busy ? "Guardando..." : isPendingReview ? "Confirmar" : "Guardar"}
+            </Button>
+          </div>
+        </div>
+      )}>
       {myAccounts.length === 0 && !partnerEdit ? (
         <div className="space-y-3 py-6 text-center">
           <p className="text-[15px]">Primero agrega una cuenta (ahorros, Nequi, efectivo o tarjeta) en la pestaña Cuentas.</p>
@@ -582,7 +599,7 @@ export function TransactionSheet({
 
           <div className="grid grid-cols-[1fr_auto] gap-3">
             <Input value={description} onChange={(e) => setDescription(e.target.value)}
-              placeholder={kind === "INCOME" ? "¿De dónde? (salario, venta…)" : kind === "TRANSFER" || kind === "ADJUSTMENT" ? "Nota (opcional)" : kind === "REFUND" ? "¿Qué te devolvieron?" : "¿En qué? (comercio o concepto)"}
+              placeholder={kind === "INCOME" ? "¿De dónde? (salario, venta…)" : kind === "TRANSFER" || kind === "ADJUSTMENT" ? "Nota (opcional)" : kind === "REFUND" ? "¿Qué te devolvieron?" : "¿En qué?"}
               aria-label="Descripción" />
             <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-[150px]" aria-label="Fecha" />
           </div>
@@ -592,7 +609,8 @@ export function TransactionSheet({
           ) : (
             <Field label={kind === "INCOME" || kind === "REFUND" ? "Entró a" : kind === "TRANSFER" ? "Sale de" : kind === "ADJUSTMENT" ? "Cuenta" : "Pagué con"}>
               <ChipGroup value={accountId} onChange={setAccountId}
-                options={myAccounts.map((a) => ({ value: a.id, label: accountLabel(labels, a.id) }))} />
+                options={myAccounts.filter((a) => kind === "TRANSFER" || kind === "ADJUSTMENT" || !["CREDIT", "LOAN"].includes(a.kind) || a.id === accountId)
+                  .map((a) => ({ value: a.id, label: accountLabel(labels, a.id) }))} />
             </Field>
           )}
 
@@ -676,7 +694,6 @@ export function TransactionSheet({
               </div>
             </Field>
           )}
-          {kind === "INCOME" && !partnerEdit && commentsBlock}
 
           {withSplits && !splitMode && (
             <>
@@ -685,18 +702,12 @@ export function TransactionSheet({
                   onPick={pickCategory} onNew={partnerEdit ? undefined : () => setNewCategory("EXPENSE")} />
               </Field>
 
-              {commentsBlock}
-
               {partner && (
                 <Field label="¿A quién le corresponde?" hint={preset?.categoryId && !editing ? "Propuesto por el presupuesto de la categoría; puedes cambiarlo. No tiene que ser quien pagó." : "Quién asume económicamente el gasto; no tiene que ser quien pagó."}>
                   <ChipGroup value={responsibleId} onChange={setResponsibleId}
                     options={memberOptions} />
                 </Field>
               )}
-
-              <Button variant="outline" size="sm" onClick={startSplit} disabled={!total}>
-                <Scissors size={16} /> Dividir por montos
-              </Button>
             </>
           )}
 
@@ -753,7 +764,6 @@ export function TransactionSheet({
               </div>
             </div>
           )}
-          {withSplits && splitMode && commentsBlock}
 
           {crossedAmount > 0 && otherId && (
             <div className="space-y-2 rounded-2xl bg-wood-soft px-3 py-2.5 text-sm">
@@ -799,23 +809,24 @@ export function TransactionSheet({
             </div>
           )}
 
-          <Field label="Etiquetas (opcional)">
-            <TagPicker value={tagIds} onChange={setTagIds} />
-          </Field>
+          {more || tagIds.length > 0 ? (
+            <div className="space-y-4">
+              {withSplits && !splitMode && (
+                <Button variant="outline" size="sm" onClick={startSplit} disabled={!total}>
+                  <Scissors size={16} /> Dividir por montos
+                </Button>
+              )}
+              <Field label="Etiquetas (opcional)">
+                <TagPicker value={tagIds} onChange={setTagIds} />
+              </Field>
+            </div>
+          ) : (
+            <button type="button" onClick={() => setMore(true)} className="flex items-center gap-1 text-sm font-semibold text-olive">
+              <Plus size={15} /> Más opciones{withSplits && !splitMode ? " (dividir, etiquetas)" : " (etiquetas)"}
+            </button>
+          )}
 
-          <ErrorText>{error}</ErrorText>
-
-          <div className="flex gap-3 pt-1">
-            {editing && access === "owner" && (
-              <Button variant="danger" size="icon" onClick={remove} disabled={busy} aria-label="Borrar">
-                <Trash2 size={18} />
-              </Button>
-            )}
-            <Button className="flex-1" size="lg" disabled={busy} onClick={() => save()}>
-              {busy ? "Guardando..." : isPendingReview ? "Confirmar" : "Guardar"}
-            </Button>
-          </div>
-          {!showsCategory && commentsBlock}
+          {commentsBlock}
         </div>
       )}
       <CategorySheet open={newCategory !== null} onOpenChange={(v) => !v && setNewCategory(null)} category={null}

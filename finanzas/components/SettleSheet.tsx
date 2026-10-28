@@ -65,7 +65,10 @@ export function SettleSheet({ open, onOpenChange }: { open: boolean; onOpenChang
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange} title="Liquidar"
-      description={owe > 0 ? `Le debes ${formatCop(owe)} a ${partner?.display_name}.` : net > 0 ? `${partner?.display_name} te debe ${formatCop(net)}. La liquidación la registra quien paga.` : "Están a paz y salvo."}>
+      description={owe > 0 ? `Le debes ${formatCop(owe)} a ${partner?.display_name}.` : net > 0 ? `${partner?.display_name} te debe ${formatCop(net)}. La liquidación la registra quien paga.` : "Están a paz y salvo."}
+      footer={<div className="space-y-2"><ErrorText>{error}</ErrorText><Button size="lg" className="w-full" disabled={busy} onClick={save}>
+            {busy ? "Guardando..." : `Registrar pago de ${formatCop(parseCop(amount) ?? 0)}`}
+          </Button></div>}>
       {!partner ? (
         <p className="py-4 text-[15px]">Cuando tu pareja se una al hogar podrás liquidar aquí.</p>
       ) : (
@@ -84,10 +87,6 @@ export function SettleSheet({ open, onOpenChange }: { open: boolean; onOpenChang
           <Field label="Fecha" htmlFor="settle-date">
             <Input id="settle-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
           </Field>
-          <ErrorText>{error}</ErrorText>
-          <Button size="lg" className="w-full" disabled={busy} onClick={save}>
-            {busy ? "Guardando..." : `Registrar pago de ${formatCop(parseCop(amount) ?? 0)}`}
-          </Button>
         </div>
       )}
     </Sheet>

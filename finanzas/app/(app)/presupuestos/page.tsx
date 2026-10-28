@@ -141,10 +141,10 @@ export default function PresupuestosPage() {
           </div>
         )}
 
-        {/* Compromisos */}
+        {/* Próximos vencimientos */}
         <div className="mt-6 flex items-center justify-between">
           <SectionTitle className="m-0">Próximos vencimientos</SectionTitle>
-          <Button size="sm" variant="ghost" onClick={() => editCommitment(null)}><Plus size={16} /> Compromiso</Button>
+          <Button size="sm" variant="ghost" onClick={() => editCommitment(null)}><Plus size={16} /> Vencimiento</Button>
         </div>
         {(householdCommitted > 0 || myCommitted > 0) && (
           <p className="mb-2 px-1 text-xs text-muted">

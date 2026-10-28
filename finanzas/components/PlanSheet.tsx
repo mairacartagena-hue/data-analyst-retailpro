@@ -125,7 +125,15 @@ export function PlanSheet({ open, onOpenChange, plan }: { open: boolean; onOpenC
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange} title={plan ? "Editar presupuesto" : "Nuevo presupuesto"}
-      description="Agrupa categorías con un límite. Una categoría principal incluye sus subcategorías.">
+      description="Agrupa categorías con un límite. Una categoría principal incluye sus subcategorías."
+      footer={<div className="space-y-2"><ErrorText>{error}</ErrorText><div className="flex gap-3">
+          {plan && (
+            <Button variant="danger" size="icon" onClick={remove} disabled={busy} aria-label="Borrar">
+              <Trash2 size={18} />
+            </Button>
+          )}
+          <Button className="flex-1" size="lg" onClick={save} disabled={busy}>{busy ? "Guardando..." : "Guardar"}</Button>
+        </div></div>}>
       <div className="space-y-4 pb-2">
         <Field label="¿De qué espacio?">
           <Segmented value={scope} onChange={(v) => {
@@ -202,16 +210,6 @@ export function PlanSheet({ open, onOpenChange, plan }: { open: boolean; onOpenC
               <option value="CLOSED">Cerrado</option>
             </Select>
           </Field>
-        </div>
-
-        <ErrorText>{error}</ErrorText>
-        <div className="flex gap-3">
-          {plan && (
-            <Button variant="danger" size="icon" onClick={remove} disabled={busy} aria-label="Borrar">
-              <Trash2 size={18} />
-            </Button>
-          )}
-          <Button className="flex-1" size="lg" onClick={save} disabled={busy}>{busy ? "Guardando..." : "Guardar"}</Button>
         </div>
       </div>
     </Sheet>

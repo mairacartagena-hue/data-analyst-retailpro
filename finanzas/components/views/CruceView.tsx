@@ -215,7 +215,10 @@ function ResolveDebtSheet({ resolving, onClose, maxTotal }: { resolving: { debt:
 
   return (
     <Sheet open onOpenChange={(v) => !v && onClose()} title={mode === "PAID" ? "Cobrar la deuda" : "Condonar la deuda"}
-      description={`${debt.description || KIND_LABEL[debt.kind]} · ${formatCop(debt.remaining)} pendientes`}>
+      description={`${debt.description || KIND_LABEL[debt.kind]} · ${formatCop(debt.remaining)} pendientes`}
+      footer={<div className="space-y-2"><ErrorText>{error}</ErrorText><Button size="lg" className="w-full" disabled={busy} onClick={save}>
+          {busy ? "Guardando..." : mode === "PAID" ? `Cobrar ${formatCop(n)}` : `Condonar ${formatCop(n)}`}
+        </Button></div>}>
       <div className="space-y-4 pb-2">
         <Segmented value={mode} onChange={setMode} options={[{ value: "PAID", label: "Cobrar" }, { value: "FORGIVEN", label: "Condonar" }]} />
         <AmountInput large value={amount} onChange={setAmount} />
@@ -231,10 +234,6 @@ function ResolveDebtSheet({ resolving, onClose, maxTotal }: { resolving: { debt:
           <p className="rounded-2xl bg-wood-soft px-3 py-2 text-sm">Solo se quita del cruce: no se mueve plata. {partner.display_name} lo verá en el historial como deuda condonada. Si te arrepientes, puedes deshacerlo desde el historial.</p>
         )}
         <Field label="Fecha" htmlFor="resolve-date"><Input id="resolve-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
-        <ErrorText>{error}</ErrorText>
-        <Button size="lg" className="w-full" disabled={busy} onClick={save}>
-          {busy ? "Guardando..." : mode === "PAID" ? `Cobrar ${formatCop(n)}` : `Condonar ${formatCop(n)}`}
-        </Button>
       </div>
     </Sheet>
   );
@@ -275,7 +274,8 @@ function LedgerEntrySheet({ open, onOpenChange }: { open: boolean; onOpenChange:
   }
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} title="Préstamo o encargo">
+    <Sheet open={open} onOpenChange={onOpenChange} title="Préstamo o encargo"
+      footer={<div className="space-y-2"><ErrorText>{error}</ErrorText><Button size="lg" className="w-full" disabled={busy} onClick={save}>{busy ? "Guardando..." : "Guardar"}</Button></div>}>
       <div className="space-y-4 pb-2">
         <Segmented value={kind} onChange={setKind} options={[{ value: "LOAN", label: "Préstamo" }, { value: "ERRAND", label: "Encargo" }]} />
         <Segmented value={direction} onChange={setDirection} options={[
@@ -288,8 +288,6 @@ function LedgerEntrySheet({ open, onOpenChange }: { open: boolean; onOpenChange:
             placeholder={kind === "LOAN" ? "Te presté para…" : "Me trajiste… / te compré…"} />
         </Field>
         <Field label="Fecha" htmlFor="ledger-date"><Input id="ledger-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
-        <ErrorText>{error}</ErrorText>
-        <Button size="lg" className="w-full" disabled={busy} onClick={save}>{busy ? "Guardando..." : "Guardar"}</Button>
       </div>
     </Sheet>
   );

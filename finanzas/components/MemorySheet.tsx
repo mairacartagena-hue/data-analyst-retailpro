@@ -116,7 +116,13 @@ export function MemorySheet({ group, onClose, onChanged }: { group: MemoryGroup 
 
   return (
     <Sheet open onOpenChange={(v) => !v && onClose()} title="Editar memoria"
-      description={`${memory.identifier_type === "MERCHANT" ? "Comercio" : memory.identifier_type === "ACCOUNT" ? "Llave o cuenta" : memory.identifier_type === "PHONE" ? "Celular" : memory.identifier_type === "NIT" ? "NIT" : "Palabra"}: ${memory.identifier} · ${group!.hits} uso${group!.hits === 1 ? "" : "s"}`}>
+      description={`${memory.identifier_type === "MERCHANT" ? "Comercio" : memory.identifier_type === "ACCOUNT" ? "Llave o cuenta" : memory.identifier_type === "PHONE" ? "Celular" : memory.identifier_type === "NIT" ? "NIT" : "Palabra"}: ${memory.identifier} · ${group!.hits} uso${group!.hits === 1 ? "" : "s"}`}
+      footer={<div className="space-y-2"><ErrorText>{error}</ErrorText><div className="flex gap-3">
+          {!result && <Button variant="danger" size="icon" onClick={forget} disabled={busy} aria-label="Olvidar"><Trash2 size={18} /></Button>}
+          {result
+            ? <Button className="flex-1" size="lg" onClick={onClose}>Listo</Button>
+            : <Button className="flex-1" size="lg" onClick={save} disabled={busy}>{busy ? "Guardando y actualizando..." : "Guardar"}</Button>}
+        </div></div>}>
       <div className="space-y-4 pb-2">
         <Field label="Nombre" htmlFor="mem-label">
           <Input id="mem-label" value={label} onChange={(e) => setLabel(e.target.value)} maxLength={60} placeholder="Ej. Heladería, Hermano, Lady uñas" />
@@ -157,14 +163,7 @@ export function MemorySheet({ group, onClose, onChanged }: { group: MemoryGroup 
           const n = transactions.filter((t) => t.status === "CONFIRMED" && group!.all.some((m) => memoryMatches(t, m))).length;
           return n > 0 && !result ? <p className="text-xs text-muted">Al guardar, lo que cambies también se aplica a los {n} movimiento{n === 1 ? "" : "s"} anterior{n === 1 ? "" : "es"} de este origen.</p> : null;
         })()}
-        <ErrorText>{error}</ErrorText>
         {result && <p className="rounded-xl bg-olive-soft px-3 py-2 text-sm">{result}</p>}
-        <div className="flex gap-3">
-          {!result && <Button variant="danger" size="icon" onClick={forget} disabled={busy} aria-label="Olvidar"><Trash2 size={18} /></Button>}
-          {result
-            ? <Button className="flex-1" size="lg" onClick={onClose}>Listo</Button>
-            : <Button className="flex-1" size="lg" onClick={save} disabled={busy}>{busy ? "Guardando y actualizando..." : "Guardar"}</Button>}
-        </div>
       </div>
     </Sheet>
   );

@@ -78,9 +78,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {children}
       </div>
 
-      {/* Registrar por voz: siempre a la mano, encima de la barra */}
+      {/* Registrar por voz: siempre a la mano, encima de la barra (a la izquierda, donde no tapa los botones de las tarjetas) */}
       <div className="pointer-events-none fixed inset-x-0 bottom-[calc(76px+env(safe-area-inset-bottom))] z-30">
-        <div className="mx-auto flex max-w-2xl justify-end px-4">
+        <div className="mx-auto flex max-w-2xl justify-start px-4">
           <button onClick={() => openPayment({ voice: true })} aria-label="Registrar por voz"
             className="pointer-events-auto flex h-14 w-14 items-center justify-center rounded-full bg-wood text-on-olive shadow-soft ring-4 ring-bg active:scale-95">
             <Mic size={26} />

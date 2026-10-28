@@ -137,7 +137,15 @@ export function LimitSheet({
   return (
     <Sheet open={open} onOpenChange={onOpenChange}
       title={limit ? `Presupuesto de ${categoryPath(categories, limit.category_id)}` : "Presupuesto de una categoría"}
-      description="Aquí se define si el presupuesto es del hogar o personal y quién lo asume. La categoría la pueden usar los dos.">
+      description="Aquí se define si el presupuesto es del hogar o personal y quién lo asume. La categoría la pueden usar los dos."
+      footer={<div className="space-y-2"><ErrorText>{error}</ErrorText><div className="flex gap-3">
+          {limit && (
+            <Button variant="danger" size="icon" onClick={remove} disabled={busy} aria-label="Quitar presupuesto">
+              <Trash2 size={18} />
+            </Button>
+          )}
+          <Button className="flex-1" size="lg" onClick={save} disabled={busy}>{busy ? "Guardando..." : "Guardar"}</Button>
+        </div></div>}>
       <div className="space-y-4 pb-2">
         {!limit && (
           <>
@@ -201,16 +209,6 @@ export function LimitSheet({
         )}
         <SwitchRow label="Pasar el saldo al siguiente periodo" hint="Rollover: el sobrante suma y el sobregiro resta en el siguiente periodo."
           checked={rollover} onCheckedChange={setRollover} />
-
-        <ErrorText>{error}</ErrorText>
-        <div className="flex gap-3">
-          {limit && (
-            <Button variant="danger" size="icon" onClick={remove} disabled={busy} aria-label="Quitar presupuesto">
-              <Trash2 size={18} />
-            </Button>
-          )}
-          <Button className="flex-1" size="lg" onClick={save} disabled={busy}>{busy ? "Guardando..." : "Guardar"}</Button>
-        </div>
       </div>
     </Sheet>
   );
