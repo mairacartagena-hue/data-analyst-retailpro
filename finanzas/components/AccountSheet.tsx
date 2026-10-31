@@ -58,12 +58,14 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
   const [inBudget, setInBudget] = useState(false);
   const [budgetCat, setBudgetCat] = useState("");
   const [budgetAmount, setBudgetAmount] = useState("");
+  const [cardDrafts, setCardDrafts] = useState<CardDraft[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setError(null);
+    setCardDrafts([]);
     setInBudget(false);
     setBudgetCat("");
     setBudgetAmount("");
@@ -160,6 +162,18 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
     } else {
       const { data, error } = await supabase.from("accounts").insert({ ...row, household_id: me.household_id, owner_user_id: me.user_id }).select().single();
       if (error) { setBusy(false); return setError(errMsg(error)); }
+      if (isCard && cardDrafts.length > 0 && data) {
+        const r = await supabase.from("card_statement_items").insert(cardDrafts.map((d) => ({
+          account_id: (data as Account).id, description: d.description, purchase_date: todayBogota(), amount: d.amount, installments: d.installments,
+          paid_installments: d.paid, remaining_balance: d.balance, rate_ea: d.rate,
+          household_id: me.household_id, owner_user_id: me.user_id,
+        })));
+        if (r.error) {
+          setBusy(false);
+          void reload();
+          return setError(`La tarjeta quedó guardada, pero no se pudieron guardar las cuotas: ${errMsg(r.error)}. Ábrela de nuevo y agrégalas.`);
+        }
+      }
       if (budgetValue > 0 && data) {
         try {
           await linkCreditBudget(finance, data as Account, budgetCat, budgetValue);
@@ -316,6 +330,9 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
         {isCard && account && (
           <CardProjection account={account} />
         )}
+        {isCard && !account && (
+          <NewCardPurchases items={cardDrafts} onChange={setCardDrafts} />
+        )}
         {(isCard || isCredit) && (
           <Field label="Tasa de interés (% efectiva anual)" htmlFor="rate"
             hint={isCard
@@ -420,6 +437,62 @@ export function AssetSheet({ open, onOpenChange, asset }: { open: boolean; onOpe
         <SwitchRow label="Mi pareja lo puede ver" hint="Cuenta en el patrimonio del hogar." checked={shared} onCheckedChange={setShared} />
       </div>
     </Sheet>
+  );
+}
+
+interface CardDraft { description: string; amount: number; installments: number; paid: number; balance: number; rate: number | null }
+
+/** Tarjeta nueva: compras a cuotas que se guardan junto con la tarjeta. */
+function NewCardPurchases({ items, onChange }: { items: CardDraft[]; onChange: (v: CardDraft[]) => void }) {
+  const empty = { description: "", amount: "", installments: "12", paid: "1", balance: "", rate: "" };
+  const [draft, setDraft] = useState(empty);
+  const [err, setErr] = useState<string | null>(null);
+
+  function add() {
+    setErr(null);
+    const amount = parseCop(draft.amount) ?? 0;
+    const n = Number.parseInt(draft.installments, 10) || 0;
+    const paid = Number.parseInt(draft.paid, 10) || 0;
+    const balance = parseCop(draft.balance) ?? amount;
+    const rate = draft.rate.trim() ? Number(draft.rate.replace(",", ".")) : null;
+    if (!draft.description.trim()) return setErr("Escribe la descripción de la compra.");
+    if (amount <= 0 || n < 1 || n > 48 || paid < 0 || paid >= n) return setErr("Revisa el valor, las cuotas y la cuota actual.");
+    if (balance < 0 || balance > amount) return setErr("El saldo pendiente no puede ser mayor que el valor de la compra.");
+    if (rate !== null && (!Number.isFinite(rate) || rate < 0 || rate > 200)) return setErr("La tasa debe estar entre 0 y 200.");
+    onChange([...items, { description: draft.description.trim(), amount, installments: n, paid, balance, rate }]);
+    setDraft(empty);
+  }
+
+  return (
+    <Collapsible title="Compras a cuotas de la tarjeta" summary={items.length ? String(items.length) : undefined}>
+      <p className="text-xs text-muted">Opcional. Las compras que ya tienes diferidas en el extracto; suman a la proyección de pagos. Se guardan junto con la tarjeta.</p>
+      {items.length > 0 && (
+        <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface">
+          {items.map((i, idx) => (
+            <div key={idx} className="flex items-center gap-2 px-3.5 py-2.5 text-sm">
+              <span className="min-w-0 flex-1">
+                <span className="block truncate">{i.description}</span>
+                <span className="text-xs text-muted">Cuota {i.paid} de {i.installments} · debe {formatCop(i.balance)}</span>
+              </span>
+              <button type="button" className="text-xs text-danger underline" onClick={() => onChange(items.filter((_, j) => j !== idx))}>Quitar</button>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="space-y-2 rounded-2xl border border-border p-3">
+        <Input value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} placeholder="Descripción (comercio)" aria-label="Descripción" />
+        <div className="grid grid-cols-2 gap-2">
+          <AmountInput value={draft.amount} onChange={(v) => setDraft({ ...draft, amount: v })} />
+          <Input inputMode="numeric" value={draft.installments} onChange={(e) => setDraft({ ...draft, installments: e.target.value.replace(/\D/g, "").slice(0, 2) })} placeholder="Cuotas" aria-label="Cuotas" />
+          <Input inputMode="numeric" value={draft.paid} onChange={(e) => setDraft({ ...draft, paid: e.target.value.replace(/\D/g, "").slice(0, 2) })} placeholder="Cuotas pagadas" aria-label="Cuotas pagadas" />
+          <AmountInput value={draft.balance} onChange={(v) => setDraft({ ...draft, balance: v })} />
+        </div>
+        <p className="text-xs text-muted">Valor de la compra, cuotas, cuotas ya cobradas y saldo que falta (“Saldo diferido” del extracto).</p>
+        <Input inputMode="decimal" value={draft.rate} onChange={(e) => setDraft({ ...draft, rate: e.target.value.replace(/[^\d,.]/g, "").slice(0, 6) })} placeholder="Tasa E.A. (vacío = la de la tarjeta)" aria-label="Tasa" />
+        <ErrorText>{err}</ErrorText>
+        <Button type="button" size="sm" onClick={add}>Agregar compra</Button>
+      </div>
+    </Collapsible>
   );
 }
 
