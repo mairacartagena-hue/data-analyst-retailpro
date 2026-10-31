@@ -9,13 +9,13 @@ export function fold(text: string): string {
 }
 
 /**
- * Quita las variables de MacroDroid que llegaron sin reemplazar (ej. "[app_name]", "[notification_title]"):
+ * Quita las variables de MacroDroid que llegaron sin reemplazar (ej. "[app_name]", "{not_title}"):
  * pasa cuando se escriben a mano en vez de insertarlas con el texto mágico.
  */
 export function dropUnfilled(value: string): string {
   return value
     .split("\n")
-    .filter((line) => !/^\s*\[[a-z_]+\]\s*$/i.test(line))
+    .filter((line) => !/^\s*[[{][a-z_]+[\]}]\s*$/i.test(line))
     .join("\n")
     .trim();
 }
