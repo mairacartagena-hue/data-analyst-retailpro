@@ -9,6 +9,7 @@ import { bancolombiaParser } from "./parsers/bancolombia";
 import { bbvaParser } from "./parsers/bbva";
 import { cajaSocialParser } from "./parsers/cajaSocial";
 import { googleWalletParser } from "./parsers/googleWallet";
+import { nequiParser } from "./parsers/nequi";
 import { cleanMerchant, detectIgnore, eventText, findDate, findIdentifiers, guessInstitution, normalizeMerchant } from "./normalize";
 
 export const PARSERS: BankParser[] = [
@@ -16,7 +17,8 @@ export const PARSERS: BankParser[] = [
   bbvaParser,
   cajaSocialParser,
   googleWalletParser,
-  // Nequi y Banco de Bogotá: se agregan cuando haya ejemplos reales
+  nequiParser,
+  // Banco de Bogotá: se agrega cuando haya ejemplos reales
 ];
 
 export interface ParseOutcome {

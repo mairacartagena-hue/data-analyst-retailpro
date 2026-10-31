@@ -114,3 +114,26 @@ describe("Google Wallet (notificación real)", () => {
     expect(r.parsed?.kind).toBe("IGNORE");
   });
 });
+
+describe("Nequi (notificaciones reales)", () => {
+  const nequi = (title: string, text: string): RawEvent =>
+    ({ channel: "ANDROID_NOTIFICATION", source: "Nequi Colombia", title, text, receivedAt: "2026-10-28T14:58:00.000Z" });
+
+  it("cuota de un crédito Nequi pagada", () => {
+    const r = parseWithRules(nequi("Crédito Nequi: ¡Pago exitoso!", "Pagaste tu cuota por $84.493,07 el día 28 de Octubre de 2026."));
+    expect(r.parser).toBe("nequi");
+    expect(r.parsed).toMatchObject({ kind: "PURCHASE", amount: 84493, merchant: "Crédito Nequi", institution: "Nequi", occurredAt: "2026-10-28T05:00:00.000Z" });
+  });
+
+  it("envío recibido de otra persona (el título 'Envío' no es el nombre)", () => {
+    const r = parseWithRules(nequi("Envío", "ALIRIO SABOGAL te envió 300000, ¡lo mejor!"));
+    expect(r.parser).toBe("nequi");
+    expect(r.parsed).toMatchObject({ kind: "TRANSFER_IN", amount: 300000, merchant: "Alirio Sabogal", institution: "Nequi" });
+    expect(r.parsed?.occurredAt).toBeNull();
+  });
+
+  it("otros avisos de Nequi no se inventan como movimientos", () => {
+    const r = parseWithRules(nequi("Nequi", "Tu clave cambió hace poco, si no fuiste tú comunícate con nosotros"));
+    expect(r.parser).not.toBe("nequi");
+  });
+});
