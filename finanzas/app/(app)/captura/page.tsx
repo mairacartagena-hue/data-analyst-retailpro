@@ -227,7 +227,7 @@ export default function CapturaPage() {
               {newToken && <div className="mt-2"><CopyButton text={authHeader(newToken)} label="Copiar el valor con tu token" /></div>}
             </Step>
             <Step n={5}>
-              En <strong>Cuerpo</strong>, tipo <strong>application/json</strong>, pega esto. Si MacroDroid te muestra los campos con otro nombre, elígelos con el botón de “texto mágico”: nombre de la app, título y texto de la notificación.
+              En <strong>Cuerpo</strong>, tipo <strong>application/json</strong>, pega esto. Si en tu MacroDroid los campos quedan sin reemplazar (se ven con corchetes en Últimos eventos), bórralos y vuelve a insertarlos con el botón “…” (texto mágico): “Nombre de app de notificación” y “Título de notificación”.
               <div className="mt-2 space-y-2"><Code>{notificationBody()}</Code><CopyButton text={notificationBody()} /></div>
             </Step>
             <Step n={6}>Guarda la macro, ponle de nombre “Finanzas notificaciones” y desactiva la optimización de batería para MacroDroid en Ajustes de Android.</Step>

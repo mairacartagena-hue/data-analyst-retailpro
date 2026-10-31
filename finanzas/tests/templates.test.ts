@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { appsScript, authHeader } from "@/lib/ingest/templates";
+import { appsScript, authHeader, notificationBody } from "@/lib/ingest/templates";
 
 describe("plantillas de captura automática", () => {
+  it("la plantilla de MacroDroid usa las variables reales de la app y el título", () => {
+    const body = notificationBody();
+    expect(body).toContain('"app":"{not_app_name}"');
+    expect(body).toContain('"title":"{not_title}"');
+    expect(body).toContain('"text":"[notification]"');
+    expect(body).not.toContain("[app_name]");
+  });
+
+
   it("el Apps Script sale con el token puesto cuando se le pasa", () => {
     const code = appsScript("https://app.test/api/webhook/android-ingest", "fp_abc123");
     expect(code).toContain("const TOKEN = 'fp_abc123';");

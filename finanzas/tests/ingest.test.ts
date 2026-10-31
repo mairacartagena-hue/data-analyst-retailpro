@@ -97,6 +97,7 @@ describe("reglas de ignorar", () => {
 describe("variables de MacroDroid sin reemplazar", () => {
   it("se quitan de la app, el título y el texto", () => {
     expect(dropUnfilled("[app_name]")).toBe("");
+    expect(dropUnfilled("{not_title}\nTe enviaron $20.000")).toBe("Te enviaron $20.000");
     expect(dropUnfilled("[notification_title]\nALIRIO SABOGAL te envió 300000")).toBe("ALIRIO SABOGAL te envió 300000");
     expect(dropUnfilled("Nequi")).toBe("Nequi");
     expect(dropUnfilled("Compraste $45.000 [ref] en Éxito")).toBe("Compraste $45.000 [ref] en Éxito");
