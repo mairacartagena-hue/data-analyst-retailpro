@@ -1,0 +1,84 @@
+"use client";
+
+// Primer barrido de la captura automática: trae los correos bancarios desde el inicio del mes (o del periodo) hasta hoy.
+// La app no lee Gmail: deja el pedido y el Apps Script de la persona lo toma en su siguiente revisión (cada 5 minutos).
+
+import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import { History } from "lucide-react";
+import { useFinance } from "@/lib/data/FinanceProvider";
+import { Button } from "@/components/ui/button";
+import { periodFor, todayBogota } from "@/lib/finance/periods";
+import { errMsg } from "@/lib/utils";
+
+interface Backfill {
+  from_date: string;
+  requested_at: string;
+  done_at: string | null;
+}
+
+function dia(iso: string): string {
+  return new Date(`${iso.slice(0, 10)}T12:00:00Z`).toLocaleDateString("es-CO", { day: "numeric", month: "long", timeZone: "UTC" });
+}
+
+export function FirstSweep({ disabled }: { disabled: boolean }) {
+  const { supabase, me, settings } = useFinance();
+  const [row, setRow] = useState<Backfill | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Desde el inicio del periodo guardado: el mensual con su día de inicio (o el quincenal vigente)
+  const desde = periodFor(settings, todayBogota()).start;
+  const unidad = settings.cycle === "MONTHLY" ? "mes" : "periodo";
+  const pending = !!row && !row.done_at;
+
+  const load = useCallback(async () => {
+    const { data } = await supabase.from("ingest_backfills").select("from_date, requested_at, done_at").eq("user_id", me.user_id).maybeSingle();
+    setRow((data as Backfill | null) ?? null);
+  }, [supabase, me.user_id]);
+
+  useEffect(() => { void load(); }, [load]);
+  // Mientras esperan al Apps Script, se revisa si ya terminó
+  useEffect(() => {
+    if (!pending) return;
+    const t = setInterval(() => void load(), 20_000);
+    return () => clearInterval(t);
+  }, [pending, load]);
+
+  async function request() {
+    setBusy(true);
+    setError(null);
+    const { error } = await supabase.rpc("request_ingest_backfill", { p_from: desde });
+    setBusy(false);
+    if (error) return setError(errMsg(error));
+    await load();
+  }
+
+  return (
+    <div className="space-y-2 rounded-2xl bg-surface-2 p-3">
+      <p className="text-sm font-semibold">Primer barrido</p>
+      <p className="text-xs text-muted">
+        Trae los correos bancarios de Gmail desde el inicio del {unidad} ({dia(desde)}) hasta hoy. Lo que llegue queda en “Por revisar” en el inicio.
+        Las notificaciones y SMS del celular solo se capturan desde que MacroDroid las recibe, así que no se pueden traer hacia atrás.
+      </p>
+      {pending ? (
+        <p className="text-sm">
+          Pedido desde el {dia(row.from_date)}. Tu Apps Script de Gmail lo toma en máximo 5 minutos y trae los correos; esta pantalla se actualiza sola.
+        </p>
+      ) : (
+        <>
+          {row?.done_at && <p className="text-sm">Último barrido: desde el {dia(row.from_date)}, terminado el {dia(row.done_at)}.</p>}
+          <Button variant="outline" onClick={request} disabled={busy || disabled}>
+            <History size={16} /> {busy ? "Pidiendo…" : row ? "Repetir el barrido" : `Traer movimientos desde el inicio del ${unidad}`}
+          </Button>
+          {disabled && <p className="text-xs text-muted">Guarda primero los cambios de periodo para que el barrido use la fecha nueva.</p>}
+        </>
+      )}
+      {error && (
+        <p className="text-sm text-danger">
+          {error}{/token/i.test(error) && <> · <Link href="/captura" className="underline">Ir a Captura automática</Link></>}
+        </p>
+      )}
+    </div>
+  );
+}

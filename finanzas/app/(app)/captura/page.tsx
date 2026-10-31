@@ -251,7 +251,8 @@ export default function CapturaPage() {
               <div className="mt-2 space-y-2"><Code>{appsScript(webhook, newToken ?? undefined)}</Code><CopyButton text={appsScript(webhook, newToken ?? undefined)} label={newToken ? "Copiar código con mi token" : "Copiar código"} /></div>
             </Step>
             <Step n={3}>Arriba elige la función <strong>instalar</strong> → <strong>Ejecutar</strong> → acepta los permisos (Google avisa que la app no está verificada porque es tuya: Configuración avanzada → Ir al proyecto).</Step>
-            <Step n={4}>Listo: cada 5 minutos revisa la etiqueta y marca con <code>Finanzas/Procesado</code> lo que ya envió, así nada llega dos veces.</Step>
+            <Step n={4}>Listo: cada 5 minutos revisa la etiqueta y marca con <code>Finanzas/Procesado</code> lo que ya envió, así nada llega dos veces. Si pides el <strong>primer barrido</strong> en Ajustes → Periodos, en la siguiente revisión trae todos los correos desde el inicio del mes.</Step>
+            <Step n={5}>¿Ya tenías el script instalado? Reemplázalo con este código y ejecuta <strong>instalar</strong> otra vez; la versión anterior no atiende el botón del primer barrido.</Step>
           </ol>
         ))}
       </div>

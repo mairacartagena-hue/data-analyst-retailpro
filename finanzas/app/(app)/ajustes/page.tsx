@@ -14,6 +14,7 @@ import { getInstallPrompt, isStandalone, subscribeInstallPrompt } from "@/lib/pw
 import { cn, errMsg } from "@/lib/utils";
 import { clearOffline } from "@/lib/offline/store";
 import { SecuritySettings } from "@/components/SecuritySettings";
+import { FirstSweep } from "@/components/FirstSweep";
 import { disablePush, enablePush, pushState, type PushState } from "@/lib/push/client";
 
 const COLORS = ["#6b7a3a", "#a0703f", "#8c5a46", "#4f6d6a", "#7b5c8a", "#b5654a", "#5a6f8f", "#9a8a3c"];
@@ -181,6 +182,7 @@ export default function AjustesPage() {
         <Field label="Valor de la UVT del año" htmlFor="uvt" hint="Se usa para el tope exento del 4x1000. 2026: $52.374 (Resolución DIAN 000238 de 2025). Actualízalo cada enero.">
           <Input id="uvt" inputMode="numeric" value={uvtText} onChange={(e) => setUvtText(e.target.value.replace(/\D/g, ""))} />
         </Field>
+        <FirstSweep disabled={periodsDirty} />
       </Card>
 
       <SectionTitle>Apariencia</SectionTitle>
