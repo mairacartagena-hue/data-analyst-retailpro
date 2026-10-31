@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cuotaDueFor, findCreditPayments } from "@/lib/finance/creditBudget";
+import { cuotaDueFor, expectedCreditRows, findCreditPayments } from "@/lib/finance/creditBudget";
 import { nextCuota } from "@/lib/finance/credit";
 import { creditBudgetMap, spendingRows } from "@/lib/finance/spaces";
 import { safeToSpendDetail, type Snapshot } from "@/lib/finance/derive";
@@ -86,5 +86,31 @@ describe("cuota de un crédito con presupuesto", () => {
       budgets: [{ id: "b", category_id: "cat-lulo", limit_id: "l", valid_from: "2026-10-01", amount: 900_000, fixed_amount_a: null, fixed_amount_b: null }],
     };
     expect(safeToSpendDetail(s, periodFor(DEFAULT_PERIOD_SETTINGS, today)).obligations).toEqual([]);
+  });
+});
+
+describe("cuota mensual de un crédito con presupuesto", () => {
+  const limits: CategoryLimit[] = [{ id: "l", category_id: "cat-lulo", scope: "HOUSEHOLD", owner_user_id: null, responsibility: "MEMBER_A_100",
+    is_household_obligation: false, rollover_enabled: false, shared_with_partner: false }];
+  const budgets = [{ id: "b", category_id: "cat-lulo", limit_id: "l", valid_from: "2026-10-01", amount: 1_000_000, fixed_amount_a: null, fixed_amount_b: null }];
+  const rowsFor = (transactions: Transaction[], today = "2026-11-26") => expectedCreditRows({
+    accounts, transactions, limits, budgets, settings: DEFAULT_PERIOD_SETTINGS,
+  }, today);
+
+  it("cuenta cada mes la cuota del presupuesto en su día de pago, aunque el pago no haya llegado", () => {
+    expect(rowsFor([])).toEqual([
+      { categoryId: "cat-lulo", responsibleUserId: A, occurredOn: "2026-10-01", total: 1_000_000, scope: "HOUSEHOLD" },
+      { categoryId: "cat-lulo", responsibleUserId: A, occurredOn: "2026-11-01", total: 1_000_000, scope: "HOUSEHOLD" },
+    ]);
+  });
+
+  it("no cuenta otra vez la cuota que ya se pagó (el pago del 23-oct es la cuota del 1-nov)", () => {
+    const paid = tx({ kind: "TRANSFER", to_account_id: "lulo", amount: 838_058, occurred_on: "2026-10-23", source: "GMAIL" });
+    expect(rowsFor([paid]).map((r) => r.occurredOn)).toEqual(["2026-10-01"]);
+  });
+
+  it("no cuenta meses antes de la primera versión del presupuesto ni después del periodo actual", () => {
+    expect(rowsFor([], "2026-10-15").map((r) => r.occurredOn)).toEqual(["2026-10-01"]);
+    expect(expectedCreditRows({ accounts, transactions: [], limits: [], budgets: [], settings: DEFAULT_PERIOD_SETTINGS }, "2026-11-26")).toEqual([]);
   });
 });

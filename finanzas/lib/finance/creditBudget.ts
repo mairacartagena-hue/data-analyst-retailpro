@@ -7,9 +7,10 @@
 
 import type { Account, CategoryBudgetRow, CategoryLimit, Transaction } from "@/lib/types";
 import { words } from "@/lib/ingest/match";
-import { budgetVersionAt } from "./budget";
+import { budgetVersionAt, type SpendingRow } from "./budget";
 import { nextCuota, suggestSplit } from "./credit";
-import { toBudgetCategories } from "./derive";
+import { responsibleOf, toBudgetCategories } from "./derive";
+import { periodFor, type PeriodSettings } from "./periods";
 
 export const AMOUNT_TOLERANCE = 0.05;
 const DAYS_BEFORE_DUE = 15;
@@ -52,6 +53,41 @@ export function expectedCuotas(
     if (v && v.amount > 0) out.push(v.amount);
   }
   return out.filter((x) => x > 0);
+}
+
+/**
+ * Cuota mensual de los créditos con presupuesto: cada día de pago cuenta la cuota del presupuesto (el monto que se
+ * puso), aunque el pago todavía no llegue. Desde el inicio de la primera versión del presupuesto hasta el periodo
+ * actual. Si ya hay una transferencia al crédito que corresponde a esa cuota, la real manda y no se cuenta dos veces.
+ */
+export function expectedCreditRows(s: {
+  accounts: Account[];
+  transactions: Transaction[];
+  limits: CategoryLimit[];
+  budgets: CategoryBudgetRow[];
+  settings: PeriodSettings;
+}, today: string): SpendingRow[] {
+  const end = periodFor(s.settings, today).end;
+  const out: SpendingRow[] = [];
+  for (const credit of s.accounts) {
+    if ((credit.kind !== "CREDIT" && credit.kind !== "LOAN") || !credit.budget_category_id || credit.archived || !credit.due_day) continue;
+    const limit = s.limits.find((l) => l.category_id === credit.budget_category_id && l.scope === "HOUSEHOLD");
+    if (!limit) continue;
+    const versions = toBudgetCategories([limit], s.budgets)[0].budgets;
+    if (versions.length === 0) continue;
+    const first = versions.reduce((m, v) => (v.validFrom < m ? v.validFrom : m), versions[0].validFrom);
+    const paid = s.transactions.filter((t) => t.kind === "TRANSFER" && t.to_account_id === credit.id).map((t) => t.occurred_on);
+    for (let k = 0; ; k++) {
+      const due = dueIn(first, k, credit.due_day);
+      if (due > end) break;
+      if (due < first) continue;
+      const amount = budgetVersionAt(versions, due)?.amount ?? 0;
+      if (amount <= 0) continue;
+      if (paid.some((d) => cuotaDueFor(d, credit.due_day!) === due)) continue;
+      out.push({ categoryId: credit.budget_category_id, responsibleUserId: responsibleOf(credit), occurredOn: due, total: amount, scope: "HOUSEHOLD" });
+    }
+  }
+  return out;
 }
 
 function mentionsCredit(t: Transaction, credit: Account): boolean {
