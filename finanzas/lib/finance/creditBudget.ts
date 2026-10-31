@@ -1,6 +1,7 @@
 // Cuota de los créditos en Presupuestos y cruce automático de sus pagos.
 // Un crédito con presupuesto (budget_category_id) espera cada mes su cuota. Si llega automáticamente un pago
-// (correo, SMS o notificación) que se parece a esa cuota, se convierte en el pago del crédito:
+// (correo, SMS o notificación) que se parece a esa cuota, se convierte en el pago del crédito. También un pago
+// registrado a mano (o desde Vencimientos) en la categoría del presupuesto del crédito, con ±25 % de la cuota:
 //  · monto: ±5 % de la cuota estimada o del presupuesto,
 //  · fecha: entre 15 días antes y 7 días después del día de pago (hay quien paga con la quincena anterior),
 //  · texto: menciona el nombre del crédito, el banco o sus últimos 4 dígitos.
@@ -12,6 +13,8 @@ import { nextCuota, suggestSplit } from "./credit";
 import { toBudgetCategories } from "./derive";
 
 export const AMOUNT_TOLERANCE = 0.05;
+/** Un pago en la categoría del crédito ya dice de qué crédito es: se acepta con más diferencia (ej. seguros que cambian). */
+export const CATEGORY_TOLERANCE = 0.25;
 const DAYS_BEFORE_DUE = 15;
 const DAYS_AFTER_DUE = 7;
 /** Una transferencia al crédito a menos de estos días quiere decir que esa cuota ya se pagó. */
@@ -62,6 +65,12 @@ function mentionsCredit(t: Transaction, credit: Account): boolean {
   return false;
 }
 
+/** Gasto o pago de deuda con toda su plata en la categoría del presupuesto del crédito. */
+function isCategoryPayment(t: Transaction, credit: Account): boolean {
+  return (t.kind === "EXPENSE" || t.kind === "DEBT_PAYMENT") && t.splits.length === 1 && !!credit.budget_category_id
+    && t.splits[0].category_id === credit.budget_category_id;
+}
+
 export interface CreditPaymentMatch {
   transaction: Transaction;
   credit: Account;
@@ -83,9 +92,9 @@ export function findCreditPayments(s: {
     && a.owner_user_id === s.meId && a.due_day && s.balances[a.id] !== undefined && s.balances[a.id] < 0);
   if (credits.length === 0) return [];
   const cash = new Set(s.accounts.filter((a) => a.owner_user_id === s.meId && CASH_KINDS.includes(a.kind)).map((a) => a.id));
-  const candidates = s.transactions.filter((t) => t.source !== "MANUAL" && t.payer_user_id === s.meId && t.created_by === s.meId
+  const candidates = s.transactions.filter((t) => t.payer_user_id === s.meId && t.created_by === s.meId && t.status !== "PENDING_REVIEW"
     && (t.kind === "EXPENSE" || t.kind === "DEBT_PAYMENT" || (t.kind === "TRANSFER" && !t.to_account_id))
-    && !!t.account_id && cash.has(t.account_id) && t.splits.length <= 1 && !t.scheduled_payment_id
+    && !!t.account_id && cash.has(t.account_id) && t.splits.length <= 1
     && dayDiff(today, t.occurred_on) <= LOOKBACK_DAYS);
 
   const out: CreditPaymentMatch[] = [];
@@ -97,10 +106,13 @@ export function findCreditPayments(s: {
     let best: { t: Transaction; due: string; gap: number } | null = null;
     for (const t of candidates) {
       if (used.has(t.id)) continue;
+      // Pago registrado (a mano o desde un vencimiento) en la categoría del presupuesto del crédito: es el pago de su cuota
+      const byCategory = isCategoryPayment(t, credit);
+      if (!byCategory && (t.source === "MANUAL" || t.scheduled_payment_id)) continue;
       const gap = Math.min(...expected.map((e) => Math.abs(t.amount - e) / e));
-      if (gap > AMOUNT_TOLERANCE) continue;
+      if (gap > (byCategory ? CATEGORY_TOLERANCE : AMOUNT_TOLERANCE)) continue;
       const due = cuotaDueFor(t.occurred_on, credit.due_day!);
-      if (!due || !mentionsCredit(t, credit)) continue;
+      if (!due || (!byCategory && !mentionsCredit(t, credit))) continue;
       if (paidOn.some((d) => Math.abs(dayDiff(d, t.occurred_on)) <= ALREADY_PAID_DAYS)) continue;
       if (!best || gap < best.gap) best = { t, due, gap };
     }

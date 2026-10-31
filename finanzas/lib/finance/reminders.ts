@@ -1,6 +1,8 @@
 // Recordatorios para las notificaciones: la app los calcula con los datos del celular y los deja programados
 // (push_schedule). La tarea diaria de Vercel envía los del día. Los movimientos por revisar los suma la base de datos.
 
+import { creditBudgetMap } from "@/lib/finance/spaces";
+import { cardBudgetMap } from "@/lib/finance/cardBudget";
 import type { Account, CardStatementItem, ScheduledPayment, Transaction } from "@/lib/types";
 import type { Reconciliation } from "@/lib/types";
 import { occurrencesIn } from "./commitments";
@@ -58,7 +60,7 @@ export function buildReminders(s: ReminderInput): Reminder[] {
   const mine = s.accounts.filter((a) => a.owner_user_id === me && !a.archived);
 
   // 1. Vencimientos (compromisos) sin pagar de los que soy responsable: el día antes y el mismo día
-  const occ = occurrencesIn(s.commitments, s.transactions, { start: today, end: addDays(end, 1) }, today);
+  const occ = occurrencesIn(s.commitments, s.transactions, { start: today, end: addDays(end, 1) }, today, new Map([...creditBudgetMap(s.accounts), ...cardBudgetMap(s.accounts)]));
   for (const o of occ) {
     if (o.paid) continue;
     if ((o.payment.responsible_user_id ?? o.payment.owner_user_id) !== me) continue;

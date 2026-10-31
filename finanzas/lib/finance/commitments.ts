@@ -1,7 +1,7 @@
 // Compromisos y próximos vencimientos: pagos previstos (una vez o cada mes).
 // Un vencimiento está pagado cuando hay un movimiento enlazado a él (scheduled_payment_id + scheduled_for), o cuando
 // se registró por Movimientos un gasto que se le parece (misma categoría y espacio, monto ±5 %, cerca de la fecha):
-// así no hay que marcarlo a mano. Mientras no se pague cuenta como comprometido, y al pagarlo pasa a gastado.
+// así no hay que marcarlo a mano. También lo paga una transferencia a un crédito o tarjeta cuyo presupuesto es de esa categoría. Mientras no se pague cuenta como comprometido, y al pagarlo pasa a gastado.
 
 import type { ScheduledPayment, Space, Transaction } from "@/lib/types";
 import type { Period } from "./periods";
@@ -45,7 +45,14 @@ const dayDiff = (a: string, b: string) => Math.round((Date.parse(`${a}T00:00:00Z
 const near = (x: number, target: number) => target > 0 && Math.abs(x - target) / target <= MATCH_TOLERANCE;
 
 /** Lo que un movimiento puso en la categoría del vencimiento, si se parece a su monto (o a la parte de uno, si es compartido). */
-function matchAmount(p: ScheduledPayment, t: Transaction): number {
+function matchAmount(p: ScheduledPayment, t: Transaction, transferCats: Map<string, string>): number {
+  // Pago de un crédito o tarjeta con presupuesto en la categoría del vencimiento: la transferencia es el pago
+  if (t.kind === "TRANSFER" && t.to_account_id && p.category_id && transferCats.get(t.to_account_id) === p.category_id) {
+    if (t.status === "PENDING_REVIEW" || t.scheduled_payment_id) return 0;
+    if (p.scope === "PERSONAL" && t.payer_user_id !== p.owner_user_id) return 0;
+    const targets = [p.amount, Number(p.share_a ?? 0), Number(p.share_b ?? 0)];
+    return targets.some((x) => near(t.amount, x)) ? t.amount : 0;
+  }
   if (t.kind !== "EXPENSE" && t.kind !== "DEBT_PAYMENT") return 0;
   if (t.status === "PENDING_REVIEW" || t.scheduled_payment_id || t.scope !== p.scope) return 0;
   if (p.scope === "PERSONAL" && t.payer_user_id !== p.owner_user_id) return 0;
@@ -55,7 +62,11 @@ function matchAmount(p: ScheduledPayment, t: Transaction): number {
 }
 
 /** Vencimientos del periodo (activos), con su pago si ya se registró. Ordenados por fecha. */
-export function occurrencesIn(payments: ScheduledPayment[], txs: Transaction[], period: Pick<Period, "start" | "end">, today: string): Occurrence[] {
+export function occurrencesIn(
+  payments: ScheduledPayment[], txs: Transaction[], period: Pick<Period, "start" | "end">, today: string,
+  /** Créditos y tarjetas con presupuesto (cuenta → categoría): una transferencia a ellos paga el vencimiento de esa categoría. */
+  transferCats: Map<string, string> = new Map(),
+): Occurrence[] {
   const paidBy = new Map<string, Transaction>();
   for (const t of txs) {
     if (t.scheduled_payment_id && t.scheduled_for) paidBy.set(`${t.scheduled_payment_id}|${t.scheduled_for}`, t);
@@ -81,7 +92,7 @@ export function occurrencesIn(payments: ScheduledPayment[], txs: Transaction[], 
       if (used.has(t.id)) continue;
       const diff = dayDiff(t.occurred_on, o.due);
       if (diff < -DAYS_BEFORE_DUE || diff > DAYS_AFTER_DUE) continue;
-      const amount = matchAmount(o.payment, t);
+      const amount = matchAmount(o.payment, t, transferCats);
       if (amount <= 0) continue;
       found.push(t);
       sum += amount;

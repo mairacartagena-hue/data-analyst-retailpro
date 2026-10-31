@@ -111,6 +111,9 @@ export function TransactionSheet({
   const { me, partner, accounts, categories, labels, supabase, reload, memberById } = state;
 
   const myAccounts = accounts.filter((a) => a.owner_user_id === me.user_id && !a.archived);
+  // Destinos de una transferencia: mis cuentas y las tarjetas o créditos de mi pareja que me toca pagar
+  const transferTargets = [...myAccounts, ...accounts.filter((a) => a.owner_user_id !== me.user_id && !a.archived
+    && a.responsible_user_id === me.user_id && ["CREDIT_CARD", "CREDIT", "LOAN"].includes(a.kind))];
   const usable = categories.filter((c) => !c.archived && c.kind !== "INCOME");
   const incomeCategories = categories.filter(
     (c) => !c.archived && c.kind === "INCOME",
@@ -346,7 +349,7 @@ export function TransactionSheet({
     if (r.date) setDate(r.date);
     if (r.installments) setInstallments(String(r.installments));
     if (r.accountId && myAccounts.some((a) => a.id === r.accountId)) setAccountId(r.accountId);
-    if (r.toAccountId && myAccounts.some((a) => a.id === r.toAccountId)) setToAccountId(r.toAccountId);
+    if (r.toAccountId && transferTargets.some((a) => a.id === r.toAccountId)) setToAccountId(r.toAccountId);
     if (r.categoryId) {
       if (k === "INCOME" && incomeCategories.some((c) => c.id === r.categoryId)) setIncomeCategoryId(r.categoryId);
       else if (k !== "INCOME" && usable.some((c) => c.id === r.categoryId)) setCategoryId(r.categoryId);
@@ -644,7 +647,7 @@ export function TransactionSheet({
           {kind === "TRANSFER" && !toPartner && (
             <Field label="Llega a" hint="Para pagar una tarjeta, elige la tarjeta como destino. No consume presupuesto.">
               <ChipGroup value={toAccountId} onChange={setToAccountId}
-                options={myAccounts.filter((a) => a.id !== accountId).map((a) => ({ value: a.id, label: accountLabel(labels, a.id) }))} />
+                options={transferTargets.filter((a) => a.id !== accountId).map((a) => ({ value: a.id, label: accountLabel(labels, a.id) }))} />
             </Field>
           )}
 

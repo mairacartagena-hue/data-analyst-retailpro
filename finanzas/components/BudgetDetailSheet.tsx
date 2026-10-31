@@ -14,6 +14,7 @@ import type { CategoryStatus } from "@/lib/finance/budget";
 import { formatCop } from "@/lib/finance/money";
 import { formatDay, isWithin } from "@/lib/finance/periods";
 import { categoryPath, consumptionSign, creditBudgetMap, withDescendants } from "@/lib/finance/spaces";
+import { cardPaymentPortions } from "@/lib/finance/cardBudget";
 import { limitResponsible } from "@/lib/finance/derive";
 
 const SOURCE: Record<string, { label: string; icon: typeof Mail }> = {
@@ -30,7 +31,7 @@ export function BudgetDetailSheet({ limit: picked, status, onClose, onEdit }: {
   onClose: () => void;
   onEdit: (l: CategoryLimit) => void;
 }) {
-  const { consumption: transactions, accounts, limits, period, memberById, me, partner, categories, supabase, reload } = useFinance();
+  const { consumption: transactions, accounts, cardItems, limits, period, memberById, me, partner, categories, supabase, reload } = useFinance();
   const { openTransaction, openPayment } = useShell();
   // Siempre la versión más reciente del presupuesto (la que se abrió puede ser de antes de guardar)
   const limit = picked ? limits.find((l) => l.id === picked.id) ?? picked : null;
@@ -48,9 +49,17 @@ export function BudgetDetailSheet({ limit: picked, status, onClose, onEdit }: {
     limit.scope === "HOUSEHOLD" ? scope === "HOUSEHOLD" : scope === "PERSONAL" && responsible === limit.owner_user_id;
   // Créditos con presupuesto: lo transferido al crédito es la cuota pagada; sus intereses ya van ahí dentro
   const credits = creditBudgetMap(accounts);
+  // Tarjetas con presupuesto: solo la parte del pago que cubre la deuda anterior (las compras nuevas ya cuentan en su categoría)
+  const cardParts = cardPaymentPortions(accounts, transactions, cardItems);
   const items = transactions
     .filter((t) => isWithin(t.occurred_on, period))
     .flatMap((t): { t: Transaction; s: Split; sign: number }[] => {
+      const cardPart = t.kind === "TRANSFER" ? cardParts.get(t.id) : undefined;
+      if (cardPart) {
+        return limit.scope === "HOUSEHOLD" && ids.has(cardPart.categoryId)
+          ? [{ t, s: { id: t.id, transaction_id: t.id, amount: cardPart.amount, category_id: cardPart.categoryId, responsible_user_id: t.payer_user_id, origin: "NORMAL", note: null }, sign: 1 }]
+          : [];
+      }
       const creditCat = t.kind === "TRANSFER" && t.to_account_id ? credits.get(t.to_account_id) : undefined;
       if (creditCat) {
         return limit.scope === "HOUSEHOLD" && ids.has(creditCat)
