@@ -245,9 +245,10 @@ export default function CapturaPage() {
         ))}
         {section("gmail", <Mail size={18} />, "Correos bancarios (Gmail + Apps Script)", (
           <ol className="space-y-3">
-            <Step n={1}>En Gmail (en computador): busca un correo de alerta de tu banco → menú ⋮ → <strong>Filtrar mensajes similares</strong> → <strong>Crear filtro</strong> → <strong>Aplicar la etiqueta</strong> nueva <code>Finanzas/Bancos</code>. Repite por cada banco.</Step>
+            <Step n={1}>En Gmail (en computador): busca un correo de alerta de tu banco → menú ⋮ → <strong>Filtrar mensajes similares</strong> → <strong>Crear filtro</strong> → <strong>Aplicar la etiqueta</strong> nueva (<code>Finanzas/Bancos</code> o solo <code>Bancos</code>, como prefieras). Marca también <strong>Aplicar también el filtro a las conversaciones coincidentes</strong>: sin eso, los correos viejos no quedan etiquetados y el primer barrido no los encuentra. Repite por cada banco.</Step>
             <Step n={2}>Entra a <strong>script.google.com</strong> → Proyecto nuevo. Borra lo que hay y pega este código.{" "}
-              {newToken ? "Ya trae tu token puesto." : <>Reemplaza <code>PEGA_AQUI_TU_TOKEN</code> por tu token (o genera uno nuevo arriba y se copia ya con el token).</>}
+              {newToken ? "Ya trae tu token puesto." : <>Reemplaza <code>PEGA_AQUI_TU_TOKEN</code> por tu token (o genera uno nuevo arriba y se copia ya con el token).</>}{" "}
+              Si tu etiqueta no se llama <code>Finanzas/Bancos</code>, cambia <code>ETIQUETA</code> en el código por el nombre <strong>idéntico</strong> al de tu etiqueta en Gmail.
               <div className="mt-2 space-y-2"><Code>{appsScript(webhook, newToken ?? undefined)}</Code><CopyButton text={appsScript(webhook, newToken ?? undefined)} label={newToken ? "Copiar código con mi token" : "Copiar código"} /></div>
             </Step>
             <Step n={3}>Arriba elige la función <strong>instalar</strong> → <strong>Ejecutar</strong> → acepta los permisos (Google avisa que la app no está verificada porque es tuya: Configuración avanzada → Ir al proyecto).</Step>

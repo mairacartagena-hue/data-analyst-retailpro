@@ -16,8 +16,16 @@ describe("plantillas de captura automática", () => {
     const code = appsScript("https://app.test/api/webhook/android-ingest", "fp_abc123");
     expect(code).toContain("const BARRIDO = 'https://app.test/api/webhook/backfill';");
     expect(code).toContain("function barridoPedido()");
-    expect(code).toContain("function barridoTerminado()");
+    expect(code).toContain("function barridoTerminado(correos, etiquetaOk)");
     expect(code).toContain("'after:' + desde");
+  });
+
+  it("el Apps Script avisa si no existe la etiqueta y cuántos correos envió, y un fallo de la app no frena el envío normal", () => {
+    const code = appsScript("https://app.test/api/webhook/android-ingest", "fp_abc123");
+    expect(code).toContain("if (!GmailApp.getUserLabelByName(ETIQUETA))");
+    expect(code).toContain("payload: JSON.stringify({ correos: correos, etiqueta_ok: etiquetaOk })");
+    expect(code).toMatch(/function barridoPedido\(\) \{\s+try \{/);
+    expect(code).toContain("puede ser solo 'Bancos'");
   });
 
   it("el encabezado de MacroDroid es Bearer + token", () => {
