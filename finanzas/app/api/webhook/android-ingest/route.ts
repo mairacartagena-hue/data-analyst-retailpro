@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import type { Channel, RawEvent } from "@/lib/ingest/types";
 import { interpret, toDbEvent } from "@/lib/ingest/pipeline";
+import { dropUnfilled } from "@/lib/ingest/normalize";
 
 // Webhook único de ingesta: MacroDroid (notificaciones y SMS) y Google Apps Script (Gmail).
 // Autenticación: "Authorization: Bearer <token de la persona>". La identidad la resuelve
@@ -39,13 +40,13 @@ async function readBody(req: NextRequest): Promise<Record<string, unknown> | nul
 function toEvent(body: Record<string, unknown>): RawEvent | null {
   const channel = str(body.channel).toUpperCase() as Channel;
   if (!CHANNELS.includes(channel)) return null;
-  const text = str(body.text ?? body.body ?? body.message);
-  if (!text.trim()) return null;
+  const text = dropUnfilled(str(body.text ?? body.body ?? body.message));
+  if (!text) return null;
   const received = str(body.received_at);
   return {
     channel,
-    source: str(body.app ?? body.package ?? body.sender ?? body.from, 200),
-    title: str(body.title, 300) || undefined,
+    source: dropUnfilled(str(body.app ?? body.package ?? body.sender ?? body.from, 200)),
+    title: dropUnfilled(str(body.title, 300)) || undefined,
     subject: str(body.subject, 300) || undefined,
     text,
     receivedAt: received && !Number.isNaN(Date.parse(received)) ? new Date(received).toISOString() : new Date().toISOString(),

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  MAX_MERCHANT, cleanMerchant, detectIgnore, findAmount, findIdentifiers, findLast4, guessInstitution, maskSensitive, normalizeMerchant, parseAmountCo,
+  MAX_MERCHANT, cleanMerchant, detectIgnore, dropUnfilled, findAmount, findIdentifiers, findLast4, guessInstitution, maskSensitive, normalizeMerchant, parseAmountCo,
 } from "@/lib/ingest/normalize";
 import { parseWithRules } from "@/lib/ingest/registry";
 import type { RawEvent } from "@/lib/ingest/types";
@@ -66,6 +66,11 @@ describe("reglas de ignorar", () => {
     expect(detectIgnore("La compra por $20.000 fue rechazada")).toBe("Transacción no aprobada");
     expect(detectIgnore("Aprovecha 30% de descuento este fin de semana")).toBe("Publicidad");
     expect(detectIgnore("Compraste $45.000 en Éxito")).toBeNull();
+    // Promoción de Nequi: no es una compra de $45.000 aunque traiga monto y "compras"
+    expect(detectIgnore("Haz 5 compras con tu Tarjeta Nequi Visa, mantén tu racha y participa por hasta $45.000 COP. ¡Que no se corte! Aplican TyC. Válido hasta el 01/11/2026.")).toBe("Publicidad");
+    // Así llegó en la base de datos: con doble espacio después del número
+    expect(detectIgnore("[notification_title]\nHaz 5  compras con tu Tarjeta Nequi Visa, mantén tu racha y participa por hasta $45.000 COP. ¡Que no se corte! Aplican TyC. Válido hasta el")).toBe("Publicidad");
+    expect(detectIgnore("Compraste $45.000 en Éxito. Aplican TyC")).toBeNull();
     // Avisos de inicio de sesión (BBVA por correo, Nequi, banca virtual)
     for (const msg of [
       "Importante: Confirmación de ingreso en nuestros canales digitales. Acabas de ingresar a tu App BBVA el 26/10/2026",
@@ -86,6 +91,15 @@ describe("reglas de ignorar", () => {
   it("sin parser del banco todavía: queda para Gemini o como no reconocido", () => {
     expect(parseWithRules(ev("Compraste $45.000 en Éxito")).parsed).toBeNull();
     expect(parseWithRules(ev("Tu clave dinámica es 1234")).parsed?.kind).toBe("IGNORE");
+  });
+});
+
+describe("variables de MacroDroid sin reemplazar", () => {
+  it("se quitan de la app, el título y el texto", () => {
+    expect(dropUnfilled("[app_name]")).toBe("");
+    expect(dropUnfilled("[notification_title]\nALIRIO SABOGAL te envió 300000")).toBe("ALIRIO SABOGAL te envió 300000");
+    expect(dropUnfilled("Nequi")).toBe("Nequi");
+    expect(dropUnfilled("Compraste $45.000 [ref] en Éxito")).toBe("Compraste $45.000 [ref] en Éxito");
   });
 });
 

@@ -8,6 +8,18 @@ export function fold(text: string): string {
   return text.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 }
 
+/**
+ * Quita las variables de MacroDroid que llegaron sin reemplazar (ej. "[app_name]", "[notification_title]"):
+ * pasa cuando se escriben a mano en vez de insertarlas con el texto mágico.
+ */
+export function dropUnfilled(value: string): string {
+  return value
+    .split("\n")
+    .filter((line) => !/^\s*\[[a-z_]+\]\s*$/i.test(line))
+    .join("\n")
+    .trim();
+}
+
 /** Texto completo del evento (título, asunto y cuerpo) en una sola cadena. */
 export function eventText(ev: RawEvent): string {
   return [ev.title, ev.subject, ev.text].filter(Boolean).join("\n").trim();
@@ -124,6 +136,10 @@ export function detectIgnore(text: string): string | null {
   if (/\b(olvido de (?:la )?(?:contrasena|clave)|(?:cambio|cambiaste|recuperacion|restablec\w*) (?:de )?(?:tu |la )?(?:contrasena|clave))\b/.test(t) &&
       !/\$\s?\d/.test(t)) return "Aviso de seguridad";
   if (/\b(rechazad[ao]|declinad[ao]|no (?:fue )?aprobad[ao]|fallid[ao]|no exitos[ao])\b/.test(t)) return "Transacción no aprobada";
+  // Promociones que piden comprar y ofrecen premios ("Haz 5 compras… aplican TyC"): no son movimientos.
+  // Un aviso real va en pasado ("compraste", "pagaste"), así que esa palabra lo deja pasar.
+  if (/\b(haz \d+\s+(?:compras|pagos|transacciones)|manten tu racha|racha|participa por|aplican (?:tyc|t&c|terminos)|valido hasta|que no se corte)\b/.test(t) &&
+      !/\b(compraste|pagaste|transferiste|recibiste|enviaste|retiraste)\b/.test(t)) return "Publicidad";
   if (/\b(aprovecha|promocion|descuento|cashback|oferta|gana|sorteo|felicitaciones)\b/.test(t) && !/\b(compra|pago|transferencia|retiro|recibiste|enviaste)\b/.test(t)) {
     return "Publicidad";
   }
