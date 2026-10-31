@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Check, ChevronDown, Copy, KeyRound, Mail, MessageSquareText, Pencil, Plus, RefreshCw, Smartphone, Trash2 } from "lucide-react";
+import { ArrowLeft, Check, ChevronDown, Copy, KeyRound, Mail, MessageSquareText, Pencil, Plus, RefreshCw, Smartphone, Trash2, X } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { useShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
@@ -93,6 +93,7 @@ export default function CapturaPage() {
   }, [supabase, me.user_id]);
 
   useEffect(() => { void load(); }, [load]);
+  const refresh = async () => { await load(); void reload(); };
   useEffect(() => {
     if (window.location.hash === "#sin-reconocer" && failed.length > 0) document.getElementById("sin-reconocer")?.scrollIntoView({ behavior: "smooth" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -134,7 +135,7 @@ export default function CapturaPage() {
       tally.MERGED && `${tally.MERGED} se unieron con movimientos que ya estaban`,
       tally.IGNORED && `${tally.IGNORED} no eran movimientos`,
       tally.DUPLICATE && `${tally.DUPLICATE} ya estaban procesados`,
-      tally.stillFailed && `${tally.stillFailed} siguen sin reconocerse (regístralos a mano abajo)`,
+      tally.stillFailed && `${tally.stillFailed} siguen sin reconocerse (regístralos a mano o márcalos como “No es un movimiento” abajo)`,
       tally.errors && `${tally.errors} fallaron por conexión: vuelve a intentar`,
     ].filter(Boolean);
     setRetrySummary(parts.length ? `Listo: ${parts.join("; ")}.` : "No había nada que reintentar.");
@@ -269,7 +270,7 @@ export default function CapturaPage() {
               {failed.length > 0 && (
                 <>
                   <p className="text-sm">
-                    Se vuelven a leer con las reglas actuales (y Gemini si hace falta). Los que sigan sin reconocerse se registran a mano.
+                    Se vuelven a leer con las reglas actuales (y Gemini si hace falta). Los que sigan sin reconocerse se registran a mano, o se marcan como “No es un movimiento” si son promociones o avisos que no son un pago.
                     {failed.some((l) => !l.raw_text) ? ` ${failed.filter((l) => !l.raw_text).length} ya no tienen su texto (pasaron 30 días) y solo se pueden registrar a mano.` : ""}
                   </p>
                   <Button className="w-full" onClick={retryAll} disabled={!!retrying || !failed.some((l) => l.raw_text)}>
@@ -282,7 +283,7 @@ export default function CapturaPage() {
             </Card>
             {failed.length > 0 && (
               <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface">
-                {failed.map((l) => <LogRow key={l.id} log={l} />)}
+                {failed.map((l) => <LogRow key={l.id} log={l} onChanged={refresh} />)}
               </div>
             )}
           </>
@@ -294,7 +295,7 @@ export default function CapturaPage() {
         <p className="px-1 text-sm text-muted">Aún no ha llegado nada reconocido. Cuando conectes MacroDroid o Gmail verás aquí cada aviso y qué se hizo con él.</p>
       ) : (
         <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface">
-          {logs.filter((l) => !FAILED_RESULTS.includes(l.result)).map((l) => <LogRow key={l.id} log={l} />)}
+          {logs.filter((l) => !FAILED_RESULTS.includes(l.result)).map((l) => <LogRow key={l.id} log={l} onChanged={refresh} />)}
         </div>
       )}
 
@@ -331,9 +332,12 @@ export default function CapturaPage() {
   );
 }
 
-function LogRow({ log }: { log: IngestLog }) {
+function LogRow({ log, onChanged }: { log: IngestLog; onChanged: () => void }) {
   const { openPayment } = useShell();
+  const { supabase } = useFinance();
   const [show, setShow] = useState(FAILED_RESULTS.includes(log.result));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const r = RESULT_LABEL[log.result];
   const failed = log.result === "UNRECOGNIZED" || log.result === "ERROR" || log.result === "DISCARDED";
 
@@ -348,6 +352,16 @@ function LogRow({ log }: { log: IngestLog }) {
     });
   }
 
+  /** Promociones, avisos de seguridad y otros que no son un pago: se sacan de la lista sin crear nada. */
+  async function notAMovement() {
+    setBusy(true);
+    setError(null);
+    const { error } = await supabase.from("ingest_logs").update({ result: "IGNORED", reason: "Marcado a mano: no es un movimiento" }).eq("id", log.id);
+    setBusy(false);
+    if (error) return setError(errMsg(error));
+    onChanged();
+  }
+
   return (
     <div className="px-3.5 py-3">
       <button className="flex w-full items-center gap-3 text-left" onClick={() => setShow(!show)}>
@@ -360,8 +374,12 @@ function LogRow({ log }: { log: IngestLog }) {
           <p className="text-muted">{CHANNEL_LABEL[log.channel] ?? log.channel}{log.parser ? ` · leído con ${log.parser === "gemini" ? "Gemini" : log.parser}` : ""}{log.reason ? ` · ${log.reason}` : ""}</p>
           {log.raw_text ? <Code>{log.raw_text}</Code> : <p className="text-xs text-muted">Texto original ya borrado.</p>}
           {failed && (
-            <Button size="sm" variant="outline" className="w-full" onClick={manual}><Plus size={15} /> Registrar a mano</Button>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" className="flex-1" onClick={manual} disabled={busy}><Plus size={15} /> Registrar a mano</Button>
+              <Button size="sm" variant="outline" className="flex-1" onClick={notAMovement} disabled={busy}><X size={15} /> No es un movimiento</Button>
+            </div>
           )}
+          <ErrorText>{error}</ErrorText>
         </div>
       )}
     </div>
