@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 
 // Barrido inicial de la captura automática. El Apps Script de Gmail, con el token de la persona:
 //  · GET  → { desde: "AAAA-MM-DD" | null }: fecha desde la que debe enviar los correos, si la persona pidió un barrido.
-//  · POST → marca el barrido como terminado.
+//  · POST → marca el barrido como terminado; el cuerpo { correos, etiqueta_ok } cuenta cuántos envió y si encontró la etiqueta.
 // Igual que el webhook de ingesta: la identidad la resuelve la base de datos a partir del token.
 
 export const runtime = "nodejs";
@@ -39,7 +39,11 @@ export async function POST(req: NextRequest) {
   if (!token) return NextResponse.json({ ok: false, error: "Falta el token" }, { status: 401 });
   const sb = client();
   if (!(await tokenOk(sb, token))) return NextResponse.json({ ok: false, error: "Token no válido" }, { status: 401 });
-  const { error } = await sb.rpc("ingest_backfill_done", { p_token: token });
+  // El script informa cuántos correos envió y si encontró la etiqueta (opcional: versiones viejas no lo mandan)
+  const body = (await req.json().catch(() => null)) as { correos?: unknown; etiqueta_ok?: unknown } | null;
+  const correos = typeof body?.correos === "number" && Number.isFinite(body.correos) ? Math.floor(body.correos) : null;
+  const etiquetaOk = typeof body?.etiqueta_ok === "boolean" ? body.etiqueta_ok : null;
+  const { error } = await sb.rpc("ingest_backfill_done", { p_token: token, p_sent: correos, p_label_found: etiquetaOk });
   if (error) return NextResponse.json({ ok: false, error: "No se pudo marcar" }, { status: 500 });
   return NextResponse.json({ ok: true });
 }

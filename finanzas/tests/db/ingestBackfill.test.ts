@@ -59,6 +59,23 @@ describe("barrido inicial de la captura automática", () => {
     expect(await pending(mayToken)).not.toBeNull();
   });
 
+  it("al terminar guarda cuántos correos envió y si encontró la etiqueta; pedir de nuevo lo borra", async () => {
+    await anon("select public.ingest_backfill_done($1, 0, false) as r", [mayToken]);
+    const [done] = await as<{ sent: number; label_found: boolean; done_at: string }>(db, MAY, `select sent, label_found, done_at from ingest_backfills`);
+    expect(done.sent).toBe(0);
+    expect(done.label_found).toBe(false);
+    expect(done.done_at).not.toBeNull();
+
+    await as(db, MAY, `select public.request_ingest_backfill($1::date)`, [bogotaDay(-5)]);
+    const [again] = await as<{ sent: number | null; label_found: boolean | null; done_at: string | null }>(db, MAY, `select sent, label_found, done_at from ingest_backfills`);
+    expect(again).toEqual({ sent: null, label_found: null, done_at: null });
+
+    await anon("select public.ingest_backfill_done($1, 12, true) as r", [mayToken]);
+    const [ok] = await as<{ sent: number; label_found: boolean }>(db, MAY, `select sent, label_found from ingest_backfills`);
+    expect(ok).toEqual({ sent: 12, label_found: true });
+    await as(db, MAY, `select public.request_ingest_backfill($1::date)`, [bogotaDay(-5)]); // vuelve a quedar pendiente
+  });
+
   it("cada persona solo ve su propio pedido", async () => {
     expect(await as(db, BREI, `select * from ingest_backfills`)).toHaveLength(0);
     expect(await as(db, MAY, `select * from ingest_backfills`)).toHaveLength(1);
