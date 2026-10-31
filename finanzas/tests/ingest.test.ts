@@ -66,6 +66,9 @@ describe("reglas de ignorar", () => {
     expect(detectIgnore("La compra por $20.000 fue rechazada")).toBe("Transacción no aprobada");
     expect(detectIgnore("Aprovecha 30% de descuento este fin de semana")).toBe("Publicidad");
     expect(detectIgnore("Compraste $45.000 en Éxito")).toBeNull();
+    // Promoción de Nequi: no es una compra de $45.000 aunque traiga monto y "compras"
+    expect(detectIgnore("Haz 5 compras con tu Tarjeta Nequi Visa, mantén tu racha y participa por hasta $45.000 COP. ¡Que no se corte! Aplican TyC. Válido hasta el 01/11/2026.")).toBe("Publicidad");
+    expect(detectIgnore("Compraste $45.000 en Éxito. Aplican TyC")).toBeNull();
     // Avisos de inicio de sesión (BBVA por correo, Nequi, banca virtual)
     for (const msg of [
       "Importante: Confirmación de ingreso en nuestros canales digitales. Acabas de ingresar a tu App BBVA el 26/10/2026",

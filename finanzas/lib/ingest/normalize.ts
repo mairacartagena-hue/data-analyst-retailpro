@@ -124,6 +124,10 @@ export function detectIgnore(text: string): string | null {
   if (/\b(olvido de (?:la )?(?:contrasena|clave)|(?:cambio|cambiaste|recuperacion|restablec\w*) (?:de )?(?:tu |la )?(?:contrasena|clave))\b/.test(t) &&
       !/\$\s?\d/.test(t)) return "Aviso de seguridad";
   if (/\b(rechazad[ao]|declinad[ao]|no (?:fue )?aprobad[ao]|fallid[ao]|no exitos[ao])\b/.test(t)) return "Transacción no aprobada";
+  // Promociones que piden comprar y ofrecen premios ("Haz 5 compras… aplican TyC"): no son movimientos.
+  // Un aviso real va en pasado ("compraste", "pagaste"), así que esa palabra lo deja pasar.
+  if (/\b(haz \d+ (?:compras|pagos|transacciones)|manten tu racha|racha|participa por|aplican (?:tyc|t&c|terminos)|valido hasta|que no se corte)\b/.test(t) &&
+      !/\b(compraste|pagaste|transferiste|recibiste|enviaste|retiraste)\b/.test(t)) return "Publicidad";
   if (/\b(aprovecha|promocion|descuento|cashback|oferta|gana|sorteo|felicitaciones)\b/.test(t) && !/\b(compra|pago|transferencia|retiro|recibiste|enviaste)\b/.test(t)) {
     return "Publicidad";
   }
