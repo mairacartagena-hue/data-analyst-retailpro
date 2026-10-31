@@ -68,6 +68,8 @@ describe("reglas de ignorar", () => {
     expect(detectIgnore("Compraste $45.000 en Éxito")).toBeNull();
     // Promoción de Nequi: no es una compra de $45.000 aunque traiga monto y "compras"
     expect(detectIgnore("Haz 5 compras con tu Tarjeta Nequi Visa, mantén tu racha y participa por hasta $45.000 COP. ¡Que no se corte! Aplican TyC. Válido hasta el 01/11/2026.")).toBe("Publicidad");
+    // Así llegó en la base de datos: con doble espacio después del número
+    expect(detectIgnore("[notification_title]\nHaz 5  compras con tu Tarjeta Nequi Visa, mantén tu racha y participa por hasta $45.000 COP. ¡Que no se corte! Aplican TyC. Válido hasta el")).toBe("Publicidad");
     expect(detectIgnore("Compraste $45.000 en Éxito. Aplican TyC")).toBeNull();
     // Avisos de inicio de sesión (BBVA por correo, Nequi, banca virtual)
     for (const msg of [
