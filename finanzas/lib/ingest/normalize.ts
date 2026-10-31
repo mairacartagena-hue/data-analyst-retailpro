@@ -187,3 +187,26 @@ export function findDate(text: string, order: "DMY" | "MDY" = "DMY"): string | n
   }
   return null;
 }
+
+const MONTHS_ES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+
+/**
+ * Fechas con el mes escrito, como en Lulo y RappiCard: "22 de octubre de 2026 … Hora 5:41 p.m.",
+ * "31 oct. 2026 Hora 8:19 a.m." y "31 oct 2026 03:17". La hora (con a.m./p.m. o de 24 h) debe ir justo después.
+ */
+export function findDateEs(text: string): string | null {
+  const t = fold(text);
+  // Se prueban todas las coincidencias: "…4233 CUS 7871…" también parece fecha, pero "cus" no es un mes
+  let m: RegExpExecArray | null = null;
+  let month = 0;
+  for (const c of t.matchAll(/(\d{1,2})\s+(?:de\s+)?([a-z]{3,10})\.?\s+(?:de\s+)?(\d{4})/g)) {
+    month = MONTHS_ES.indexOf(c[2].slice(0, 3)) + 1;
+    if (month > 0) { m = c; break; }
+  }
+  if (!m) return null;
+  const time = /(\d{1,2}):(\d{2})(?:\s*([ap])\.?\s?m\b)?/.exec(t.slice(m.index + m[0].length, m.index + m[0].length + 40));
+  let h = time ? +time[1] : 0;
+  if (time?.[3] === "p" && h < 12) h += 12;
+  if (time?.[3] === "a" && h === 12) h = 0;
+  return bogotaIso(+m[3], month, +m[1], h, time ? +time[2] : 0);
+}

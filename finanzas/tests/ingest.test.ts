@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  MAX_MERCHANT, cleanMerchant, detectIgnore, dropUnfilled, findAmount, findIdentifiers, findLast4, guessInstitution, maskSensitive, normalizeMerchant, parseAmountCo,
+  MAX_MERCHANT, cleanMerchant, detectIgnore, dropUnfilled, findDateEs, findAmount, findIdentifiers, findLast4, guessInstitution, maskSensitive, normalizeMerchant, parseAmountCo,
 } from "@/lib/ingest/normalize";
 import { parseWithRules } from "@/lib/ingest/registry";
 import type { RawEvent } from "@/lib/ingest/types";
@@ -94,11 +94,25 @@ describe("reglas de ignorar", () => {
   });
 });
 
+describe("fechas con el mes escrito", () => {
+  it("Lulo y RappiCard", () => {
+    expect(findDateEs("Fecha 22 de octubre de 2026 Hora 5:41 p.m.")).toBe("2026-10-22T22:41:00.000Z");
+    expect(findDateEs("Fecha 31 oct. 2026 Hora 8:19 a.m.")).toBe("2026-10-31T13:19:00.000Z");
+    expect(findDateEs("31 oct 2026 03:17")).toBe("2026-10-31T08:17:00.000Z");
+    expect(findDateEs("Fecha 5 de enero de 2026 Hora 12:05 a.m.")).toBe("2026-01-05T05:05:00.000Z");
+    expect(findDateEs("Fecha 5 de enero de 2026 Hora 12:05 p.m.")).toBe("2026-01-05T17:05:00.000Z");
+    // El número de comprobante seguido de "CUS 7871…" no es una fecha
+    expect(findDateEs("No. comprobante 1234567890123456 CUS 100000001 Fecha 31 oct. 2026 Hora 8:19 a.m.")).toBe("2026-10-31T13:19:00.000Z");
+    expect(findDateEs("sin fecha")).toBeNull();
+    expect(findDateEs("10 de algo de 2026")).toBeNull();
+  });
+});
+
 describe("variables de MacroDroid sin reemplazar", () => {
   it("se quitan de la app, el título y el texto", () => {
     expect(dropUnfilled("[app_name]")).toBe("");
     expect(dropUnfilled("{not_title}\nTe enviaron $20.000")).toBe("Te enviaron $20.000");
-    expect(dropUnfilled("[notification_title]\nALIRIO SABOGAL te envió 300000")).toBe("ALIRIO SABOGAL te envió 300000");
+    expect(dropUnfilled("[notification_title]\nANA GOMEZ te envió 300000")).toBe("ANA GOMEZ te envió 300000");
     expect(dropUnfilled("Nequi")).toBe("Nequi");
     expect(dropUnfilled("Compraste $45.000 [ref] en Éxito")).toBe("Compraste $45.000 [ref] en Éxito");
   });
