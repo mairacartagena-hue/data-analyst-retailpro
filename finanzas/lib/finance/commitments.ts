@@ -1,6 +1,7 @@
 // Compromisos y próximos vencimientos: pagos previstos (una vez o cada mes).
-// Un vencimiento está pagado cuando hay un movimiento enlazado a él (scheduled_payment_id + scheduled_for);
-// mientras no se pague cuenta como comprometido, y al pagarlo pasa a gastado (no se cuenta dos veces).
+// Un vencimiento está pagado cuando hay un movimiento enlazado a él (scheduled_payment_id + scheduled_for), o cuando
+// se registró por Movimientos un gasto que se le parece (misma categoría y espacio, monto ±5 %, cerca de la fecha):
+// así no hay que marcarlo a mano. Mientras no se pague cuenta como comprometido, y al pagarlo pasa a gastado.
 
 import type { ScheduledPayment, Space, Transaction } from "@/lib/types";
 import type { Period } from "./periods";
@@ -37,6 +38,22 @@ export function dueDatesBetween(p: ScheduledPayment, from: string, to: string): 
   return out;
 }
 
+export const MATCH_TOLERANCE = 0.05;
+const DAYS_BEFORE_DUE = 15;
+const DAYS_AFTER_DUE = 7;
+const dayDiff = (a: string, b: string) => Math.round((Date.parse(`${a}T00:00:00Z`) - Date.parse(`${b}T00:00:00Z`)) / 86_400_000);
+const near = (x: number, target: number) => target > 0 && Math.abs(x - target) / target <= MATCH_TOLERANCE;
+
+/** Lo que un movimiento puso en la categoría del vencimiento, si se parece a su monto (o a la parte de uno, si es compartido). */
+function matchAmount(p: ScheduledPayment, t: Transaction): number {
+  if (t.kind !== "EXPENSE" && t.kind !== "DEBT_PAYMENT") return 0;
+  if (t.status === "PENDING_REVIEW" || t.scheduled_payment_id || t.scope !== p.scope) return 0;
+  if (p.scope === "PERSONAL" && t.payer_user_id !== p.owner_user_id) return 0;
+  const inCat = t.splits.filter((x) => x.category_id === p.category_id).reduce((a, x) => a + x.amount, 0);
+  const targets = [p.amount, Number(p.share_a ?? 0), Number(p.share_b ?? 0)];
+  return targets.some((x) => near(inCat, x)) ? inCat : 0;
+}
+
 /** Vencimientos del periodo (activos), con su pago si ya se registró. Ordenados por fecha. */
 export function occurrencesIn(payments: ScheduledPayment[], txs: Transaction[], period: Pick<Period, "start" | "end">, today: string): Occurrence[] {
   const paidBy = new Map<string, Transaction>();
@@ -48,10 +65,35 @@ export function occurrencesIn(payments: ScheduledPayment[], txs: Transaction[], 
     if (!p.active) continue;
     for (const due of dueDatesBetween(p, period.start, period.end)) {
       const paid = paidBy.get(`${p.id}|${due}`) ?? null;
-      out.push({ payment: p, due, paid, overdue: !paid && due < today });
+      out.push({ payment: p, due, paid, overdue: false });
     }
   }
-  return out.sort((a, b) => a.due.localeCompare(b.due) || a.payment.name.localeCompare(b.payment.name, "es"));
+  out.sort((a, b) => a.due.localeCompare(b.due) || a.payment.name.localeCompare(b.payment.name, "es"));
+
+  // Cruce automático con lo registrado por Movimientos: cada movimiento paga un solo vencimiento (el más antiguo que le sirva);
+  // un compartido queda pagado cuando entre los movimientos de cada uno se completa el monto.
+  const used = new Set<string>();
+  for (const o of out) {
+    if (o.paid || !o.payment.category_id) continue;
+    const found: Transaction[] = [];
+    let sum = 0;
+    for (const t of txs) {
+      if (used.has(t.id)) continue;
+      const diff = dayDiff(t.occurred_on, o.due);
+      if (diff < -DAYS_BEFORE_DUE || diff > DAYS_AFTER_DUE) continue;
+      const amount = matchAmount(o.payment, t);
+      if (amount <= 0) continue;
+      found.push(t);
+      sum += amount;
+      if (sum >= o.payment.amount * (1 - MATCH_TOLERANCE)) break;
+    }
+    if (found.length > 0 && sum >= o.payment.amount * (1 - MATCH_TOLERANCE)) {
+      for (const t of found) used.add(t.id);
+      o.paid = found[0];
+    }
+  }
+  for (const o of out) o.overdue = !o.paid && o.due < today;
+  return out;
 }
 
 /** Total comprometido (sin pagar) de un conjunto de vencimientos. */

@@ -126,7 +126,7 @@ export function nextCuota(balance: number, a: CreditTerms, today: string): numbe
  * Sin día de pago se reserva la cuota completa, como antes. Con día de pago pero ninguno dentro del periodo, nada.
  */
 export function creditReserve(
-  account: CreditTerms & { id: string; statement_day?: number | null },
+  account: CreditTerms & { id: string; statement_day?: number | null; budget_category_id?: string | null },
   balance: number,
   txs: Transaction[],
   period: Period,
@@ -145,9 +145,18 @@ export function creditReserve(
   let reserve = 0;
   for (const { cut } of dues) {
     const nextCut = addMonthsIso(cut, 1);
+    const inWindow = (t: Transaction) => t.status !== "PENDING_REVIEW" && t.occurred_on > cut && t.occurred_on <= nextCut;
     const capitalPaid = txs
-      .filter((t) => t.kind === "TRANSFER" && t.to_account_id === account.id && t.status !== "PENDING_REVIEW" && t.occurred_on > cut && t.occurred_on <= nextCut)
-      .reduce((sum, t) => sum + t.amount, 0);
+      .filter((t) => t.kind === "TRANSFER" && t.to_account_id === account.id && inWindow(t))
+      .reduce((sum, t) => sum + t.amount, 0)
+      // Pago registrado como gasto en la categoría del crédito (no como transferencia): lo que excede intereses y seguros es capital
+      + (account.budget_category_id
+        ? txs.filter((t) => (t.kind === "EXPENSE" || t.kind === "DEBT_PAYMENT") && inWindow(t))
+          .reduce((sum, t) => {
+            const paid = t.splits.filter((x) => x.category_id === account.budget_category_id).reduce((a, x) => a + x.amount, 0);
+            return sum + Math.max(0, paid - interest - Math.round(account.monthly_costs ?? 0));
+          }, 0)
+        : 0);
     reserve += Math.round(cuota * (1 - Math.min(1, capitalPaid / expectedCapital)));
   }
   return reserve;

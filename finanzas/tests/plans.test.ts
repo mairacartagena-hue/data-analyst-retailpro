@@ -42,6 +42,39 @@ describe("compromisos", () => {
     expect(occ.map((o) => [o.due, !!o.paid, o.overdue])).toEqual([["2026-10-03", true, false], ["2026-10-31", false, false]]);
     expect(committedTotal(occ)).toBe(300_000);
   });
+
+  it("un pago registrado por Movimientos en la categoría del vencimiento lo marca pagado solo", () => {
+    const arriendo = sp({ id: "arr", name: "Arriendo", amount: 1_500_000, category_id: "vivienda", day_of_month: 5 });
+    const pago = tx({ amount: 1_500_000, occurred_on: "2026-10-03", splits: [split(1_500_000, "vivienda")] });
+    const occ = occurrencesIn([arriendo], [pago], oct, "2026-10-10");
+    expect(occ[0].paid?.id).toBe(pago.id);
+    expect(occ[0].overdue).toBe(false);
+    expect(committedTotal(occ)).toBe(0);
+  });
+
+  it("no cruza si el monto, la categoría, el espacio o la fecha no se parecen", () => {
+    const arriendo = sp({ id: "arr", amount: 1_500_000, category_id: "vivienda", day_of_month: 5 });
+    const casos = [
+      tx({ amount: 900_000, occurred_on: "2026-10-03", splits: [split(900_000, "vivienda")] }),
+      tx({ amount: 1_500_000, occurred_on: "2026-10-03", splits: [split(1_500_000, "mercado")] }),
+      tx({ amount: 1_500_000, occurred_on: "2026-10-03", scope: "PERSONAL", splits: [split(1_500_000, "vivienda")] }),
+      tx({ amount: 1_500_000, occurred_on: "2026-09-10", splits: [split(1_500_000, "vivienda")] }),
+    ];
+    for (const t of casos) expect(occurrencesIn([arriendo], [t], oct, "2026-10-10")[0].paid).toBeNull();
+  });
+
+  it("un pago cerca del siguiente vencimiento paga ese, y un compartido se completa con la parte de cada uno", () => {
+    const mensual = sp({ id: "m", amount: 100_000, category_id: "vivienda", day_of_month: 5 });
+    const pago = tx({ amount: 100_000, occurred_on: "2026-10-28", splits: [split(100_000, "vivienda")] });
+    const occ = occurrencesIn([mensual], [pago], { start: "2026-10-01", end: "2026-11-30" }, "2026-11-10");
+    expect(occ.map((o) => !!o.paid)).toEqual([false, true]); // 28-oct: paga el del 5-nov, no el del 5-oct
+
+    const compartido = sp({ id: "c", amount: 200_000, share_a: 120_000, share_b: 80_000, category_id: "vivienda", day_of_month: 5 });
+    const mia = tx({ amount: 120_000, occurred_on: "2026-10-04", splits: [split(120_000, "vivienda")] });
+    const suya = tx({ amount: 80_000, occurred_on: "2026-10-05", payer_user_id: B, created_by: B, splits: [split(80_000, "vivienda", B)] });
+    expect(occurrencesIn([compartido], [mia], oct, "2026-10-10")[0].paid).toBeNull();
+    expect(occurrencesIn([compartido], [mia, suya], oct, "2026-10-10")[0].paid?.id).toBe(mia.id);
+  });
 });
 
 describe("presupuestos con nombre", () => {
