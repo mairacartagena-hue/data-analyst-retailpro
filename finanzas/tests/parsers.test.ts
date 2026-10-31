@@ -114,3 +114,23 @@ describe("Google Wallet (notificación real)", () => {
     expect(r.parsed?.kind).toBe("IGNORE");
   });
 });
+
+describe("Nequi (notificaciones reales)", () => {
+  it("dinero recibido: sin depender de Gemini", () => {
+    const a = parseWithRules(notif("Envío", "BREINER OLAYA te envió 1, ¡lo mejor!", "Nequi Colombia"));
+    expect(a.parser).toBe("nequi");
+    expect(a.parsed).toMatchObject({ kind: "TRANSFER_IN", amount: 1, merchant: "Breiner Olaya", institution: "Nequi" });
+    const b = parseWithRules(notif("Envío", "ALIRIO SABOGAL te envió 300000, ¡lo mejor!", "Nequi Colombia"));
+    expect(b.parsed).toMatchObject({ kind: "TRANSFER_IN", amount: 300000, merchant: "Alirio Sabogal" });
+  });
+
+  it("con monto con separador de miles y sin título", () => {
+    const r = parseWithRules({ channel: "ANDROID_NOTIFICATION", source: "Nequi Colombia", text: "MARIA PEREZ te envió $1.250.000, ¡lo mejor!", receivedAt: "2026-10-31T22:00:00.000Z" });
+    expect(r.parsed).toMatchObject({ kind: "TRANSFER_IN", amount: 1250000, merchant: "Maria Perez" });
+  });
+
+  it("las promociones y avisos de seguridad siguen sin ser movimientos", () => {
+    expect(parseWithRules(notif("Haz 5  compras", "Haz 5  compras con tu Tarjeta Nequi Visa, mantén tu racha y participa por hasta $45.000 COP. Aplican TyC.", "Nequi Colombia")).parsed?.kind).toBe("IGNORE");
+    expect(parseWithRules(notif("Seguridad", "Iniciaste sesión en tu Nequi desde la web.", "Nequi Colombia")).parsed?.kind).toBe("IGNORE");
+  });
+});
