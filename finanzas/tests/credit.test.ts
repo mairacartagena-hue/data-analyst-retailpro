@@ -63,6 +63,17 @@ describe("cuota del crédito que falta reservar en el periodo", () => {
     expect(creditReserve(credit, balance, [toCredit(932_583, "2026-10-23")], period, today)).toBe(0);
   });
 
+  it("un pago registrado como gasto en la categoría del crédito también paga la cuota", () => {
+    const withCat = { ...credit, budget_category_id: "cat-hip" };
+    const gasto = (amount: number, on: string, cat = "cat-hip"): Transaction => ({
+      id: `g${on}${amount}`, kind: "DEBT_PAYMENT", status: "CONFIRMED", occurred_on: on, amount, account_id: "bancolombia", to_account_id: null,
+      splits: [{ id: "s", transaction_id: "x", amount, category_id: cat, responsible_user_id: "u", origin: "NORMAL", note: null }],
+    } as unknown as Transaction);
+    expect(creditReserve(withCat, balance, [gasto(1_952_068, "2026-10-23")], period, today)).toBe(0);
+    expect(creditReserve(withCat, balance, [gasto(1_952_068, "2026-10-23", "otra")], period, today)).toBeGreaterThan(0);
+    expect(creditReserve(credit, balance, [gasto(1_952_068, "2026-10-23")], period, today)).toBeGreaterThan(0);
+  });
+
   it("un abono anterior al corte no paga esta cuota", () => {
     const full = creditReserve(credit, balance, [], period, today);
     expect(creditReserve(credit, balance, [toCredit(932_583, "2026-10-05")], period, today)).toBe(full);
