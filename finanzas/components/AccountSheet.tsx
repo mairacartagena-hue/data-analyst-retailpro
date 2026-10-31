@@ -286,7 +286,7 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
         {isCredit && !account && (
           <div className="space-y-2 rounded-2xl border border-border px-3 pb-3">
             <SwitchRow label="Incluir la cuota en Presupuestos"
-              hint="Crea un presupuesto del hogar con la cuota. Cuando llegue solo un pago con ese valor, se marca como pago de este crédito."
+              hint="Crea un presupuesto del hogar con la cuota. Cada mes cuenta su cuota aunque el pago aún no llegue; cuando llega el pago real, reemplaza la estimada."
               checked={inBudget}
               onCheckedChange={(v) => { setInBudget(v); if (v && !budgetCat) setBudgetCat(guessCategory(name, categories)); }} />
             {inBudget && (
@@ -736,7 +736,7 @@ function CreditBudget({ account }: { account: Account }) {
   return (
     <div className="space-y-2 rounded-2xl border border-border px-3 pb-3">
       <SwitchRow label="Incluir la cuota en Presupuestos"
-        hint="Crea un presupuesto del hogar con la cuota. Cuando llegue solo un pago con ese valor, se marca como pago de este crédito."
+        hint="Crea un presupuesto del hogar con la cuota. Cada mes cuenta su cuota aunque el pago aún no llegue; cuando llega el pago real, reemplaza la estimada."
         checked={!!linked || editing} disabled={busy}
         onCheckedChange={(v) => (v ? startEdit() : linked ? void unlink() : setEditing(false))} />
       {linked && !editing && (
