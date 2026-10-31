@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  MAX_MERCHANT, cleanMerchant, detectIgnore, findAmount, findIdentifiers, findLast4, guessInstitution, maskSensitive, normalizeMerchant, parseAmountCo,
+  MAX_MERCHANT, cleanMerchant, detectIgnore, dropUnfilled, findAmount, findIdentifiers, findLast4, guessInstitution, maskSensitive, normalizeMerchant, parseAmountCo,
 } from "@/lib/ingest/normalize";
 import { parseWithRules } from "@/lib/ingest/registry";
 import type { RawEvent } from "@/lib/ingest/types";
@@ -91,6 +91,15 @@ describe("reglas de ignorar", () => {
   it("sin parser del banco todavía: queda para Gemini o como no reconocido", () => {
     expect(parseWithRules(ev("Compraste $45.000 en Éxito")).parsed).toBeNull();
     expect(parseWithRules(ev("Tu clave dinámica es 1234")).parsed?.kind).toBe("IGNORE");
+  });
+});
+
+describe("variables de MacroDroid sin reemplazar", () => {
+  it("se quitan de la app, el título y el texto", () => {
+    expect(dropUnfilled("[app_name]")).toBe("");
+    expect(dropUnfilled("[notification_title]\nALIRIO SABOGAL te envió 300000")).toBe("ALIRIO SABOGAL te envió 300000");
+    expect(dropUnfilled("Nequi")).toBe("Nequi");
+    expect(dropUnfilled("Compraste $45.000 [ref] en Éxito")).toBe("Compraste $45.000 [ref] en Éxito");
   });
 });
 
