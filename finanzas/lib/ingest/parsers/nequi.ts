@@ -10,7 +10,7 @@ export const nequiParser: BankParser = {
   parse: (ev) => {
     // Solo el cuerpo: el título ("Envío") va aparte y no es parte del nombre
     const text = ev.text.replace(/\s+/g, " ").trim();
-    // BREINER OLAYA te envió 300000, ¡lo mejor!
+    // JUAN PEREZ te envió 300000, ¡lo mejor!
     const m = /^(.+?)\s+te envi[oó]\s+\$?\s?(\d(?:[\d.,]*\d)?)/i.exec(text);
     if (!m) return null;
     return { kind: "TRANSFER_IN", amount: parseAmountCo(m[2]) ?? undefined, merchant: m[1], institution: "Nequi" };

@@ -117,11 +117,11 @@ describe("Google Wallet (notificación real)", () => {
 
 describe("Nequi (notificaciones reales)", () => {
   it("dinero recibido: sin depender de Gemini", () => {
-    const a = parseWithRules(notif("Envío", "BREINER OLAYA te envió 1, ¡lo mejor!", "Nequi Colombia"));
+    const a = parseWithRules(notif("Envío", "JUAN PEREZ te envió 1, ¡lo mejor!", "Nequi Colombia"));
     expect(a.parser).toBe("nequi");
-    expect(a.parsed).toMatchObject({ kind: "TRANSFER_IN", amount: 1, merchant: "Breiner Olaya", institution: "Nequi" });
-    const b = parseWithRules(notif("Envío", "ALIRIO SABOGAL te envió 300000, ¡lo mejor!", "Nequi Colombia"));
-    expect(b.parsed).toMatchObject({ kind: "TRANSFER_IN", amount: 300000, merchant: "Alirio Sabogal" });
+    expect(a.parsed).toMatchObject({ kind: "TRANSFER_IN", amount: 1, merchant: "Juan Perez", institution: "Nequi" });
+    const b = parseWithRules(notif("Envío", "ANA GOMEZ te envió 300000, ¡lo mejor!", "Nequi Colombia"));
+    expect(b.parsed).toMatchObject({ kind: "TRANSFER_IN", amount: 300000, merchant: "Ana Gomez" });
   });
 
   it("con monto con separador de miles y sin título", () => {
@@ -132,5 +132,65 @@ describe("Nequi (notificaciones reales)", () => {
   it("las promociones y avisos de seguridad siguen sin ser movimientos", () => {
     expect(parseWithRules(notif("Haz 5  compras", "Haz 5  compras con tu Tarjeta Nequi Visa, mantén tu racha y participa por hasta $45.000 COP. Aplican TyC.", "Nequi Colombia")).parsed?.kind).toBe("IGNORE");
     expect(parseWithRules(notif("Seguridad", "Iniciaste sesión en tu Nequi desde la web.", "Nequi Colombia")).parsed?.kind).toBe("IGNORE");
+  });
+});
+
+const luloMail = (subject: string, text: string): RawEvent => ({
+  channel: "GMAIL", source: "Notificaciones Lulo bank <notificaciones@lulobank.com>", subject, text, receivedAt: "2026-10-31T20:00:00.000Z",
+});
+const rappiMail = (subject: string, text: string): RawEvent => ({
+  channel: "GMAIL", source: "RappiCard <noreply@rappicard.co>", subject, text, receivedAt: "2026-10-31T20:00:00.000Z",
+});
+
+describe("Lulo bank (correos reales)", () => {
+  it("compra con la tarjeta débito", () => {
+    const r = parseWithRules(luloMail("Compra realizada", "Compra realizada\n[image: ícono de app Lulo] \nCompra realizada \n\nRealizaste una compra en SMARTTT por $3,500.00\n\nOrigen tarjeta débito •1111\nLulo bank 300 000 0000\nNo. comprobante 100001\n\nOperación sin costo\n\nFecha 22 de octubre de 2026\nHora 5:41 p.m. \n\nSi no reconoces este movimiento ingresa a la sección de ayuda."));
+    expect(r.parser).toBe("lulo");
+    expect(r.parsed).toMatchObject({ kind: "PURCHASE", amount: 3500, merchant: "Smarttt", last4: "1111", institution: "Lulo Bank", occurredAt: "2026-10-22T22:41:00.000Z" });
+  });
+
+  it("compra rechazada: se ignora", () => {
+    const r = parseWithRules(luloMail("Compra rechazada", "Compra rechazada\n[image: ícono de app Lulo] \nCompra rechazada \n\nCompra rechazada en MINISO CC UNICO CALI por $30,830.00\n\nOrigen tarjeta débito •1111\nFecha 24 de octubre de 2026\nHora 8:12 p.m."));
+    expect(r.parsed?.kind).toBe("IGNORE");
+  });
+
+  it("pago PSE desde la cuenta", () => {
+    const r = parseWithRules(luloMail("Pago PSE exitoso", "Pago PSE exitoso\n[image: ícono de app Lulo] \nHiciste un pago a Banco Davivienda Sa por $2,000,000.69 \n\nEl cobro se hizo a tu cuenta • 2222 \n\nNo. comprobante 1234567890123456\nCUS 100000001\nReferencia 1: 10.0.0.1 \nDescripción de pago: 100000002. \n\nOperación sin costo\n\nFecha 31 oct. 2026 \nHora 8:19 a.m."));
+    expect(r.parsed).toMatchObject({ kind: "PURCHASE", amount: 2000001, merchant: "Banco Davivienda", last4: "2222", occurredAt: "2026-10-31T13:19:00.000Z" });
+  });
+
+  it("recarga recibida", () => {
+    const r = parseWithRules(luloMail("Lulo Cuenta recargada", "Lulo Cuenta recargada\n[image: ícono de app Lulo] \nLulo Cuenta recargada \n\nRecibiste una recarga a tu cuenta por $1.000.000. \n\nOrigen · BANCOLOMBIA \nCUS 100000003 \nNo. comprobante 10000000000000001 \nMedio PSE \n\nCosto de la operación ¡Sin costo! \n\nFecha 23 de octubre de 2026 \nHora 12:06 p.m."));
+    expect(r.parsed).toMatchObject({ kind: "TRANSFER_IN", amount: 1000000, merchant: "Bancolombia", occurredAt: "2026-10-23T17:06:00.000Z" });
+  });
+
+  it("pago del crédito de Lulo", () => {
+    const r = parseWithRules(luloMail("Pago hecho", "Pago hecho\n [image: ícono de app Lulo] \nPago hecho \n\nHiciste el pago de tu crédito No. 48838263333 por $800,000.86. \n\nOrigen • BANCOLOMBIA \nDestino Crédito • 3333 \nNo. comprobante 10000000000000002 \nCUS 100000004 \nMedio PSE \n\nFecha 25 de septiembre de 2026 \nHora 10:33 a.m."));
+    expect(r.parsed).toMatchObject({ kind: "CARD_PAYMENT", amount: 800001, merchant: "Lulo Bank", last4: "3333", occurredAt: "2026-09-25T15:33:00.000Z" });
+  });
+
+  it("correos de Lulo que no son movimientos no se inventan", () => {
+    expect(parseWithRules(luloMail("Tienes hasta $15,000,000 para desembolsar", "Solicita tu crédito desde la app")).parsed).toBeNull();
+  });
+});
+
+describe("RappiCard (correos reales)", () => {
+  const compra = (monto: string, comercio: string, fecha: string) =>
+    `RappiCard - Resumen de transacción\n[image: 630x187x1] \n  \n¡Hola, NOMBRE APELLIDO! \nRealizaste una compra con tu RappiCard. \n  \nDetalle de tu transacción: \n  \n\nMonto\n\n${monto}\n------------------------------\n\nMétodo de pago\n\n*4444\n------------------------------\n\nNo. de autorización\n\n100005\n------------------------------\n\nComercio\n\n${comercio}\n------------------------------\n\nFecha de la transacción\n\n${fecha}\n  \n\n¿Necesitas ayuda?`;
+
+  it("compra con la tarjeta", () => {
+    const r = parseWithRules(rappiMail("RappiCard - Resumen de transacción", compra("$16.800", "DLO Didi", "2026-10-23 07:28:17")));
+    expect(r.parser).toBe("rappicard");
+    expect(r.parsed).toMatchObject({ kind: "PURCHASE", amount: 16800, merchant: "DLO Didi", last4: "4444", institution: "RappiCard", occurredAt: "2026-10-23T12:28:00.000Z" });
+    expect(parseWithRules(rappiMail("RappiCard - Resumen de transacción", compra("$539.820", "Puma", "2026-10-22 22:12:51"))).parsed).toMatchObject({ amount: 539820, merchant: "Puma" });
+  });
+
+  it("pago de la tarjeta por PSE", () => {
+    const r = parseWithRules(rappiMail("Comprobante de pago", "Comprobante de pago\n[image: 540x153x1] \n  \nHola, NOMBRE \n  \nRecibimos el pago de tu tarjeta y lo estamos procesando. \nSigue disfrutando todos los beneficios de tu RappiCard. \n  \n\nDestino de pago\n\n*4444\n------------------------------\n\nFecha y hora\n\n31 oct 2026 03:17\n------------------------------\n\nMétodo de pago\n\nPSE\n------------------------------\n\nMonto\n\n2.000.000,69\nCashback \n[image: 180x180] \n¡Gracias por estar al día con el pago de tu deuda!\n\nDesde que tienes tu RappiCard, has ganado en total 1.876,07 cashback"));
+    expect(r.parsed).toMatchObject({ kind: "CARD_PAYMENT", amount: 2000001, merchant: "RappiCard", last4: "4444", occurredAt: "2026-10-31T08:17:00.000Z" });
+  });
+
+  it("el extracto no es un movimiento", () => {
+    expect(parseWithRules(rappiMail("¡Llegó el extracto de tu RappiCard!", "Ya puedes consultar tu extracto")).parsed?.kind).toBe("IGNORE");
   });
 });
