@@ -179,17 +179,18 @@ export function cutsBetween(statementDay: number, after: string, upTo: string): 
  * factura una cuota (el saldo en partes iguales, con interés sobre lo que queda). `cuts` = cuántos cortes se
  * facturan antes del pago que se está calculando. Devuelve el capital que sigue sin facturar y los intereses de esos cortes.
  */
-export function statementItemsAfter(items: CardStatementItem[], cuts: number, fallbackRate?: number | null): { later: number; interest: number; capitalDue: number } {
+export function statementItemsAfter(items: CardStatementItem[], cuts: number | ((it: CardStatementItem) => number), fallbackRate?: number | null): { later: number; interest: number; capitalDue: number } {
   let later = 0;
   let interest = 0;
   let capitalDue = 0;
   for (const it of items) {
+    const n = typeof cuts === "function" ? cuts(it) : cuts;
     const left = it.installments - it.paid_installments;
     if (left <= 0 || it.remaining_balance <= 0) continue;
     const r = monthlyRate(it.rate_ea ?? fallbackRate);
     const part = Math.round(it.remaining_balance / left);
     let bal = it.remaining_balance;
-    for (let k = 0; k < Math.min(cuts, left) && bal > 0; k++) {
+    for (let k = 0; k < Math.min(n, left) && bal > 0; k++) {
       const capital = k === left - 1 ? bal : Math.min(bal, part);
       interest += Math.round(bal * r);
       bal -= capital;
@@ -257,7 +258,12 @@ export function cardDue(
   if (lastCut) billed += remaining; // deuda anterior a todo lo registrado: ya estaba facturada
   // Compras a cuotas del extracto: lo que sigue sin facturar no se paga en este extracto
   // (cada corte después de la apertura de la tarjeta factura una cuota).
-  const cuts = lastCut && card.opening_at ? cutsBetween(card.statement_day, card.opening_at.slice(0, 10), lastCut) : 0;
+  // Una compra que salió de un extracto posterior (as_of) empieza a contar cortes desde ese extracto
+  const sd = card.statement_day;
+  const cuts = (it: CardStatementItem) => {
+    const from = it.as_of ?? card.opening_at?.slice(0, 10);
+    return lastCut && from ? cutsBetween(sd, from, lastCut) : 0;
+  };
   const fromItems = statementItemsAfter(items, cuts, card.interest_rate_ea);
   const capitalDue = Math.max(0, Math.round(billed - billedLater - (lastCut ? fromItems.later : 0)));
   interest += lastCut ? fromItems.interest : 0;
@@ -272,6 +278,19 @@ export function cardDue(
   };
 }
 
+/** Una cuota dentro del pago de un mes: de qué compra es y cuál cuota. */
+export interface ProjectionLine {
+  key: string;
+  label: string;
+  /** Número de la cuota y total de cuotas (0 en el saldo del extracto). */
+  no: number;
+  of: number;
+  capital: number;
+  interest: number;
+  /** APP: compra registrada en la app · EXTRACT: compra del extracto · STATEMENT: saldo facturado del extracto con que se registró la tarjeta. */
+  source: "APP" | "EXTRACT" | "STATEMENT";
+}
+
 export interface MonthProjection {
   /** Mes AAAA-MM. */
   month: string;
@@ -280,6 +299,8 @@ export interface MonthProjection {
   total: number;
   /** Compras que tienen cuota ese mes. */
   purchases: number;
+  /** Cuota por cuota de lo que se paga ese mes. */
+  lines: ProjectionLine[];
 }
 
 /**
@@ -292,12 +313,13 @@ export function projectCard(
   from: string,
   months: number,
   statementItems: CardStatementItem[] = [],
+  opts: { ignorePayments?: boolean } = {},
 ): MonthProjection[] {
   const start = from.slice(0, 7);
-  const out = Array.from({ length: months }, (_, i) => {
+  const out: MonthProjection[] = Array.from({ length: months }, (_, i) => {
     const [y, m] = start.split("-").map(Number);
     const d = new Date(Date.UTC(y, m - 1 + i, 1));
-    return { month: d.toISOString().slice(0, 7), capital: 0, interest: 0, total: 0, purchases: 0 };
+    return { month: d.toISOString().slice(0, 7), capital: 0, interest: 0, total: 0, purchases: 0, lines: [] };
   });
   const index = new Map(out.map((r, i) => [r.month, i]));
   // Con día de corte, de pago y apertura (extracto) se proyecta por mes de PAGO: cada compra posterior al extracto
@@ -306,12 +328,13 @@ export function projectCard(
     ? { cut: card.statement_day, due: card.due_day, openingDay: card.opening_at.slice(0, 10) }
     : null;
   const inExtract = matchedWithItems(txs.filter((t) => t.account_id === card.id), statementItems.filter((i) => i.account_id === card.id));
-  const add = (month: string, capital: number, interest: number, seen: Set<string>) => {
+  const add = (month: string, capital: number, interest: number, seen: Set<string>, line?: Omit<ProjectionLine, "capital" | "interest">) => {
     const i = index.get(month);
     if (i === undefined) return;
     out[i].capital += capital;
     out[i].interest += interest;
     out[i].total += capital + interest;
+    if (line) out[i].lines.push({ ...line, key: `${line.key}#${line.no}`, capital, interest });
     if (!seen.has(month)) {
       seen.add(month);
       out[i].purchases++;
@@ -321,22 +344,30 @@ export function projectCard(
     if (t.account_id !== card.id || inExtract.has(t.id)) continue;
     const n = installmentsOf(t);
     const seen = new Set<string>();
+    const label = t.merchant || t.description || "Compra";
     if (billing && t.kind === "EXPENSE" && t.status !== "PENDING_REVIEW" && t.occurred_on > billing.openingDay) {
       const due = billingDue(billing.cut, billing.due, t.occurred_on);
-      for (const c of installmentPlan(t.amount, n, t.occurred_on, rateOf(t, card))) add(addMonthsIso(due, c.no - 1).slice(0, 7), c.capital, c.interest, seen);
+      for (const c of installmentPlan(t.amount, n, t.occurred_on, rateOf(t, card))) {
+        add(addMonthsIso(due, c.no - 1).slice(0, 7), c.capital, c.interest, seen, { key: t.id, label, no: c.no, of: n, source: "APP" });
+      }
       continue;
     }
     if (n === 1) continue;
     for (const c of installmentPlan(t.amount, n, t.occurred_on, rateOf(t, card))) {
       if (c.date < from.slice(0, 7) + "-01") continue;
-      add(c.date.slice(0, 7), c.capital, c.interest, seen);
+      add(c.date.slice(0, 7), c.capital, c.interest, seen, { key: t.id, label, no: c.no, of: n, source: "APP" });
     }
   }
   // Compras del extracto (no son movimientos): el saldo que falta se reparte en partes iguales por cuota restante,
   // con interés sobre el saldo. Con día de corte y de pago, la primera cuota que falta se factura en el primer corte
   // después del extracto; sin ellos, empiezan el mes siguiente al de `from`.
-  const dayAfterOpening = billing ? new Date(Date.parse(`${billing.openingDay}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10) : null;
-  const firstDue = billing && dayAfterOpening ? billingDue(billing.cut, billing.due, dayAfterOpening) : null;
+  // Una compra que salió de un extracto posterior (as_of) se factura desde el corte siguiente a ese extracto.
+  const dayAfter = (iso: string) => new Date(Date.parse(`${iso}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+  const firstDueOf = (it: CardStatementItem) => {
+    if (!billing) return null;
+    const ref = it.as_of && it.as_of > billing.openingDay ? it.as_of : billing.openingDay;
+    return billingDue(billing.cut, billing.due, dayAfter(ref));
+  };
   for (const it of statementItems) {
     if (it.account_id !== card.id) continue;
     const left = it.installments - it.paid_installments;
@@ -344,23 +375,27 @@ export function projectCard(
     const r = monthlyRate(it.rate_ea ?? card.interest_rate_ea);
     let bal = it.remaining_balance;
     const seen = new Set<string>();
+    const firstDue = firstDueOf(it);
     for (let k = 0; k < left && bal > 0; k++) {
       const capital = k === left - 1 ? bal : Math.min(bal, Math.round(it.remaining_balance / left));
       const interest = Math.round(bal * r);
       bal -= capital;
-      if (firstDue) add(addMonthsIso(firstDue, k).slice(0, 7), capital, interest, seen);
-      else if (k + 1 < out.length) add(out[k + 1].month, capital, interest, seen);
+      const line = { key: it.id, label: it.description, no: it.paid_installments + k + 1, of: it.installments, source: "EXTRACT" as const };
+      if (firstDue) add(addMonthsIso(firstDue, k).slice(0, 7), capital, interest, seen, line);
+      else if (k + 1 < out.length) add(out[k + 1].month, capital, interest, seen, line);
     }
   }
   // Saldo al corte con el que se registró la tarjeta (la deuda inicial sin el saldo diferido de las compras del extracto):
   // se paga en la fecha de pago de ese extracto. Lo que ya se abonó a la tarjeta desde entonces lo descuenta.
   const statement = legacySchedule(card, statementItems).find((c) => c.statement);
   if (statement && billing) {
-    const paid = txs
+    const paid = opts.ignorePayments ? 0 : txs
       .filter((t) => t.to_account_id === card.id && (t.kind === "TRANSFER" || t.kind === "SETTLEMENT") && t.status !== "PENDING_REVIEW" && t.occurred_on >= billing.openingDay)
       .reduce((a, t) => a + t.amount, 0);
     const left = statement.amount - paid;
-    if (left > 0) add(statement.due.slice(0, 7) < start ? start : statement.due.slice(0, 7), left, 0, new Set());
+    const month = opts.ignorePayments || statement.due.slice(0, 7) >= start ? statement.due.slice(0, 7) : start;
+    if (left > 0) add(month, left, 0, new Set(), { key: "statement", label: "Saldo facturado del extracto (compras a 1 cuota, cuotas del mes e intereses)", no: 0, of: 0, source: "STATEMENT" });
   }
+  for (const r of out) r.lines.sort((a, b) => (a.source === "STATEMENT" ? -1 : b.source === "STATEMENT" ? 1 : b.capital + b.interest - (a.capital + a.interest)));
   return out;
 }

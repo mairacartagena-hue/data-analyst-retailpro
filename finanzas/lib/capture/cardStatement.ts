@@ -48,7 +48,7 @@ export function sanitizeCardStatement(raw: Record<string, unknown>, today: strin
   r.creditLimit = money(raw.credit_limit);
   r.rateEa = typeof raw.rate_ea === "number" && raw.rate_ea > 0 && raw.rate_ea < 200 ? Math.round(raw.rate_ea * 100) / 100 : undefined;
   const items = Array.isArray(raw.purchases) ? (raw.purchases as Record<string, unknown>[]) : [];
-  for (const it of items.slice(0, 60)) {
+  for (const it of items.slice(0, 200)) {
     const description = typeof it?.description === "string" ? it.description.trim().slice(0, 80) : "";
     const amount = money(it?.amount);
     const installments = typeof it?.installments === "number" ? Math.round(it.installments) : 0;

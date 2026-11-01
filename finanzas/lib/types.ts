@@ -292,6 +292,20 @@ export interface CardStatementItem {
   paid_installments: number;
   remaining_balance: number;
   rate_ea: number | null;
+  /** Corte del extracto del que salió (null: el extracto con el que se registró la tarjeta). */
+  as_of?: string | null;
+}
+
+/** Un extracto de la tarjeta: lo que dice el banco en ese corte (del PDF o escrito a mano). */
+export interface CardStatement {
+  id: string;
+  account_id: string;
+  cut_date: string;
+  due_date: string | null;
+  minimum_payment: number | null;
+  total_payment: number | null;
+  total_debt: number | null;
+  source: "PDF" | "MANUAL";
 }
 
 export const ACCOUNT_KIND_LABEL: Record<AccountKind, string> = {

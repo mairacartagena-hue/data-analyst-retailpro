@@ -65,7 +65,9 @@ export function legacySchedule(card: CardLike, items: CardStatementItem[]): Lega
   const sd = card.statement_day;
   const dd = card.due_day;
   const open = openingDay(card.opening_at);
-  const mine = items.filter((i) => i.account_id === card.id && i.installments - i.paid_installments > 0 && i.remaining_balance > 0);
+  // Solo las compras del extracto con que se registró la tarjeta: las de extractos posteriores no son deuda anterior
+  const mine = items.filter((i) => i.account_id === card.id && i.installments - i.paid_installments > 0 && i.remaining_balance > 0
+    && (!i.as_of || i.as_of <= open));
   const deferred = mine.reduce((a, i) => a + i.remaining_balance, 0);
   const out: LegacyCuota[] = [];
   const firstCut = cutBefore(sd, open);
