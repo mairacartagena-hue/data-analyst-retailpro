@@ -71,13 +71,14 @@ export function legacySchedule(card: CardLike, items: CardStatementItem[]): Lega
   const deferred = mine.reduce((a, i) => a + i.remaining_balance, 0);
   const out: LegacyCuota[] = [];
   const firstCut = cutBefore(sd, open);
-  const statement = Math.max(0, debt - deferred);
+  // En pesos enteros: el extracto trae centavos y el presupuesto se guarda sin decimales
+  const statement = Math.max(0, Math.round(debt - deferred));
   if (statement > 0) out.push({ cut: firstCut, due: billingDue(sd, dd, firstCut), amount: statement, statement: true });
   const byCut = new Map<string, number>();
   for (const it of mine) {
     const left = it.installments - it.paid_installments;
-    const part = Math.round(it.remaining_balance / left);
-    let bal = it.remaining_balance;
+    let bal = Math.round(it.remaining_balance);
+    const part = Math.round(bal / left);
     for (let k = 0; k < left && bal > 0; k++) {
       const capital = k === left - 1 ? bal : Math.min(bal, part);
       bal -= capital;
@@ -145,7 +146,7 @@ export function cardBudgetVersions(card: CardLike, items: CardStatementItem[], s
   const byPeriod = new Map<string, number>();
   for (const c of plan) {
     const start = c.due < current.start ? current.start : periodFor(settings, c.due).start; // lo vencido sin pagar va en el periodo actual
-    byPeriod.set(start, (byPeriod.get(start) ?? 0) + c.amount);
+    byPeriod.set(start, (byPeriod.get(start) ?? 0) + Math.round(c.amount));
   }
   const out: { valid_from: string; amount: number }[] = [];
   let p = current;
