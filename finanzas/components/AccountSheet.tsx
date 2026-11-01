@@ -296,6 +296,9 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
               onChange={(e) => { setCutDate(e.target.value); if (e.target.value && !statementDay) setStatementDay(String(Number(e.target.value.slice(8, 10)))); }} />
           </Field>
         )}
+        {isCard && !account && (
+          <NewCardPurchases items={cardDrafts} onChange={setCardDrafts} />
+        )}
         {account && (
           <Field label="Fecha de ese saldo" htmlFor="opening-date"
             hint="Los movimientos desde esta fecha suman o restan. Los de antes ya estaban incluidos en el saldo que escribiste.">
@@ -383,9 +386,6 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
         )}
         {isCard && account && (
           <CardProjection account={account} />
-        )}
-        {isCard && !account && (
-          <NewCardPurchases items={cardDrafts} onChange={setCardDrafts} />
         )}
         {isCard && !account && newCardDebt > 0 && (
           <p className="rounded-2xl bg-surface-2 px-3 py-2.5 text-sm">
@@ -541,7 +541,7 @@ function NewCardPurchases({ items, onChange }: { items: CardDraft[]; onChange: (
   }
 
   return (
-    <Collapsible title="Compras a cuotas de la tarjeta" summary={items.length ? String(items.length) : undefined}>
+    <Collapsible title="Compras del extracto que no registraste" summary={items.length ? String(items.length) : undefined} defaultOpen>
       <p className="text-xs text-muted">Opcional. Las compras que ya tienes diferidas en el extracto: su saldo pendiente se suma a la deuda y cada cuota entra en la proyección de pagos del mes que le toca. Se guardan junto con la tarjeta.</p>
       {items.length > 0 && (
         <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface">
@@ -559,15 +559,14 @@ function NewCardPurchases({ items, onChange }: { items: CardDraft[]; onChange: (
       <div className="space-y-2 rounded-2xl border border-border p-3">
         <Input value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} placeholder="Descripción (comercio)" aria-label="Descripción" />
         <div className="grid grid-cols-2 gap-2">
-          <AmountInput value={draft.amount} onChange={(v) => setDraft({ ...draft, amount: v })} />
-          <Input inputMode="numeric" value={draft.installments} onChange={(e) => setDraft({ ...draft, installments: e.target.value.replace(/\D/g, "").slice(0, 2) })} placeholder="Cuotas" aria-label="Cuotas" />
-          <Input inputMode="numeric" value={draft.paid} onChange={(e) => setDraft({ ...draft, paid: e.target.value.replace(/\D/g, "").slice(0, 2) })} placeholder="Cuotas pagadas" aria-label="Cuotas pagadas" />
-          <AmountInput value={draft.balance} onChange={(v) => setDraft({ ...draft, balance: v })} />
+          <Field label="Valor de la compra"><AmountInput value={draft.amount} onChange={(v) => setDraft({ ...draft, amount: v })} /></Field>
+          <Field label="Saldo que falta" hint="“Saldo diferido” del extracto."><AmountInput value={draft.balance} onChange={(v) => setDraft({ ...draft, balance: v })} /></Field>
+          <Field label="Número de cuotas"><Input inputMode="numeric" value={draft.installments} onChange={(e) => setDraft({ ...draft, installments: e.target.value.replace(/\D/g, "").slice(0, 2) })} aria-label="Cuotas" /></Field>
+          <Field label="Cuotas ya cobradas"><Input inputMode="numeric" value={draft.paid} onChange={(e) => setDraft({ ...draft, paid: e.target.value.replace(/\D/g, "").slice(0, 2) })} aria-label="Cuotas pagadas" /></Field>
         </div>
-        <p className="text-xs text-muted">Valor de la compra, cuotas, cuotas ya cobradas y saldo que falta (“Saldo diferido” del extracto).</p>
         <Input inputMode="decimal" value={draft.rate} onChange={(e) => setDraft({ ...draft, rate: e.target.value.replace(/[^\d,.]/g, "").slice(0, 6) })} placeholder="Tasa E.A. (vacío = la de la tarjeta)" aria-label="Tasa" />
         <ErrorText>{err}</ErrorText>
-        <Button type="button" size="sm" onClick={add}>Agregar compra</Button>
+        <Button type="button" size="sm" onClick={add}>+ Agregar compra del extracto</Button>
       </div>
     </Collapsible>
   );
