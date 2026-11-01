@@ -12,7 +12,7 @@ import { shrink, toBase64 } from "@/lib/capture/file";
 import { cn, errMsg } from "@/lib/utils";
 
 /** Cierre de una tarjeta: la IA lee el extracto (PDF o foto), propone la deuda y las compras a cuotas; la persona revisa. */
-export function CardStatementPdf({ account, onBalance }: { account: Account; onBalance: (v: number) => void }) {
+export function CardStatementPdf({ account, onBalance }: { account: Account; onBalance?: (v: number) => void }) {
   const { cardItems, supabase, reload, me } = useFinance();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -39,7 +39,7 @@ export function CardStatementPdf({ account, onBalance }: { account: Account; onB
       const r = body.result;
       if (r.totalDebt === undefined && r.purchases.length === 0) throw new Error("No encontré la deuda ni las compras a cuotas en ese archivo.");
       setRead(r);
-      if (r.totalDebt !== undefined) onBalance(r.totalDebt);
+      if (r.totalDebt !== undefined) onBalance?.(r.totalDebt);
     } catch (e) {
       setErr(errMsg(e));
     } finally {
@@ -74,8 +74,9 @@ export function CardStatementPdf({ account, onBalance }: { account: Account; onB
       {!read && !err && !notice && <p className="text-xs text-muted">La IA lee la deuda al corte y las compras a cuotas. Revisa antes de guardar. El archivo no se guarda.</p>}
       {read && (
         <div className="space-y-2 text-xs">
-          {read.totalDebt !== undefined && <p>Deuda al corte{read.statementDate ? ` (${read.statementDate})` : ""}: <strong className="num">{formatCop(read.totalDebt)}</strong>. Ya la puse abajo como deuda según tu extracto.</p>}
+          {read.totalDebt !== undefined && <p>Deuda al corte{read.statementDate ? ` (${read.statementDate})` : ""}: <strong className="num">{formatCop(read.totalDebt)}</strong>.{onBalance ? " Ya la puse abajo como deuda según tu extracto." : " Si no coincide con la deuda de la app, ajústala en Cierre del mes."}</p>}
           {read.totalPayment !== undefined && <p className="text-muted">Pago total {formatCop(read.totalPayment)}{read.minimumPayment !== undefined ? ` · mínimo ${formatCop(read.minimumPayment)}` : ""}.</p>}
+          {fresh.length === 0 && read.purchases.length > 0 && <p className="text-muted">Las {read.purchases.length} compras a cuotas del extracto ya están en la tarjeta.</p>}
           {fresh.length > 0 && (
             <div className="space-y-1.5">
               <p className="font-medium">{fresh.length} compra{fresh.length === 1 ? "" : "s"} a cuotas que no están en la app:</p>
