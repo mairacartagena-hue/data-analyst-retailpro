@@ -306,6 +306,8 @@ begin
      where l.user_id = v_uid
        and l.channel = p_event->>'channel'
        and l.raw_text is not null
+       -- Entre avisos subidos del mismo modo ya decide el identificador (dos compras iguales en días seguidos son dos)
+       and (l.external_id is null or split_part(l.external_id, ':', 1) <> split_part(v_ext, ':', 1))
        and (strpos(ingest_text_key(l.raw_text), v_key) > 0 or strpos(v_key, ingest_text_key(l.raw_text)) > 0)
        and (case when v_pasted
                  then abs((coalesce(l.event_at, l.received_at) at time zone 'America/Bogota')::date - (v_at at time zone 'America/Bogota')::date) <= 1

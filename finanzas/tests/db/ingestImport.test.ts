@@ -96,4 +96,11 @@ describe("subir SMS y notificaciones desde la app", () => {
     expect(await imp({ ...ev(base), external_id: "pegado:2026-10-24:d", raw_text: "Pagaste $61.000 en CARULLA", received_at: "2026-10-24T17:00:00Z", parsed: purchase(61_000, "Carulla") }))
       .toMatchObject({ result: "ACCEPTED" });
   });
+
+  it("dos avisos pegados iguales en días seguidos son dos compras", async () => {
+    const p = (day: string) => ev({ channel: "ANDROID_NOTIFICATION", source: "Nequi", external_id: `pegado:${day}:f`,
+      raw_text: "Pagaste $9.900 en Juan Valdez Cafe", received_at: `${day}T17:00:00Z`, parsed: purchase(9_900, "Juan Valdez Cafe", `${day}T13:10:00Z`) });
+    expect(await imp(p("2026-10-26"))).toMatchObject({ result: "ACCEPTED" });
+    expect(await imp(p("2026-10-27"))).toMatchObject({ result: "ACCEPTED" });
+  });
 });
