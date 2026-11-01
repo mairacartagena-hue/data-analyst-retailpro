@@ -30,6 +30,7 @@ import { shrink, toBase64 } from "@/lib/capture/file";
 import { currentInstallmentFrom, type CreditStatementData } from "@/lib/capture/creditStatement";
 import { effectOn } from "@/lib/finance/reconcile";
 import { CreditPaymentAdjust } from "@/components/CreditPaymentAdjust";
+import { CardStatementPdf } from "@/components/CardStatementPdf";
 
 const KINDS: AccountKind[] = ["DEPOSIT", "WALLET", "CASH", "CREDIT_CARD", "LOAN", "CREDIT"];
 const VISIBILITIES: Visibility[] = ["PRIVATE", "BALANCE_ONLY", "PUBLIC"];
@@ -635,6 +636,7 @@ function CardProjection({ account }: { account: Account }) {
       </Collapsible>
 
       <Collapsible title="Compras del extracto que no registraste" summary={mine.length ? String(mine.length) : undefined}>
+        <CardStatementPdf account={account} />
         <p className="text-xs text-muted">Suman a la proyección y, si la tarjeta está en Presupuestos, a su cuota del mes (toca Recalcular). No aparecen en Movimientos ni informes. Su saldo debe estar incluido en la deuda de la tarjeta (en Cierre del mes se ajusta con el extracto).</p>
         {mine.length > 0 && (
           <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface">
