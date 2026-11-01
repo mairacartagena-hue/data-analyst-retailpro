@@ -187,3 +187,28 @@ describe("vencimientos de los presupuestos obligatorios del hogar", () => {
     expect(obligationDues({ meId: A, debts: [debt], accounts: [], limits: [{ ...limit, is_household_obligation: false }], budgets, transactions: [] }, period)).toEqual([]);
   });
 });
+
+describe("pago de la tarjeta con una diferencia de redondeo", () => {
+  const nov = { start: "2026-11-01", end: "2026-11-30" };
+  const pay = tx({ kind: "TRANSFER", to_account_id: "visa", amount: 999_998, occurred_on: "2026-11-03" });
+
+  it("el vencimiento queda pagado aunque falten unos pesos", () => {
+    expect(cardDue(visa, -600_002, [pay], nov, [item]).due).toBe(0);
+  });
+
+  it("sin pago después del corte, unos pesos sí siguen pendientes", () => {
+    const small = acc("visa", "CREDIT_CARD", { statement_day: 20, due_day: 5, opening_at: "2026-10-21T05:00:00.000Z" });
+    const charge = tx({ account_id: "visa", amount: 500, occurred_on: "2026-10-10" });
+    expect(cardDue(small, -500, [charge], nov).due).toBe(500);
+  });
+
+  it("en el presupuesto el pago cuenta como la cuota completa", () => {
+    expect(cardPaymentPortions([visa], [pay], [item]).get(pay.id)?.amount).toBe(1_000_000);
+  });
+
+  it("un pago que falta por más del redondeo deja el resto pendiente", () => {
+    const short = tx({ kind: "TRANSFER", to_account_id: "visa", amount: 990_000, occurred_on: "2026-11-03" });
+    expect(cardPaymentPortions([visa], [short], [item]).get(short.id)?.amount).toBe(990_000);
+    expect(cardDue(visa, -610_000, [short], nov, [item]).due).toBe(10_000);
+  });
+});

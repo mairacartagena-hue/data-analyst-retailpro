@@ -4,7 +4,7 @@
 // presupuesto de la tarjeta solo cuenta la parte de cada pago que cubre esa deuda anterior (nunca dos veces).
 
 import type { CardStatementItem, Transaction } from "@/lib/types";
-import { billingDue } from "./installments";
+import { billingDue, ROUNDING_TOLERANCE } from "./installments";
 import { periodFor, type PeriodSettings } from "./periods";
 
 export interface LegacyCuota {
@@ -127,7 +127,9 @@ export function cardPaymentPortions(
     let covered = 0;
     for (const t of payments) {
       const billed = plan.filter((c) => c.cut < t.occurred_on).reduce((a, c) => a + c.amount, 0);
-      const portion = Math.max(0, Math.min(t.amount, billed - covered));
+      const pending = billed - covered;
+      // Si el pago cubre lo facturado salvo una diferencia de redondeo, cuenta como la cuota completa
+      const portion = Math.max(0, pending - t.amount > 0 && pending - t.amount <= ROUNDING_TOLERANCE ? pending : Math.min(t.amount, pending));
       if (portion <= 0) continue;
       covered += portion;
       out.set(t.id, { categoryId: card.budget_category_id, amount: portion });

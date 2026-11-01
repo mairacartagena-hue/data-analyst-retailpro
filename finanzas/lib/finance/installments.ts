@@ -201,6 +201,9 @@ export function statementItemsAfter(items: CardStatementItem[], cuts: number | (
   return { later, interest, capitalDue };
 }
 
+/** Diferencia de redondeo (pesos) que se perdona al cruzar un pago con lo que vencía. */
+export const ROUNDING_TOLERANCE = 1000;
+
 export function cardDue(
   card: { id: string; interest_rate_ea?: number | null; statement_day?: number | null; due_day?: number | null; opening_at?: string },
   balance: number,
@@ -265,8 +268,16 @@ export function cardDue(
     return lastCut && from ? cutsBetween(sd, from, lastCut) : 0;
   };
   const fromItems = statementItemsAfter(items, cuts, card.interest_rate_ea);
-  const capitalDue = Math.max(0, Math.round(billed - billedLater - (lastCut ? fromItems.later : 0)));
+  let capitalDue = Math.max(0, Math.round(billed - billedLater - (lastCut ? fromItems.later : 0)));
   interest += lastCut ? fromItems.interest : 0;
+  // Lo que se calcula compra por compra se redondea distinto que en el banco: si ya hubo un pago después del corte
+  // y solo falta una diferencia de redondeo, el extracto queda pagado
+  const paidAfterCut = lastCut && txs.some((t) => t.to_account_id === card.id && (t.kind === "TRANSFER" || t.kind === "SETTLEMENT")
+    && t.status !== "PENDING_REVIEW" && t.occurred_on > lastCut);
+  if (paidAfterCut && capitalDue + interest <= ROUNDING_TOLERANCE) {
+    capitalDue = 0;
+    interest = 0;
+  }
   const first = statements[0];
   return {
     debt,
