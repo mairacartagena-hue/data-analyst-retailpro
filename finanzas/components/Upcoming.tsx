@@ -115,31 +115,20 @@ export function UpcomingList({
       key: `${p.id}-${o.due}`,
       due: o.due,
       node: (
-        <div className="flex items-center gap-3 px-3.5 py-3">
-          <button className="flex min-w-0 flex-1 items-center gap-3 text-left" onClick={() => onEdit?.(p)} disabled={!onEdit}>
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-2">
-              {o.paid ? <Check size={17} className="text-olive" /> : <CalendarClock size={17} className="text-muted" />}
-            </span>
-            <span className="min-w-0">
-              <span className={cn("block truncate font-medium", o.paid && "text-muted line-through")}>{p.name}</span>
-              <span className="flex items-center gap-1 text-xs text-muted">
-                {p.scope === "HOUSEHOLD" ? <Home size={11} /> : <Lock size={11} />}
-                <span className={cn(w.tone === "danger" && "font-semibold text-danger", w.tone === "warn" && "font-semibold text-warning", w.tone === "ok" && "text-olive")}>{w.text}</span>
-                {shared ? <> · compartido</> : resp && <> · a cargo de {resp.display_name}</>}
-              </span>
-            </span>
-          </button>
-          <span className="num shrink-0 text-sm font-semibold">{formatCop(o.paid?.amount ?? p.amount)}</span>
-          {!o.paid && (
-            <button className="shrink-0 rounded-full bg-olive-soft px-3 py-1.5 text-sm font-semibold"
-              onClick={() => openPayment({
-                kind: p.kind, categoryId: p.category_id ?? undefined, amount: p.amount, description: p.name, scope: p.scope,
-                responsibleId: p.responsible_user_id ?? undefined, scheduledPaymentId: p.id, scheduledFor: o.due, date: today, shares,
-              })}>
-              Pagar
-            </button>
-          )}
-        </div>
+        <DueRow
+          icon={<CalendarClock size={17} className="text-muted" />}
+          title={p.name}
+          household={p.scope === "HOUSEHOLD"}
+          when={w}
+          detail={`${o.paid ? ` · vencía el ${formatDay(o.due)}` : ""}${shared ? " · compartido" : resp ? ` · a cargo de ${resp.display_name}` : ""}`}
+          amount={o.paid?.amount ?? p.amount}
+          paid={!!o.paid}
+          onOpen={onEdit ? () => onEdit(p) : undefined}
+          onPay={() => openPayment({
+            kind: p.kind, categoryId: p.category_id ?? undefined, amount: p.amount, description: p.name, scope: p.scope,
+            responsibleId: p.responsible_user_id ?? undefined, scheduledPaymentId: p.id, scheduledFor: o.due, date: today, shares,
+          })}
+        />
       ),
     });
   }
@@ -150,25 +139,15 @@ export function UpcomingList({
         key: `credit-${c.accountId}-${c.due}`,
         due: c.due,
         node: (
-          <div className="flex items-center gap-3 px-3.5 py-3">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-2">
-              {c.paid ? <Check size={17} className="text-olive" /> : <Building2 size={17} className="text-muted" />}
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className={cn("block truncate font-medium", c.paid && "text-muted line-through")}>Cuota {accountLabel(labels, c.accountId)}</span>
-              <span className="flex items-center gap-1 truncate text-xs text-muted">
-                <Lock size={11} className="shrink-0" />
-                <span className={cn("truncate", w.tone === "danger" && "font-semibold text-danger", w.tone === "warn" && "font-semibold text-warning", w.tone === "ok" && "text-olive")}>{w.text}{c.paid ? ` · vencía el ${formatDay(c.due)}` : " · cuota estimada"}</span>
-              </span>
-            </span>
-            <span className={cn("num shrink-0 text-sm font-semibold", c.paid && "text-muted")}>{formatCop(c.amount)}</span>
-            {!c.paid && (
-              <button className="shrink-0 rounded-full bg-olive-soft px-3 py-1.5 text-sm font-semibold"
-                onClick={() => router.push(`/cuentas?vista=creditos&cuenta=${c.accountId}&cuota=1`)}>
-                Pagar
-              </button>
-            )}
-          </div>
+          <DueRow
+            icon={<Building2 size={17} className="text-muted" />}
+            title={`Cuota ${accountLabel(labels, c.accountId)}`}
+            when={w}
+            detail={c.paid ? ` · vencía el ${formatDay(c.due)}` : " · cuota estimada"}
+            amount={c.amount}
+            paid={!!c.paid}
+            onPay={() => router.push(`/cuentas?vista=creditos&cuenta=${c.accountId}&cuota=1`)}
+          />
         ),
       });
       continue;
@@ -177,27 +156,15 @@ export function UpcomingList({
       key: `card-${c.accountId}-${c.due}`,
       due: c.due,
       node: (
-        <div className="flex items-center gap-3 px-3.5 py-3">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-2">
-            {c.paid ? <Check size={17} className="text-olive" /> : <CreditCard size={17} className="text-muted" />}
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className={cn("block truncate font-medium", c.paid && "text-muted line-through")}>Pago {accountLabel(labels, c.accountId)}</span>
-            <span className="flex items-center gap-1 truncate text-xs text-muted">
-              <Lock size={11} className="shrink-0" />
-              <span className={cn("truncate", w.tone === "danger" && "font-semibold text-danger", w.tone === "warn" && "font-semibold text-warning", w.tone === "ok" && "text-olive")}>
-                {w.text}{c.paid ? ` · vencía el ${formatDay(c.due)}` : `${c.cuota ? ` · cuota del presupuesto ${formatCop(c.cuota)}` : ""}${c.amount < c.debt ? ` · de ${formatCop(c.debt)} de deuda` : " · deuda actual"}${c.interest > 0 ? ` · incluye ≈${formatCop(c.interest)} de intereses` : ""}`}
-              </span>
-            </span>
-          </span>
-          <span className={cn("num shrink-0 text-sm font-semibold", c.paid && "text-muted")}>{formatCop(c.amount)}</span>
-          {!c.paid && (
-            <button className="shrink-0 rounded-full bg-olive-soft px-3 py-1.5 text-sm font-semibold"
-              onClick={() => openPayment({ kind: "TRANSFER", toAccountId: c.accountId, amount: c.amount, description: "Pago de tarjeta", date: today })}>
-              Pagar
-            </button>
-          )}
-        </div>
+        <DueRow
+          icon={<CreditCard size={17} className="text-muted" />}
+          title={`Pago ${accountLabel(labels, c.accountId)}`}
+          when={w}
+          detail={c.paid ? ` · vencía el ${formatDay(c.due)}` : `${c.cuota ? ` · cuota del presupuesto ${formatCop(c.cuota)}` : ""}${c.amount < c.debt ? ` · de ${formatCop(c.debt)} de deuda` : " · deuda actual"}${c.interest > 0 ? ` · incluye ≈${formatCop(c.interest)} de intereses` : ""}`}
+          amount={c.amount}
+          paid={!!c.paid}
+          onPay={() => openPayment({ kind: "TRANSFER", toAccountId: c.accountId, amount: c.amount, description: "Pago de tarjeta", date: today })}
+        />
       ),
     });
   }
@@ -208,27 +175,16 @@ export function UpcomingList({
       key: `obligation-${o.accountId}-${o.due}`,
       due: o.due,
       node: (
-        <div className="flex items-center gap-3 px-3.5 py-3">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-2">
-            {o.paid ? <Check size={17} className="text-olive" /> : o.kind === "CREDIT_CARD" ? <CreditCard size={17} className="text-muted" /> : <Building2 size={17} className="text-muted" />}
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className={cn("block truncate font-medium", o.paid && "text-muted line-through")}>Cuota {o.name}</span>
-            <span className="flex items-center gap-1 truncate text-xs text-muted">
-              <Home size={11} className="shrink-0" />
-              <span className={cn("truncate", w.tone === "danger" && "font-semibold text-danger", w.tone === "warn" && "font-semibold text-warning", w.tone === "ok" && "text-olive")}>
-                {w.text}{o.paid ? ` · vencía el ${formatDay(o.due)}` : ""} · obligatorio del hogar{resp ? ` · a cargo de ${resp.display_name}` : ""}
-              </span>
-            </span>
-          </span>
-          <span className={cn("num shrink-0 text-sm font-semibold", o.paid && "text-muted")}>{formatCop(o.amount)}</span>
-          {!o.paid && (
-            <button className="shrink-0 rounded-full bg-olive-soft px-3 py-1.5 text-sm font-semibold"
-              onClick={() => openPayment({ categoryId: o.categoryId, amount: o.amount, description: `Cuota ${o.name}`, scope: "HOUSEHOLD", responsibleId: o.responsibleId, date: today })}>
-              Pagar
-            </button>
-          )}
-        </div>
+        <DueRow
+          icon={o.kind === "CREDIT_CARD" ? <CreditCard size={17} className="text-muted" /> : <Building2 size={17} className="text-muted" />}
+          title={`Cuota ${o.name}`}
+          household
+          when={w}
+          detail={`${o.paid ? ` · vencía el ${formatDay(o.due)}` : ""} · obligatorio del hogar${resp ? ` · a cargo de ${resp.display_name}` : ""}`}
+          amount={o.amount}
+          paid={o.paid}
+          onPay={() => openPayment({ categoryId: o.categoryId, amount: o.amount, description: `Cuota ${o.name}`, scope: "HOUSEHOLD", responsibleId: o.responsibleId, date: today })}
+        />
       ),
     });
   }
@@ -236,4 +192,51 @@ export function UpcomingList({
   const shown = limit ? rows.filter((_, i) => i < limit) : rows;
   if (shown.length === 0) return null;
   return <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface">{shown.map((r) => <div key={r.key}>{r.node}</div>)}</div>;
+}
+
+/**
+ * Una fila de Vencimientos: todas con el mismo formato (ícono, nombre en una línea, detalle en una línea,
+ * monto y, si falta pagar, el botón Pagar debajo del monto para que el nombre no quede tan cortado).
+ */
+function DueRow({ icon, title, household = false, when, detail, amount, paid, onOpen, onPay }: {
+  icon: React.ReactNode;
+  title: string;
+  household?: boolean;
+  when: ReturnType<typeof whenLabel>;
+  detail: string;
+  amount: number;
+  paid: boolean;
+  onOpen?: () => void;
+  onPay: () => void;
+}) {
+  const body = (
+    <>
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-2">
+        {paid ? <Check size={17} className="text-olive" /> : icon}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className={cn("block truncate font-medium", paid && "text-muted line-through")}>{title}</span>
+        <span className="flex min-w-0 items-center gap-1 text-xs text-muted">
+          {household ? <Home size={11} className="shrink-0" /> : <Lock size={11} className="shrink-0" />}
+          <span className="truncate">
+            <span className={cn(when.tone === "danger" && "font-semibold text-danger", when.tone === "warn" && "font-semibold text-warning", when.tone === "ok" && "text-olive")}>{when.text}</span>
+            {detail}
+          </span>
+        </span>
+      </span>
+    </>
+  );
+  return (
+    <div className="flex items-center gap-3 px-3.5 py-3">
+      {onOpen
+        ? <button className="flex min-w-0 flex-1 items-center gap-3 text-left" onClick={onOpen}>{body}</button>
+        : <div className="flex min-w-0 flex-1 items-center gap-3">{body}</div>}
+      <span className="flex shrink-0 flex-col items-end gap-1">
+        <span className={cn("num text-sm font-semibold", paid && "text-muted")}>{formatCop(amount)}</span>
+        {!paid && (
+          <button className="rounded-full bg-olive-soft px-3 py-1 text-xs font-semibold" onClick={onPay}>Pagar</button>
+        )}
+      </span>
+    </div>
+  );
 }

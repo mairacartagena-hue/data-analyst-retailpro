@@ -24,7 +24,7 @@ export function Segmented<T extends string>({
             type="button"
             aria-selected={active}
             onClick={() => onChange(o.value)}
-            className={cn("relative flex-1 rounded-xl px-2 py-2 text-sm font-medium transition-colors", active ? "text-text" : "text-muted")}
+            className={cn("relative min-w-0 flex-1 rounded-xl px-2 py-2 text-sm font-medium leading-tight transition-colors", active ? "text-text" : "text-muted")}
           >
             {active && (
               <motion.span
