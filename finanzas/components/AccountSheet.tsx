@@ -31,8 +31,6 @@ import { currentInstallmentFrom, type CreditStatementData } from "@/lib/capture/
 import { effectOn } from "@/lib/finance/reconcile";
 import { CreditPaymentAdjust } from "@/components/CreditPaymentAdjust";
 import { CardStatementPdf } from "@/components/CardStatementPdf";
-import { CardStatementsSection, saveStatement } from "@/components/CardStatements";
-import { projectedFor, squares } from "@/lib/finance/cardStatements";
 
 const KINDS: AccountKind[] = ["DEPOSIT", "WALLET", "CASH", "CREDIT_CARD", "LOAN", "CREDIT"];
 const VISIBILITIES: Visibility[] = ["PRIVATE", "BALANCE_ONLY", "PUBLIC"];
@@ -64,8 +62,6 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
   const [budgetCat, setBudgetCat] = useState("");
   const [budgetAmount, setBudgetAmount] = useState("");
   const [cardDrafts, setCardDrafts] = useState<CardDraft[]>([]);
-  // Extracto leído al crear la tarjeta: se guarda para cruzarlo después (pago mínimo, total y deuda)
-  const [readStatement, setReadStatement] = useState<CardStatementData | null>(null);
   const [cutDate, setCutDate] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -194,14 +190,6 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
           return setError(`La tarjeta quedó guardada, pero no se pudieron guardar las cuotas: ${errMsg(r.error)}. Ábrela de nuevo y agrégalas.`);
         }
       }
-      if (isCard && data && readStatement?.statementDate) {
-        const r = readStatement;
-        const e = await saveStatement(supabase, data as Account, me.user_id, {
-          cut: r.statementDate!, due: r.dueDate ?? "", minimum: r.minimumPayment !== undefined ? String(r.minimumPayment) : "",
-          total: r.totalPayment !== undefined ? String(r.totalPayment) : "", debt: r.totalDebt !== undefined ? String(r.totalDebt) : "",
-        }, "PDF");
-        if (e) console.warn("No se guardó el extracto de la tarjeta", e); // no frena el registro: se puede escribir a mano después
-      }
       if (isCard && inBudget && data) {
         try {
           const saved = { ...(data as Account), opening_balance: Number((data as Account).opening_balance) };
@@ -280,7 +268,6 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
           <Input id="aliases" value={aliases} onChange={(e) => setAliases(e.target.value.replace(/[^\d,\s]/g, ""))} inputMode="numeric" placeholder="7473, 1234" />
         </Field>
         {isCard && !account && <NewCardStatementImport onData={(d) => {
-          setReadStatement(d);
           if (d.institution && !institution.trim()) setInstitution(d.institution);
           if (d.last4 && !last4) setLast4(d.last4);
           if (d.creditLimit) setLimit(String(d.creditLimit));
@@ -589,7 +576,7 @@ function NewCardPurchases({ items, onChange }: { items: CardDraft[]; onChange: (
 /** Cuotas que faltan por pagar en la tarjeta, mes a mes: compras registradas en la app y compras del extracto. */
 function CardProjection({ account }: { account: Account }) {
   const cardId = account.id;
-  const { transactions, cardItems, cardStatements, balances, supabase, reload, me } = useFinance();
+  const { transactions, cardItems, balances, supabase, reload, me } = useFinance();
   const [adding, setAdding] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [draft, setDraft] = useState({ description: "", amount: "", installments: "12", paid: "1", balance: "", rate: "" });
@@ -606,7 +593,6 @@ function CardProjection({ account }: { account: Account }) {
   const debtNow = Math.max(0, -(balances[cardId] ?? 0));
   const debtAfter = new Map<string, number>();
   allRows.reduce((left, r) => { const v = Math.max(0, left - r.capital); debtAfter.set(r.month, v); return v; }, debtNow);
-  const statementOf = (month: string) => cardStatements.find((s) => s.account_id === cardId && s.due_date?.slice(0, 7) === month);
 
   async function addItem() {
     setErr(null);
@@ -645,9 +631,6 @@ function CardProjection({ account }: { account: Account }) {
       ) : (
         <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface">
           {rows.map((r) => {
-            const st = statementOf(r.month);
-            const projected = st?.due_date ? projectedFor(account, transactions, cardItems, st.due_date) : null;
-            const diff = st && st.minimum_payment !== null && projected !== null ? Math.round(projected - st.minimum_payment) : null;
             const expanded = openMonth === r.month;
             return (
               <div key={r.month} className="text-sm">
@@ -659,11 +642,6 @@ function CardProjection({ account }: { account: Account }) {
                   </span>
                   <span className="shrink-0 text-right">
                     <span className="num block whitespace-nowrap font-semibold">{formatCop(r.total)}</span>
-                    {diff !== null && (
-                      <span className={cn("block text-[11px]", squares(diff) ? "text-olive" : "text-warning")}>
-                        {squares(diff) ? "cuadra con el mínimo" : `mínimo ${formatCop(st!.minimum_payment!)}`}
-                      </span>
-                    )}
                   </span>
                 </button>
                 {expanded && (
@@ -675,13 +653,6 @@ function CardProjection({ account }: { account: Account }) {
                       </div>
                     ))}
                     <p className="pt-1 text-muted">Capital {formatCop(r.capital)} · intereses estimados {formatCop(r.interest)}. Solo el capital baja la deuda.</p>
-                    {st && (
-                      <p className={cn("rounded-lg px-2 py-1", diff !== null && squares(diff) ? "bg-olive-soft" : "bg-warning-soft")}>
-                        Extracto del {formatDay(st.cut_date)}: pago mínimo {st.minimum_payment !== null ? formatCop(st.minimum_payment) : "sin dato"}
-                        {projected !== null ? ` · la app calcula ${formatCop(projected)}` : ""}
-                        {diff !== null && !squares(diff) ? ` (${diff > 0 ? "+" : "−"}${formatCop(Math.abs(diff))})` : ""}
-                      </p>
-                    )}
                   </div>
                 )}
               </div>
@@ -696,8 +667,6 @@ function CardProjection({ account }: { account: Account }) {
         <p className="text-xs text-muted">Toca un mes para ver qué compras y qué cuota de cada una se pagan. Total pendiente: {formatCop(total)} (capital más intereses estimados). Es una estimación; el plan de pagos del banco manda.{byPayment ? " Incluye lo que compres a cuotas después del corte, en el extracto que lo factura." : ""}</p>
       )}
       </Collapsible>
-
-      <CardStatementsSection account={account} />
 
       <Collapsible title="Compras del extracto que no registraste" summary={mine.length ? String(mine.length) : undefined}>
         <CardStatementPdf account={account} />

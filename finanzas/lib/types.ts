@@ -296,16 +296,14 @@ export interface CardStatementItem {
   as_of?: string | null;
 }
 
-/** Un extracto de la tarjeta: lo que dice el banco en ese corte (del PDF o escrito a mano). */
+/** Lo que dice un extracto de la tarjeta (leído del PDF o escrito a mano). No se guarda: solo sirve para el cruce. */
 export interface CardStatement {
-  id: string;
   account_id: string;
   cut_date: string;
   due_date: string | null;
   minimum_payment: number | null;
   total_payment: number | null;
   total_debt: number | null;
-  source: "PDF" | "MANUAL";
 }
 
 export const ACCOUNT_KIND_LABEL: Record<AccountKind, string> = {
