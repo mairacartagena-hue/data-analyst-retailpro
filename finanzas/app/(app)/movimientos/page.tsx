@@ -14,7 +14,7 @@ import type { Space, Transaction, TxKind } from "@/lib/types";
 import { TX_KIND_LABEL } from "@/lib/types";
 import { formatCop } from "@/lib/finance/money";
 import { formatDay, isWithin } from "@/lib/finance/periods";
-import { accountLabel, categoryLabel } from "@/lib/finance/labels";
+import { accountLabel, categoryLabel, householdAccountOptions } from "@/lib/finance/labels";
 import { cn } from "@/lib/utils";
 import { matchesFilter } from "@/lib/finance/reports";
 import { CategoryOptions } from "@/components/CategoryPicker";
@@ -24,7 +24,7 @@ import { hasTag } from "@/lib/finance/tags";
 type Filter = "all" | "mine" | "cross" | "pending";
 
 export default function MovimientosPage() {
-  const { transactions, period, me, partner, categories, labels, tags, txTags } = useFinance();
+  const { transactions, period, me, partner, categories, labels, accounts, tags, txTags } = useFinance();
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
   const [categoryId, setCategoryId] = useState("");
@@ -47,6 +47,11 @@ export default function MovimientosPage() {
   const activeFilters = [categoryId, accountId, kind, space, payerId, responsibleId, tagId].filter(Boolean).length;
   const categoryIds = useMemo(() => (categoryId ? withDescendants(categories, [categoryId]) : undefined), [categories, categoryId]);
   const people = [me, partner].filter(Boolean).map((m) => ({ id: m!.user_id, name: m!.user_id === me.user_id ? "Yo" : m!.display_name }));
+  // Solo cuentas del hogar; con "Solo hogar", las que se usan para lo del hogar
+  const accountOptions = useMemo(
+    () => householdAccountOptions(labels, { members: [me, partner], accounts, space, transactions }),
+    [labels, me, partner, accounts, space, transactions],
+  );
   function clearFilters() {
     setCategoryId(""); setAccountId(""); setKind(""); setSpace(""); setPayerId(""); setResponsibleId(""); setTagId("");
     window.history.replaceState(null, "", "/movimientos");
@@ -119,7 +124,8 @@ export default function MovimientosPage() {
           </Select>
           <Select value={accountId} onChange={(e) => setAccountId(e.target.value)} aria-label="Filtrar por cuenta" className={cn("h-10 px-3 text-sm", accountId && "border-olive bg-olive-soft")}>
             <option value="">Cuenta</option>
-            {labels.map((l) => <option key={l.id} value={l.id}>{accountLabel(labels, l.id)}</option>)}
+            {accountId && !accountOptions.some((o) => o.id === accountId) && <option value={accountId}>{accountLabel(labels, accountId)}</option>}
+            {accountOptions.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
           </Select>
           <Select value={payerId} onChange={(e) => setPayerId(e.target.value)} aria-label="Filtrar por quién pagó" className={cn("h-10 px-3 text-sm", payerId && "border-olive bg-olive-soft")}>
             <option value="">Pagó</option>

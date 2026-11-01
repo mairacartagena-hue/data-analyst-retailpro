@@ -51,6 +51,19 @@
   --grid: #3a332a;
 }
 
+/* Color de la persona (Ajustes): reemplaza el verde oliva. Se oscurece un poco en claro y se aclara en oscuro para que se lea. */
+:root[data-accent] {
+  --olive: color-mix(in srgb, var(--accent) 88%, #000000);
+  --olive-soft: color-mix(in srgb, var(--accent) 22%, var(--surface));
+  --on-olive: var(--on-accent, #fbf8f1);
+}
+
+.dark[data-accent] {
+  --olive: color-mix(in srgb, var(--accent) 55%, #ffffff);
+  --olive-soft: color-mix(in srgb, var(--accent) 30%, var(--surface));
+  --on-olive: #1b1814;
+}
+
 @theme inline {
   --color-bg: var(--bg);
   --color-surface: var(--surface);

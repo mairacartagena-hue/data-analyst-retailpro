@@ -66,7 +66,7 @@ export function BudgetVsActual({ space }: { space: ReportSpace }) {
 /** Gastos fijos (vencimientos, suscripciones, cuotas de créditos) frente a variables, y las suscripciones activas. */
 export function FixedVsVariable({ consumption, period }: { consumption: Transaction[]; period: Period }) {
   const { categories, accounts, transactions, me } = useFinance();
-  const creditIds = useMemo(() => new Set(accounts.filter((a) => a.kind === "CREDIT" || a.kind === "LOAN").map((a) => a.id)), [accounts]);
+  const creditIds = useMemo(() => new Set(accounts.filter((a) => (a.kind === "CREDIT" || a.kind === "LOAN") && a.household_id === me.household_id).map((a) => a.id)), [accounts]);
   const r = useMemo(() => fixedVsVariable(consumption, period, { categories, creditIds }), [consumption, period, categories, creditIds]);
   // Suscripciones activas: cobros de los últimos 45 días marcados como suscripción, en una categoría de suscripciones
   // o de un servicio conocido (Netflix, Spotify…). Un mercado que se repite cada mes no es una suscripción.

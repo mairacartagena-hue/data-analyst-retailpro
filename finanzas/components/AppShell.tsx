@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BarChart3, Home, List, Menu, Mic, PieChart, Plus } from "lucide-react";
@@ -11,6 +11,8 @@ import { OfflineBanner } from "@/components/OfflineBanner";
 import { PushScheduler } from "@/components/PushScheduler";
 import { CreditAutoPay } from "@/components/CreditAutoPay";
 import { cn } from "@/lib/utils";
+import { useFinance } from "@/lib/data/FinanceProvider";
+import { applyAccent } from "@/lib/accent";
 
 interface ShellApi {
   openTransaction: (tx?: Transaction | null) => void;
@@ -37,6 +39,9 @@ const NAV: { href: string; label: string; icon: typeof Home; also?: string[] }[]
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  // El color de las iniciales de la persona es el color principal de la app
+  const { me } = useFinance();
+  useEffect(() => { applyAccent(me.color); }, [me.color]);
   const [txOpen, setTxOpen] = useState(false);
   const [editing, setEditing] = useState<Transaction | null>(null);
   const [preset, setPreset] = useState<TxPreset | null>(null);

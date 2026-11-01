@@ -71,8 +71,10 @@ export function buildAiContext(s: FinanceState, today: string): string {
   }
 
   // Cuentas y créditos visibles
-  add("", "## Cuentas (nombre · tipo · dueño · saldo)");
-  for (const a of s.accounts.filter((x) => !x.archived)) {
+  // Solo las cuentas de los miembros del hogar
+  const memberIds = new Set([s.me.user_id, s.partner?.user_id].filter(Boolean));
+  add("", "## Cuentas del hogar (nombre · tipo · dueño · saldo)");
+  for (const a of s.accounts.filter((x) => !x.archived && x.household_id === s.me.household_id && memberIds.has(x.owner_user_id))) {
     const bal = s.balances[a.id];
     const owner = a.owner_user_id === s.me.user_id ? s.me.display_name : name(a.owner_user_id);
     add(`- ${accountLabel(s.labels, a.id) || a.name} · ${ACCOUNT_KIND_LABEL[a.kind]} · ${owner} · ${bal === undefined ? "saldo oculto" : cop(bal)}`);
