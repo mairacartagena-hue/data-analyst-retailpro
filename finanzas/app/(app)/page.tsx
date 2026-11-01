@@ -56,7 +56,7 @@ export default function HomePage() {
   const cats = limitsForScope(state, scope);
   const upcoming = useUpcoming(period);
   const pendingDues = upcoming.occurrences.filter((o) => !o.paid && (scope !== "household" || o.payment.scope === "HOUSEHOLD"));
-  const cardDues = scope === "household" ? [] : upcoming.cards;
+  const cardDues = scope === "household" ? [] : upcoming.cards.filter((c) => !c.paid);
   const pendingTotal = pendingDues.reduce((sum, o) => sum + Number(o.payment.amount), 0);
   const shownNet = withPending ? flow.net - pendingTotal : flow.net;
 

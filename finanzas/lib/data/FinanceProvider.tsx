@@ -10,6 +10,7 @@ import type {
 import { toPeriodSettings, type Snapshot } from "@/lib/finance/derive";
 import type { SpendingRow } from "@/lib/finance/budget";
 import { creditBudgetMap, spendingRows } from "@/lib/finance/spaces";
+import { cardPaymentPortions } from "@/lib/finance/cardBudget";
 import { expandInstallments } from "@/lib/finance/installments";
 import { periodFor, todayBogota, type Period } from "@/lib/finance/periods";
 import { getItem, isNetworkError, queueKey, setItem, snapshotKey } from "@/lib/offline/store";
@@ -139,6 +140,11 @@ async function loadAll(sb: SupabaseClient, userId: string): Promise<Loaded> {
   const consumption = expandInstallments(transactions);
   const cardItemRows = await sb.from("card_statement_items").select("id, account_id, description, purchase_date, amount, installments, paid_installments, remaining_balance, rate_ea");
   if (cardItemRows.error) throw cardItemRows.error;
+  const cardItems = ((cardItemRows.data ?? []) as Record<string, unknown>[]).map((r) => ({
+    id: String(r.id), account_id: String(r.account_id), description: String(r.description), purchase_date: String(r.purchase_date),
+    amount: Number(r.amount), installments: Number(r.installments), paid_installments: Number(r.paid_installments),
+    remaining_balance: Number(r.remaining_balance), rate_ea: num(r.rate_ea) as number | null,
+  }));
   const sharedSpending: SpendingRow[] = ((shared.data ?? []) as { owner_user_id: string; category_id: string; occurred_on: string; total: number }[])
     .map((r) => ({ categoryId: r.category_id, responsibleUserId: r.owner_user_id, occurredOn: r.occurred_on, total: Number(r.total), scope: "PERSONAL" }));
   const memberRows = (members.data ?? []) as Member[];
@@ -185,13 +191,10 @@ async function loadAll(sb: SupabaseClient, userId: string): Promise<Loaded> {
     assets: ((assets.data ?? []) as ManualAsset[]).map((a) => ({ ...a, value: Number(a.value) })),
     // Lo ejecutado sale de los movimientos visibles (lo personal de la pareja no llega), más los totales
     // de sus presupuestos personales que me compartió (solo de movimientos que no puedo abrir)
-    spending: [...spendingRows(consumption, creditBudgetMap((accounts.data ?? []) as Account[])), ...sharedSpending],
+    spending: [...spendingRows(consumption, creditBudgetMap((accounts.data ?? []) as Account[]),
+      cardPaymentPortions(((accounts.data ?? []) as Account[]).map((a) => ({ ...a, opening_balance: Number(a.opening_balance) })), transactions, cardItems)), ...sharedSpending],
     consumption,
-    cardItems: ((cardItemRows.data ?? []) as Record<string, unknown>[]).map((r) => ({
-      id: String(r.id), account_id: String(r.account_id), description: String(r.description), purchase_date: String(r.purchase_date),
-      amount: Number(r.amount), installments: Number(r.installments), paid_installments: Number(r.paid_installments),
-      remaining_balance: Number(r.remaining_balance), rate_ea: num(r.rate_ea) as number | null,
-    })),
+    cardItems,
     sharedSpending,
     plans: ((plans.data ?? []) as BudgetPlan[]).map((b) => ({ ...b, amount: Number(b.amount), alert_pct: Number(b.alert_pct), shared_with_partner: !!b.shared_with_partner })),
     planCategories: ((planCategories.data ?? []) as BudgetPlanCategory[]).map((c) => ({ ...c, amount: num(c.amount) as number | null })),

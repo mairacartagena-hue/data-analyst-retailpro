@@ -3,7 +3,9 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { Archive, ArchiveRestore, FileUp } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
-import type { Account, ManualAsset, Visibility } from "@/lib/types";
+import type { Account, CardStatementItem, ManualAsset, Visibility } from "@/lib/types";
+import type { CardStatementData } from "@/lib/capture/cardStatement";
+import { cardBudgetVersions } from "@/lib/finance/cardBudget";
 import { ACCOUNT_KIND_LABEL, ASSET_TYPE_LABEL, VISIBILITY_LABEL } from "@/lib/types";
 import type { AccountKind } from "@/lib/finance/safeToSpend";
 import { Sheet } from "@/components/ui/sheet";
@@ -59,6 +61,7 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
   const [budgetCat, setBudgetCat] = useState("");
   const [budgetAmount, setBudgetAmount] = useState("");
   const [cardDrafts, setCardDrafts] = useState<CardDraft[]>([]);
+  const [cutDate, setCutDate] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -66,6 +69,7 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
     if (!open) return;
     setError(null);
     setCardDrafts([]);
+    setCutDate("");
     setInBudget(false);
     setBudgetCat("");
     setBudgetAmount("");
@@ -114,9 +118,15 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
     }, today);
   })();
 
+  // Tarjeta nueva: la deuda total es el saldo al corte más lo que falta de las compras a cuotas del extracto
+  const deferredTotal = cardDrafts.reduce((a, d) => a + d.balance, 0);
+  const newCardDebt = (parseCop(opening) ?? 0) + deferredTotal;
+
   async function save() {
     setError(null);
     if (!name.trim()) return setError("Ponle un nombre.");
+    const today = todayBogota();
+    if (isCard && !account && cutDate && cutDate > today) return setError("La fecha de corte no puede ser futura.");
     if (last4 && !/^\d{4}$/.test(last4)) return setError("Los últimos 4 dígitos deben ser 4 números.");
     const aliasList = [...new Set(aliases.split(/[\s,;]+/).filter(Boolean))];
     if (aliasList.some((a) => !/^\d{4}$/.test(a))) return setError("Cada número adicional debe tener 4 dígitos, separados por comas.");
@@ -127,7 +137,11 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
     if ((isCard || isCredit) && rateValue != null && (!Number.isFinite(rateValue) || rateValue < 0 || rateValue > 200)) return setError("La tasa debe ser un porcentaje entre 0 y 200 (ej. 28,5).");
     if (isDebt && responsible && responsible !== me.user_id && visibility === "PRIVATE") return setError(`Para que ${partner?.display_name ?? "tu pareja"} vea la deuda, la cuenta no puede ser privada: elige que vea el saldo o todo.`);
     const day = (v: string) => (v ? Math.min(31, Math.max(1, Number(v))) : null);
-    const base = parseCop(opening) ?? 0;
+    const base = isCard && !account ? newCardDebt : parseCop(opening) ?? 0;
+    // Tarjeta nueva con fecha de corte: el saldo es el de ese corte, así que las compras desde el día siguiente suman aparte
+    const cardOpening = isCard && !account && cutDate
+      ? new Date(Date.parse(`${cutDate}T00:00:00-05:00`) + 86_400_000).toISOString()
+      : null;
     const row = {
       name: name.trim(),
       kind,
@@ -136,7 +150,7 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
       alias_last4: aliasList.filter((a) => a !== last4),
       gmf_mode: kind === "DEPOSIT" || kind === "WALLET" ? gmfMode : "TAXED",
       // Fecha del saldo: los movimientos desde ese día (hora Colombia) cuentan; los anteriores ya estaban incluidos
-      ...(openingDate ? { opening_at: new Date(`${openingDate}T00:00:00-05:00`).toISOString() } : {}),
+      ...(cardOpening ? { opening_at: cardOpening } : openingDate ? { opening_at: new Date(`${openingDate}T00:00:00-05:00`).toISOString() } : {}),
       visibility,
       reveal_in_shared: visibility === "PRIVATE" ? reveal : false,
       // En tarjetas el saldo inicial es la deuda actual (se guarda negativa)
@@ -155,6 +169,7 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
     };
     const budgetValue = isCredit && !account && inBudget ? (parseCop(budgetAmount) || formCuota) : 0;
     if (isCredit && !account && inBudget && budgetValue <= 0) return setError("Escribe el valor de la cuota para el presupuesto.");
+    if (isCard && !account && inBudget && (!statementDay || !dueDay || !cutDate)) return setError("Para incluir la tarjeta en Presupuestos escribe la fecha de corte del extracto y el día de pago.");
     setBusy(true);
     if (account) {
       const { error } = await supabase.from("accounts").update(row).eq("id", account.id);
@@ -164,7 +179,7 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
       if (error) { setBusy(false); return setError(errMsg(error)); }
       if (isCard && cardDrafts.length > 0 && data) {
         const r = await supabase.from("card_statement_items").insert(cardDrafts.map((d) => ({
-          account_id: (data as Account).id, description: d.description, purchase_date: todayBogota(), amount: d.amount, installments: d.installments,
+          account_id: (data as Account).id, description: d.description, purchase_date: d.purchaseDate ?? (cutDate || todayBogota()), amount: d.amount, installments: d.installments,
           paid_installments: d.paid, remaining_balance: d.balance, rate_ea: d.rate,
           household_id: me.household_id, owner_user_id: me.user_id,
         })));
@@ -172,6 +187,18 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
           setBusy(false);
           void reload();
           return setError(`La tarjeta quedó guardada, pero no se pudieron guardar las cuotas: ${errMsg(r.error)}. Ábrela de nuevo y agrégalas.`);
+        }
+      }
+      if (isCard && inBudget && data) {
+        try {
+          const saved = { ...(data as Account), opening_balance: Number((data as Account).opening_balance) };
+          const items = cardDrafts.map((d, i) => ({ id: `draft-${i}`, account_id: saved.id, description: d.description, purchase_date: d.purchaseDate ?? today,
+            amount: d.amount, installments: d.installments, paid_installments: d.paid, remaining_balance: d.balance, rate_ea: d.rate }));
+          await linkCardBudget(finance, saved, items, budgetCat);
+        } catch (e) {
+          setBusy(false);
+          void reload();
+          return setError(`La tarjeta quedó guardada, pero no se pudo crear el presupuesto: ${errMsg(e)}. Ábrela de nuevo y activa el interruptor.`);
         }
       }
       if (budgetValue > 0 && data) {
@@ -239,9 +266,36 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
           hint="Últimos 4 dígitos de otras tarjetas o productos que llegan en los avisos de esta cuenta, separados por comas. Ej.: la tarjeta débito de tu cuenta de ahorros.">
           <Input id="aliases" value={aliases} onChange={(e) => setAliases(e.target.value.replace(/[^\d,\s]/g, ""))} inputMode="numeric" placeholder="7473, 1234" />
         </Field>
-        <Field label={isCard ? "Deuda actual de la tarjeta" : isCredit ? "Capital que falta por pagar" : kind === "LOAN" ? "Cuánto se debe hoy" : "Saldo actual"} hint={account ? "Es el saldo con el que empezó la cuenta en la app; los movimientos se suman aparte." : "El saldo de hoy. Desde aquí la app suma y resta los movimientos."}>
+        {isCard && !account && <NewCardStatementImport onData={(d) => {
+          if (d.institution && !institution.trim()) setInstitution(d.institution);
+          if (d.last4 && !last4) setLast4(d.last4);
+          if (d.creditLimit) setLimit(String(d.creditLimit));
+          if (d.rateEa) setRate(String(d.rateEa).replace(".", ","));
+          if (d.statementDate) {
+            setStatementDay(String(Number(d.statementDate.slice(8, 10))));
+            if (d.statementDate <= todayBogota()) setCutDate(d.statementDate);
+          }
+          if (d.dueDate) setDueDay(String(Number(d.dueDate.slice(8, 10))));
+          const deferred = d.purchases.reduce((a, p) => a + p.remainingBalance, 0);
+          const statement = d.totalPayment ?? (d.totalDebt !== undefined ? Math.max(0, d.totalDebt - deferred) : undefined);
+          if (statement !== undefined) setOpening(String(statement));
+          if (d.purchases.length) setCardDrafts(d.purchases.map((p) => ({ description: p.description, amount: p.amount, installments: p.installments,
+            paid: p.paidInstallments, balance: p.remainingBalance, rate: p.rateEa ?? null, purchaseDate: p.purchaseDate })));
+        }} />}
+        <Field label={isCard ? (account ? "Deuda total con la que empezó la tarjeta" : "Saldo al corte (pago total del extracto)") : isCredit ? "Capital que falta por pagar" : kind === "LOAN" ? "Cuánto se debe hoy" : "Saldo actual"}
+          hint={isCard && !account
+            ? "Lo que pagas en la próxima fecha de pago (“Pago total”). Las compras a cuotas que siguen se agregan abajo y se suman a la deuda."
+            : isCard ? "Saldo al corte más lo que faltaba de las compras a cuotas del extracto. Los movimientos se suman aparte."
+            : account ? "Es el saldo con el que empezó la cuenta en la app; los movimientos se suman aparte." : "El saldo de hoy. Desde aquí la app suma y resta los movimientos."}>
           <AmountInput value={opening} onChange={setOpening} />
         </Field>
+        {isCard && !account && (
+          <Field label="Fecha de corte de ese extracto" htmlFor="cut-date"
+            hint="Las compras desde el día siguiente al corte se registran como movimientos y van en el próximo extracto. Vacío: hoy.">
+            <Input id="cut-date" type="date" value={cutDate} max={todayBogota()}
+              onChange={(e) => { setCutDate(e.target.value); if (e.target.value && !statementDay) setStatementDay(String(Number(e.target.value.slice(8, 10)))); }} />
+          </Field>
+        )}
         {account && (
           <Field label="Fecha de ese saldo" htmlFor="opening-date"
             hint="Los movimientos desde esta fecha suman o restan. Los de antes ya estaban incluidos en el saldo que escribiste.">
@@ -333,6 +387,29 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
         {isCard && !account && (
           <NewCardPurchases items={cardDrafts} onChange={setCardDrafts} />
         )}
+        {isCard && !account && newCardDebt > 0 && (
+          <p className="rounded-2xl bg-surface-2 px-3 py-2.5 text-sm">
+            Deuda total de la tarjeta: <strong className="num">{formatCop(newCardDebt)}</strong>
+            <span className="block text-xs text-muted">Saldo al corte {formatCop(parseCop(opening) ?? 0)}{deferredTotal > 0 ? ` + ${formatCop(deferredTotal)} de compras a cuotas que siguen` : ""}.</span>
+          </p>
+        )}
+        {isCard && !account && (
+          <div className="space-y-2 rounded-2xl border border-border px-3 pb-3">
+            <SwitchRow label="Incluir la cuota del mes en Presupuestos"
+              hint="Crea un presupuesto del hogar con lo que vence cada mes de la deuda que ya traía la tarjeta (saldo al corte y cuotas de las compras anteriores). Las compras nuevas cuentan en su propia categoría."
+              checked={inBudget}
+              onCheckedChange={(v) => { setInBudget(v); if (v && !budgetCat) setBudgetCat(guessCategory(name, categories)); }} />
+            {inBudget && (
+              <Field label="Categoría del presupuesto">
+                <Select value={budgetCat} onChange={(e) => setBudgetCat(e.target.value)}>
+                  <option value="">Nueva categoría: {name.trim() || "nombre de la tarjeta"}</option>
+                  <CategoryOptions categories={categories.filter((c) => !c.archived && c.kind !== "INCOME")} />
+                </Select>
+              </Field>
+            )}
+          </div>
+        )}
+        {isCard && account && <CardBudget account={account} />}
         {(isCard || isCredit) && (
           <Field label="Tasa de interés (% efectiva anual)" htmlFor="rate"
             hint={isCard
@@ -440,7 +517,7 @@ export function AssetSheet({ open, onOpenChange, asset }: { open: boolean; onOpe
   );
 }
 
-interface CardDraft { description: string; amount: number; installments: number; paid: number; balance: number; rate: number | null }
+interface CardDraft { description: string; amount: number; installments: number; paid: number; balance: number; rate: number | null; purchaseDate?: string }
 
 /** Tarjeta nueva: compras a cuotas que se guardan junto con la tarjeta. */
 function NewCardPurchases({ items, onChange }: { items: CardDraft[]; onChange: (v: CardDraft[]) => void }) {
@@ -465,7 +542,7 @@ function NewCardPurchases({ items, onChange }: { items: CardDraft[]; onChange: (
 
   return (
     <Collapsible title="Compras a cuotas de la tarjeta" summary={items.length ? String(items.length) : undefined}>
-      <p className="text-xs text-muted">Opcional. Las compras que ya tienes diferidas en el extracto; suman a la proyección de pagos. Se guardan junto con la tarjeta.</p>
+      <p className="text-xs text-muted">Opcional. Las compras que ya tienes diferidas en el extracto: su saldo pendiente se suma a la deuda y cada cuota entra en la proyección de pagos del mes que le toca. Se guardan junto con la tarjeta.</p>
       {items.length > 0 && (
         <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface">
           {items.map((i, idx) => (
@@ -504,7 +581,7 @@ function CardProjection({ account }: { account: Account }) {
   const [err, setErr] = useState<string | null>(null);
   const [draft, setDraft] = useState({ description: "", amount: "", installments: "12", paid: "1", balance: "", rate: "" });
   const mine = cardItems.filter((i) => i.account_id === cardId);
-  const card = { id: cardId, interest_rate_ea: account.interest_rate_ea ?? null, statement_day: account.statement_day, due_day: account.due_day, opening_at: account.opening_at };
+  const card = { id: cardId, interest_rate_ea: account.interest_rate_ea ?? null, statement_day: account.statement_day, due_day: account.due_day, opening_at: account.opening_at, opening_balance: account.opening_balance };
   const byPayment = !!(account.statement_day && account.due_day && account.opening_at);
   const rows = projectCard(card, transactions, todayBogota(), 12, mine).filter((r) => r.purchases > 0);
   const total = rows.reduce((a, r) => a + r.total, 0);
@@ -559,7 +636,7 @@ function CardProjection({ account }: { account: Account }) {
       </Collapsible>
 
       <Collapsible title="Compras del extracto que no registraste" summary={mine.length ? String(mine.length) : undefined}>
-        <p className="text-xs text-muted">Solo suman a la proyección. No aparecen en Movimientos, presupuestos ni informes.</p>
+        <p className="text-xs text-muted">Suman a la proyección y, si la tarjeta está en Presupuestos, a su cuota del mes (toca Recalcular). No aparecen en Movimientos ni informes. Su saldo debe estar incluido en la deuda de la tarjeta (en Cierre del mes se ajusta con el extracto).</p>
         {mine.length > 0 && (
           <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface">
             {mine.map((i) => (
@@ -937,6 +1014,173 @@ function CreditStatementImport({ account, onData }: { account: Account | null; o
           )}
         </div>
       )}
+      {err && <p className="text-xs text-danger">{err}</p>}
+    </div>
+  );
+}
+
+/**
+ * Crea (o actualiza) el presupuesto del hogar de la tarjeta con lo que vence cada periodo de su deuda anterior
+ * (saldo al corte y cuotas de las compras del extracto) y lo enlaza a la cuenta. Al acabarse esa deuda queda en 0.
+ */
+async function linkCardBudget(state: ReturnType<typeof useFinance>, account: Account, items: CardStatementItem[], categoryId: string) {
+  const { me, partner, settings, limits, budgets, supabase } = state;
+  const today = todayBogota();
+  const versions = cardBudgetVersions(account, items, settings, today);
+  if (versions.length === 0) throw new Error("la tarjeta no tiene deuda anterior por pagar (revisa el saldo, la fecha de corte y el día de pago)");
+  const catId = categoryId || await ensureCategory(state, supabase, account.name, "💳");
+  const existing = limits.find((l) => l.category_id === catId && l.scope === "HOUSEHOLD") ?? null;
+  // Versiones futuras que ya existían y no están en el plan nuevo: toman el monto que corresponde en esa fecha
+  const amountAt = (d: string) => [...versions].reverse().find((v) => v.valid_from <= d)?.amount ?? versions[0].amount;
+  const stale = existing
+    ? budgets.filter((b) => b.limit_id === existing.id && b.valid_from >= versions[0].valid_from && !versions.some((v) => v.valid_from === b.valid_from))
+      .map((b) => ({ valid_from: b.valid_from, amount: amountAt(b.valid_from) }))
+    : [];
+  const slot = [me, partner].find((m) => m?.user_id === responsibleOf(account))?.slot ?? me.slot;
+  let id: string | null = existing?.id ?? null;
+  for (const v of [...versions, ...stale]) {
+    const r = await supabase.rpc("save_category_limit", { p: {
+      id, category_id: catId, scope: "HOUSEHOLD",
+      responsibility: slot === "B" ? "MEMBER_B_100" : "MEMBER_A_100",
+      is_household_obligation: existing?.is_household_obligation ?? false, rollover_enabled: existing?.rollover_enabled ?? false, shared_with_partner: false,
+      budget: { valid_from: v.valid_from, amount: v.amount, fixed_amount_a: null, fixed_amount_b: null },
+    } });
+    if (r.error) throw r.error;
+    id = (r.data as string) ?? id;
+  }
+  const u = await supabase.from("accounts").update({ budget_category_id: catId }).eq("id", account.id);
+  if (u.error) throw u.error;
+}
+
+/**
+ * Interruptor "Incluir la cuota del mes en Presupuestos" de una tarjeta: presupuesto del hogar con lo que vence de la
+ * deuda que ya traía (las compras nuevas cuentan en su categoría). El pago a la tarjeta lo cruza solo.
+ */
+function CardBudget({ account }: { account: Account }) {
+  const state = useFinance();
+  const { settings, categories, limits, budgets, cardItems, supabase, reload } = state;
+  const linked = account.budget_category_id ? categories.find((c) => c.id === account.budget_category_id) ?? null : null;
+  const today = todayBogota();
+  const items = cardItems.filter((i) => i.account_id === account.id);
+  const plan = cardBudgetVersions(account, items, settings, today);
+  const limit = linked ? limits.find((l) => l.category_id === linked.id && l.scope === "HOUSEHOLD") ?? null : null;
+  const current = limit ? budgetVersionAt(toBudgetCategories([limit], budgets)[0].budgets, periodFor(settings, today).start)?.amount ?? null : null;
+  const [editing, setEditing] = useState(false);
+  const [categoryId, setCategoryId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const canPlan = !!(account.statement_day && account.due_day);
+
+  async function save() {
+    setErr(null);
+    setBusy(true);
+    try {
+      await linkCardBudget(state, account, items, categoryId);
+      setEditing(false);
+      void reload();
+    } catch (e) {
+      setErr(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function unlink() {
+    setBusy(true);
+    const { error } = await supabase.from("accounts").update({ budget_category_id: null }).eq("id", account.id);
+    setBusy(false);
+    if (error) return setErr(errMsg(error));
+    setEditing(false);
+    void reload();
+  }
+
+  return (
+    <div className="space-y-2 rounded-2xl border border-border px-3 pb-3">
+      <SwitchRow label="Incluir la cuota del mes en Presupuestos"
+        hint="Presupuesto del hogar con lo que vence cada mes de la deuda que ya traía la tarjeta (saldo al corte y cuotas de las compras del extracto). Las compras nuevas ya cuentan en su categoría; el pago a la tarjeta se cruza solo."
+        checked={!!linked || editing} disabled={busy}
+        onCheckedChange={(v) => {
+          setErr(null);
+          if (v) { setCategoryId(account.budget_category_id ?? guessCategory(account.name, categories)); setEditing(true); }
+          else if (linked) void unlink();
+          else setEditing(false);
+        }} />
+      {linked && !editing && (
+        <div className="flex items-center justify-between gap-3 text-sm">
+          <span className="text-muted">
+            Presupuesto <strong className="text-text">{categoryPath(categories, linked.id)}</strong>
+            {current != null ? <> · <span className="num">{formatCop(current)}</span> este periodo</> : null}
+          </span>
+          <Button size="sm" variant="ghost" disabled={busy} onClick={() => void save()}>Recalcular</Button>
+        </div>
+      )}
+      {editing && (
+        <div className="space-y-2">
+          {!canPlan && <p className="text-xs text-warning">Escribe el día de corte y el día de pago de la tarjeta y guarda primero.</p>}
+          {canPlan && plan.length === 0 && <p className="text-xs text-muted">La tarjeta no tiene deuda anterior por pagar.</p>}
+          {plan.length > 0 && (
+            <p className="text-xs text-muted">
+              {plan.filter((v) => v.amount > 0).slice(0, 3).map((v) => `${formatCop(v.amount)} desde ${v.valid_from}`).join(" · ")}
+              {plan.filter((v) => v.amount > 0).length > 3 ? " · …" : ""}
+            </p>
+          )}
+          <Field label="Categoría del presupuesto">
+            <Select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+              <option value="">Nueva categoría: {account.name}</option>
+              <CategoryOptions categories={categories.filter((c) => !c.archived && c.kind !== "INCOME")} />
+            </Select>
+          </Field>
+          <div className="flex gap-2">
+            <Button size="sm" onClick={() => void save()} disabled={busy || plan.length === 0}>Guardar</Button>
+            <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>Cancelar</Button>
+          </div>
+        </div>
+      )}
+      <ErrorText>{err}</ErrorText>
+    </div>
+  );
+}
+
+/** Tarjeta nueva: la IA lee el extracto (PDF o foto) y llena saldo al corte, fechas, cupo, tasa y compras a cuotas. */
+function NewCardStatementImport({ onData }: { onData: (d: CardStatementData) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+
+  async function pick(file: File | undefined) {
+    if (!file) return;
+    setErr(null);
+    setDone(null);
+    if (!navigator.onLine) return setErr("Sin conexión: para leer el extracto necesitas internet.");
+    setBusy(true);
+    try {
+      const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+      const payload = isPdf ? { data: await toBase64(file), mime: "application/pdf" } : await shrink(file, 2400);
+      if (payload.data.length > 4_200_000) throw new Error("El archivo es muy pesado (máximo ~3 MB). Prueba con una foto o el PDF del banco.");
+      const res = await fetch("/api/card-statement", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, today: todayBogota() }) });
+      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; result?: CardStatementData; error?: string };
+      if (!body.ok || !body.result) throw new Error(body.error ?? "No se pudo leer el extracto.");
+      const r = body.result;
+      if (r.totalDebt === undefined && r.totalPayment === undefined && r.purchases.length === 0) throw new Error("No encontré el saldo ni las compras a cuotas en ese archivo.");
+      onData(r);
+      setDone(`Listo: llené el saldo al corte${r.statementDate ? ` (${r.statementDate})` : ""}${r.purchases.length ? ` y ${r.purchases.length} compra${r.purchases.length === 1 ? "" : "s"} a cuotas` : ""}. Revisa y toca Guardar.`);
+    } catch (e) {
+      setErr(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-2 rounded-2xl border border-dashed border-border p-3">
+      <label className={cn("flex cursor-pointer items-center gap-2 text-sm font-medium text-olive", busy && "pointer-events-none opacity-60")}>
+        <FileUp size={18} />
+        {busy ? "Leyendo el extracto…" : "Importar extracto (PDF o foto) y llenar los datos"}
+        <input type="file" accept="application/pdf,image/*" className="hidden" disabled={busy}
+          onChange={(e) => { void pick(e.target.files?.[0]); e.target.value = ""; }} />
+      </label>
+      {!done && !err && <p className="text-xs text-muted">La IA lee el saldo al corte, las fechas, el cupo, la tasa y las compras a cuotas. El archivo no se guarda.</p>}
+      {done && <p className="text-xs text-olive">{done}</p>}
       {err && <p className="text-xs text-danger">{err}</p>}
     </div>
   );

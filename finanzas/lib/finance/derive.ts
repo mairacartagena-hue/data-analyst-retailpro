@@ -12,6 +12,7 @@ import { creditReserve } from "./credit";
 import { todayBogota } from "./periods";
 import { pendingSavingsByGoal } from "./goals";
 import { categoryPath, consumptionSign, creditBudgetMap } from "./spaces";
+import { cardBudgetMap } from "./cardBudget";
 import { formatCop } from "./money";
 
 export interface Snapshot {
@@ -164,7 +165,7 @@ export function safeToSpendDetail(s: Snapshot, period: Period, statuses = status
     .map((a) => ({ id: a.id, label: a.name, amount: s.balances[a.id] }));
 
   // La cuota de un crédito ya se aparta en "Tarjetas y créditos": su presupuesto no se resta otra vez como obligación
-  const creditCats = new Set(creditBudgetMap(s.accounts).values());
+  const creditCats = new Set([...creditBudgetMap(s.accounts).values(), ...cardBudgetMap(s.accounts).values()]);
   const obligations: SafeLine[] = [];
   for (const c of toBudgetCategories(s.limits, s.budgets)) {
     if (!c.isHouseholdObligation) continue;

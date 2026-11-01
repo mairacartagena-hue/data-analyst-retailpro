@@ -1,6 +1,8 @@
 // Contexto para el asistente de IA: un resumen en texto de lo que la persona puede ver en la app
 // (la base de datos ya filtró lo privado de la pareja). Se arma en el celular y se envía con la pregunta.
 
+import { creditBudgetMap } from "@/lib/finance/spaces";
+import { cardBudgetMap } from "@/lib/finance/cardBudget";
 import type { FinanceState } from "@/lib/data/FinanceProvider";
 import { ACCOUNT_KIND_LABEL, TX_KIND_LABEL } from "@/lib/types";
 import { accountLabel } from "@/lib/finance/labels";
@@ -100,7 +102,7 @@ export function buildAiContext(s: FinanceState, today: string): string {
   }
 
   // Próximos pagos programados
-  const occ = occurrencesIn(s.commitments, s.transactions, { start: addDays(today, -7), end: addDays(today, 30) }, today);
+  const occ = occurrencesIn(s.commitments, s.transactions, { start: addDays(today, -7), end: addDays(today, 30) }, today, new Map([...creditBudgetMap(s.accounts), ...cardBudgetMap(s.accounts)]));
   if (occ.length) {
     add("", "## Pagos programados (últimos 7 días y próximos 30)");
     for (const o of occ) add(`- ${o.due} · ${o.payment.name} · ${cop(o.payment.amount)} · ${o.paid ? "pagado" : o.overdue ? "vencido sin pagar" : "pendiente"}`);

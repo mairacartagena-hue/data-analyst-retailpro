@@ -33,9 +33,19 @@ export function hasSplits(kind: TxKind): boolean {
  * al crédito cuenta como pagado en su categoría (del hogar), y los intereses cargados al propio crédito no se
  * cuentan otra vez porque ya van dentro de esa transferencia.
  */
-export function spendingRows(txs: Transaction[], creditBudgets: Map<string, string> = new Map()): SpendingRow[] {
+export function spendingRows(
+  txs: Transaction[],
+  creditBudgets: Map<string, string> = new Map(),
+  /** Tarjetas con presupuesto: parte de cada pago que cubre la deuda anterior (ver `cardPaymentPortions`). */
+  cardPortions: Map<string, { categoryId: string; amount: number }> = new Map(),
+): SpendingRow[] {
   const out: SpendingRow[] = [];
   for (const t of txs) {
+    const cardPart = t.kind === "TRANSFER" ? cardPortions.get(t.id) : undefined;
+    if (cardPart) {
+      out.push({ categoryId: cardPart.categoryId, responsibleUserId: t.payer_user_id, occurredOn: t.occurred_on, total: cardPart.amount, scope: "HOUSEHOLD" });
+      continue;
+    }
     const creditCat = t.kind === "TRANSFER" && t.to_account_id ? creditBudgets.get(t.to_account_id) : undefined;
     if (creditCat) {
       out.push({ categoryId: creditCat, responsibleUserId: t.payer_user_id, occurredOn: t.occurred_on, total: t.amount, scope: "HOUSEHOLD" });

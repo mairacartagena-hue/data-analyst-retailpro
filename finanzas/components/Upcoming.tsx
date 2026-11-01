@@ -13,6 +13,8 @@ import { accountLabel } from "@/lib/finance/labels";
 import { cardDue, statementsDueIn } from "@/lib/finance/installments";
 import { creditReserve, nextCuota } from "@/lib/finance/credit";
 import { responsibleOf } from "@/lib/finance/derive";
+import { creditBudgetMap } from "@/lib/finance/spaces";
+import { cardBudgetMap } from "@/lib/finance/cardBudget";
 import { cn } from "@/lib/utils";
 
 export interface CardDue {
@@ -24,7 +26,7 @@ export interface CardDue {
   interest: number;
   /** Cuota de un crédito (no tarjeta): se paga desde la hoja del crédito. */
   credit?: boolean;
-  /** La cuota ya se pagó (abono al crédito después del corte anterior). */
+  /** Ya se pagó: la cuota del crédito (abono después del corte anterior) o el extracto de la tarjeta. */
   paid?: boolean;
 }
 
@@ -33,14 +35,21 @@ export function useUpcoming(period: Period) {
   const { commitments, transactions, accounts, balances, me, cardItems } = useFinance();
   return useMemo(() => {
     const today = todayBogota();
-    const occ = occurrencesIn(commitments, transactions, period, today);
+    const occ = occurrencesIn(commitments, transactions, period, today, new Map([...creditBudgetMap(accounts), ...cardBudgetMap(accounts)]));
     const cards: CardDue[] = [];
     for (const a of accounts) {
       if (responsibleOf(a) !== me.user_id || a.archived || a.kind !== "CREDIT_CARD" || !a.due_day) continue;
       const d = cardDue(a, balances[a.id] ?? 0, transactions, period, cardItems);
-      if (d.due <= 0) continue;
+      // Pagado: ya no queda nada del extracto y hubo un pago a la tarjeta después de su corte
+      const paidAmount = d.cutDate
+        ? transactions.filter((t) => t.to_account_id === a.id && (t.kind === "TRANSFER" || t.kind === "SETTLEMENT") && t.status !== "PENDING_REVIEW" && t.occurred_on > d.cutDate!)
+          .reduce((sum, t) => sum + t.amount, 0)
+        : 0;
+      if (d.due <= 0 && paidAmount <= 0) continue;
       const fake = { frequency: "MONTHLY", day_of_month: a.due_day, start_date: period.start, end_date: null, due_date: null } as ScheduledPayment;
-      for (const due of dueDatesBetween(fake, period.start, period.end)) cards.push({ accountId: a.id, due, amount: d.due, debt: d.debt, interest: d.interest });
+      for (const due of dueDatesBetween(fake, period.start, period.end)) {
+        cards.push({ accountId: a.id, due, amount: d.due > 0 ? d.due : paidAmount, debt: d.debt, interest: d.due > 0 ? d.interest : 0, paid: d.due <= 0 });
+      }
     }
     // Cuotas de créditos con día de pago: vencen en el periodo y quedan pagadas con el abono después del corte anterior
     for (const a of accounts) {
@@ -157,19 +166,25 @@ export function UpcomingList({
       due: c.due,
       node: (
         <div className="flex items-center gap-3 px-3.5 py-3">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-2"><CreditCard size={17} className="text-muted" /></span>
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-2">
+            {c.paid ? <Check size={17} className="text-olive" /> : <CreditCard size={17} className="text-muted" />}
+          </span>
           <span className="min-w-0 flex-1">
-            <span className="block truncate font-medium">Pago {accountLabel(labels, c.accountId)}</span>
+            <span className={cn("block truncate font-medium", c.paid && "text-muted line-through")}>Pago {accountLabel(labels, c.accountId)}</span>
             <span className="flex items-center gap-1 truncate text-xs text-muted">
               <Lock size={11} className="shrink-0" />
-              <span className={cn("truncate", w.tone === "danger" && "font-semibold text-danger", w.tone === "warn" && "font-semibold text-warning")}>{w.text}{c.amount < c.debt ? ` · de ${formatCop(c.debt)} de deuda` : " · deuda actual"}{c.interest > 0 ? ` · incluye ≈${formatCop(c.interest)} de intereses` : ""}</span>
+              <span className={cn("truncate", w.tone === "danger" && "font-semibold text-danger", w.tone === "warn" && "font-semibold text-warning", w.tone === "ok" && "text-olive")}>
+                {w.text}{c.paid ? ` · vencía el ${formatDay(c.due)}` : `${c.amount < c.debt ? ` · de ${formatCop(c.debt)} de deuda` : " · deuda actual"}${c.interest > 0 ? ` · incluye ≈${formatCop(c.interest)} de intereses` : ""}`}
+              </span>
             </span>
           </span>
-          <span className="num shrink-0 text-sm font-semibold">{formatCop(c.amount)}</span>
-          <button className="shrink-0 rounded-full bg-olive-soft px-3 py-1.5 text-sm font-semibold"
-            onClick={() => openPayment({ kind: "TRANSFER", toAccountId: c.accountId, amount: c.amount, description: "Pago de tarjeta", date: today })}>
-            Pagar
-          </button>
+          <span className={cn("num shrink-0 text-sm font-semibold", c.paid && "text-muted")}>{formatCop(c.amount)}</span>
+          {!c.paid && (
+            <button className="shrink-0 rounded-full bg-olive-soft px-3 py-1.5 text-sm font-semibold"
+              onClick={() => openPayment({ kind: "TRANSFER", toAccountId: c.accountId, amount: c.amount, description: "Pago de tarjeta", date: today })}>
+              Pagar
+            </button>
+          )}
         </div>
       ),
     });

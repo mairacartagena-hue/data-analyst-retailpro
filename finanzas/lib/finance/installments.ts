@@ -6,6 +6,7 @@
 
 import type { CardStatementItem, Transaction } from "@/lib/types";
 import type { Period } from "./periods";
+import { legacySchedule } from "./cardBudget";
 
 export const MAX_INSTALLMENTS = 48;
 
@@ -286,7 +287,7 @@ export interface MonthProjection {
  * Empieza en el mes de `from` y sigue `months` meses. Solo cuenta las cuotas que aún no vencen.
  */
 export function projectCard(
-  card: { id: string; interest_rate_ea?: number | null; statement_day?: number | null; due_day?: number | null; opening_at?: string | null },
+  card: { id: string; interest_rate_ea?: number | null; statement_day?: number | null; due_day?: number | null; opening_at?: string | null; opening_balance?: number | null },
   txs: Transaction[],
   from: string,
   months: number,
@@ -350,6 +351,16 @@ export function projectCard(
       if (firstDue) add(addMonthsIso(firstDue, k).slice(0, 7), capital, interest, seen);
       else if (k + 1 < out.length) add(out[k + 1].month, capital, interest, seen);
     }
+  }
+  // Saldo al corte con el que se registró la tarjeta (la deuda inicial sin el saldo diferido de las compras del extracto):
+  // se paga en la fecha de pago de ese extracto. Lo que ya se abonó a la tarjeta desde entonces lo descuenta.
+  const statement = legacySchedule(card, statementItems).find((c) => c.statement);
+  if (statement && billing) {
+    const paid = txs
+      .filter((t) => t.to_account_id === card.id && (t.kind === "TRANSFER" || t.kind === "SETTLEMENT") && t.status !== "PENDING_REVIEW" && t.occurred_on >= billing.openingDay)
+      .reduce((a, t) => a + t.amount, 0);
+    const left = statement.amount - paid;
+    if (left > 0) add(statement.due.slice(0, 7) < start ? start : statement.due.slice(0, 7), left, 0, new Set());
   }
   return out;
 }
