@@ -144,7 +144,7 @@ export default function AjustesPage() {
               <button key={c} type="button" onClick={() => setColor(c)} aria-label={`Color ${c}`} aria-pressed={color === c}
                 className={cn("h-9 w-9 rounded-full ring-offset-2 ring-offset-surface", color === c && "ring-2 ring-text")} style={{ background: c }} />
             ))}
-            <input type="color" value={color} onChange={(e) => setColor(e.target.value)} aria-label="Otro color" className="h-9 w-9 cursor-pointer rounded-full border border-border bg-transparent" />
+            <input type="color" value={color} onChange={(e) => setColor(e.target.value)} aria-label="Otro color" className="color-swatch h-9 w-9 cursor-pointer overflow-hidden rounded-full border border-border bg-transparent p-0" />
           </div>
         </Field>
         <Field label="Avatar (un emoji, opcional)" htmlFor="avatar">
@@ -208,7 +208,7 @@ export default function AjustesPage() {
         <div className="fixed inset-x-0 bottom-[calc(64px+env(safe-area-inset-bottom))] z-40 border-t border-border bg-surface/95 backdrop-blur">
           <div className="mx-auto flex max-w-2xl items-center gap-3 px-4 py-3">
             <p className={cn("min-w-0 flex-1 text-sm", error && "text-danger")}>{error ?? (savedMsg && !profileDirty && !periodsDirty ? "Cambios guardados" : "Tienes cambios sin guardar")}</p>
-            {(profileDirty || periodsDirty) && <Button onClick={saveAll} disabled={saving}>{saving ? "Guardando…" : "Guardar"}</Button>}
+            {(profileDirty || periodsDirty) && <Button className="shrink-0" onClick={saveAll} disabled={saving}>{saving ? "Guardando…" : "Guardar"}</Button>}
           </div>
         </div>
       )}

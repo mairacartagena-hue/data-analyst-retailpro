@@ -90,6 +90,8 @@
 
 html,
 body {
+  /* Nada debe ensanchar la página: si algo se pasa, se recorta en vez de mover las barras fijas */
+  overflow-x: clip;
   background: var(--bg);
   color: var(--text);
 }
@@ -115,3 +117,9 @@ body {
 .pb-nav {
   padding-bottom: calc(150px + env(safe-area-inset-bottom));
 }
+
+/* Selector de color redondo como los demás círculos */
+input.color-swatch { -webkit-appearance: none; appearance: none; }
+input.color-swatch::-webkit-color-swatch-wrapper { padding: 0; }
+input.color-swatch::-webkit-color-swatch { border: none; border-radius: 9999px; }
+input.color-swatch::-moz-color-swatch { border: none; border-radius: 9999px; }

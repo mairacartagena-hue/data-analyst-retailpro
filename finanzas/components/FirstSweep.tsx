@@ -96,7 +96,7 @@ export function FirstSweep({ disabled }: { disabled: boolean }) {
         <>
           {row?.done_at && <SweepResult row={row} />}
           <Button variant="outline" onClick={request} disabled={busy || disabled}>
-            <History size={16} /> {busy ? "Pidiendo…" : row ? "Repetir el barrido" : `Traer movimientos desde el inicio del ${unidad}`}
+            <History size={16} /> {busy ? "Pidiendo…" : row ? "Repetir el barrido" : `Traer los movimientos del ${unidad}`}
           </Button>
           {disabled && <p className="text-xs text-muted">Guarda primero los cambios de periodo para que el barrido use la fecha nueva.</p>}
         </>
