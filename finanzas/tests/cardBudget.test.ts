@@ -115,3 +115,16 @@ describe("pago de la cuota registrado a mano en la categoría del crédito", () 
     expect(findCreditPayments({ ...s, transactions: [t] }, "2026-11-04")).toEqual([]);
   });
 });
+
+describe("presupuesto de la tarjeta con centavos del extracto", () => {
+  it("los montos quedan en pesos enteros", async () => {
+    const { cardBudgetVersions, legacySchedule } = await import("@/lib/finance/cardBudget");
+    const card = { id: "bbva", statement_day: 20, due_day: 5, opening_at: "2026-10-21T05:00:00+00:00", opening_balance: -8_153_194 };
+    const items = [{ id: "a", account_id: "bbva", description: "AGOSTO", purchase_date: "2026-08-25", amount: 7_000_000, installments: 36,
+      paid_installments: 1, remaining_balance: 5_927_985.68, rate_ea: null }];
+    for (const c of legacySchedule(card, items)) expect(Number.isInteger(c.amount)).toBe(true);
+    const v = cardBudgetVersions(card, items, DEFAULT_PERIOD_SETTINGS, "2026-11-01");
+    expect(v.length).toBeGreaterThan(0);
+    for (const x of v) expect(Number.isInteger(x.amount)).toBe(true);
+  });
+});
