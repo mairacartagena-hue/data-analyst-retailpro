@@ -196,7 +196,13 @@ export function TransactionSheet({
       // Un pago de tarjeta que llegó solo se revisa como transferencia hacia la tarjeta
       if (editing.status === "PENDING_REVIEW" && editing.movement_type === "CARD_PAYMENT") {
         setKind("TRANSFER");
-        const card = editing.suggested_to_account_id ?? "";
+        // Si la tarjeta se creó después de llegar el aviso, se busca por los últimos 4 dígitos
+        const last4 = editing.card_last4 ?? "";
+        const byLast4 = last4
+          ? state.accounts.find((a) => a.kind === "CREDIT_CARD" && !a.archived && a.owner_user_id === me.user_id
+              && (a.last4 === last4 || (a.alias_last4 ?? []).includes(last4)))?.id ?? ""
+          : "";
+        const card = editing.suggested_to_account_id ?? byLast4;
         setToAccountId(card);
         if (card && editing.account_id === card) setAccountId("");
       }

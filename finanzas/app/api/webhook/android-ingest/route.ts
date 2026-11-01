@@ -56,23 +56,35 @@ function toEvent(body: Record<string, unknown>): RawEvent | null {
 
 export async function POST(req: NextRequest) {
   const token = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim() ?? "";
-  if (!token) return NextResponse.json({ ok: false, error: "Falta el token" }, { status: 401 });
+  if (!token) {
+    console.warn("[ingest] rechazado: falta el token");
+    return NextResponse.json({ ok: false, error: "Falta el token" }, { status: 401 });
+  }
+  // Solo los últimos 4 caracteres, para reconocer de quién es el token en los registros sin exponerlo
+  const hint = token.slice(-4);
 
   const body = await readBody(req);
   const ev = body ? toEvent(body) : null;
-  if (!ev) return NextResponse.json({ ok: false, error: "Faltan channel o text" }, { status: 400 });
+  if (!ev) {
+    console.warn(`[ingest] rechazado: faltan channel o text (token …${hint}, campos: ${body ? Object.keys(body).join(",") : "sin cuerpo"})`);
+    return NextResponse.json({ ok: false, error: "Faltan channel o text" }, { status: 400 });
+  }
 
   const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
   // Primero el token: sin uno válido no se gasta el cupo de Gemini leyendo el aviso
   const { data: valid, error: tokenError } = await sb.rpc("ingest_token_valid", { p_token: token });
-  if (!tokenError && valid === false) return NextResponse.json({ ok: false, error: "Token no válido" }, { status: 401 });
+  if (!tokenError && valid === false) {
+    console.warn(`[ingest] rechazado: token no válido (…${hint}, canal ${ev.channel})`);
+    return NextResponse.json({ ok: false, error: "Token no válido" }, { status: 401 });
+  }
 
   const it = await interpret(ev);
   const { data, error } = await sb.rpc("ingest_event", { p_token: token, p_event: toDbEvent(ev, it) });
 
   if (error) {
+    console.warn(`[ingest] error al registrar (token …${hint}, canal ${ev.channel}): ${error.message}`);
     const unauthorized = /token no válido/i.test(error.message);
     return NextResponse.json({ ok: false, error: unauthorized ? "Token no válido" : "No se pudo registrar" }, { status: unauthorized ? 401 : 500 });
   }
