@@ -15,7 +15,7 @@ import { ErrorText, Field, Input, Select } from "@/components/ui/input";
 import { projectCard } from "@/lib/finance/installments";
 import { capitalPaidRatio, installmentLabel, installmentsPaid, nextCuota, suggestSplit } from "@/lib/finance/credit";
 import { formatCop } from "@/lib/finance/money";
-import { monthName, periodFor, todayBogota } from "@/lib/finance/periods";
+import { formatDay, monthName, periodFor, todayBogota } from "@/lib/finance/periods";
 import { CategoryOptions } from "@/components/CategoryPicker";
 import { ensureCategory } from "@/lib/finance/ensureCategory";
 import { responsibleOf, toBudgetCategories } from "@/lib/finance/derive";
@@ -31,6 +31,8 @@ import { currentInstallmentFrom, type CreditStatementData } from "@/lib/capture/
 import { effectOn } from "@/lib/finance/reconcile";
 import { CreditPaymentAdjust } from "@/components/CreditPaymentAdjust";
 import { CardStatementPdf } from "@/components/CardStatementPdf";
+import { CardStatementsSection, saveStatement } from "@/components/CardStatements";
+import { projectedFor, squares } from "@/lib/finance/cardStatements";
 
 const KINDS: AccountKind[] = ["DEPOSIT", "WALLET", "CASH", "CREDIT_CARD", "LOAN", "CREDIT"];
 const VISIBILITIES: Visibility[] = ["PRIVATE", "BALANCE_ONLY", "PUBLIC"];
@@ -62,6 +64,8 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
   const [budgetCat, setBudgetCat] = useState("");
   const [budgetAmount, setBudgetAmount] = useState("");
   const [cardDrafts, setCardDrafts] = useState<CardDraft[]>([]);
+  // Extracto leído al crear la tarjeta: se guarda para cruzarlo después (pago mínimo, total y deuda)
+  const [readStatement, setReadStatement] = useState<CardStatementData | null>(null);
   const [cutDate, setCutDate] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -190,6 +194,14 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
           return setError(`La tarjeta quedó guardada, pero no se pudieron guardar las cuotas: ${errMsg(r.error)}. Ábrela de nuevo y agrégalas.`);
         }
       }
+      if (isCard && data && readStatement?.statementDate) {
+        const r = readStatement;
+        const e = await saveStatement(supabase, data as Account, me.user_id, {
+          cut: r.statementDate!, due: r.dueDate ?? "", minimum: r.minimumPayment !== undefined ? String(r.minimumPayment) : "",
+          total: r.totalPayment !== undefined ? String(r.totalPayment) : "", debt: r.totalDebt !== undefined ? String(r.totalDebt) : "",
+        }, "PDF");
+        if (e) console.warn("No se guardó el extracto de la tarjeta", e); // no frena el registro: se puede escribir a mano después
+      }
       if (isCard && inBudget && data) {
         try {
           const saved = { ...(data as Account), opening_balance: Number((data as Account).opening_balance) };
@@ -268,6 +280,7 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
           <Input id="aliases" value={aliases} onChange={(e) => setAliases(e.target.value.replace(/[^\d,\s]/g, ""))} inputMode="numeric" placeholder="7473, 1234" />
         </Field>
         {isCard && !account && <NewCardStatementImport onData={(d) => {
+          setReadStatement(d);
           if (d.institution && !institution.trim()) setInstitution(d.institution);
           if (d.last4 && !last4) setLast4(d.last4);
           if (d.creditLimit) setLimit(String(d.creditLimit));
@@ -576,15 +589,24 @@ function NewCardPurchases({ items, onChange }: { items: CardDraft[]; onChange: (
 /** Cuotas que faltan por pagar en la tarjeta, mes a mes: compras registradas en la app y compras del extracto. */
 function CardProjection({ account }: { account: Account }) {
   const cardId = account.id;
-  const { transactions, cardItems, supabase, reload, me } = useFinance();
+  const { transactions, cardItems, cardStatements, balances, supabase, reload, me } = useFinance();
   const [adding, setAdding] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [draft, setDraft] = useState({ description: "", amount: "", installments: "12", paid: "1", balance: "", rate: "" });
+  const [openMonth, setOpenMonth] = useState<string | null>(null);
+  const [showAll, setShowAll] = useState(false);
   const mine = cardItems.filter((i) => i.account_id === cardId);
   const card = { id: cardId, interest_rate_ea: account.interest_rate_ea ?? null, statement_day: account.statement_day, due_day: account.due_day, opening_at: account.opening_at, opening_balance: account.opening_balance };
   const byPayment = !!(account.statement_day && account.due_day && account.opening_at);
-  const rows = projectCard(card, transactions, todayBogota(), 12, mine).filter((r) => r.purchases > 0);
-  const total = rows.reduce((a, r) => a + r.total, 0);
+  // Hasta 48 meses: las compras a 36 cuotas se ven completas
+  const allRows = projectCard(card, transactions, todayBogota(), 48, mine).filter((r) => r.purchases > 0);
+  const rows = showAll ? allRows : allRows.slice(0, 12);
+  const total = allRows.reduce((a, r) => a + r.total, 0);
+  // Cada pago baja la deuda solo en su capital; los intereses no
+  const debtNow = Math.max(0, -(balances[cardId] ?? 0));
+  const debtAfter = new Map<string, number>();
+  allRows.reduce((left, r) => { const v = Math.max(0, left - r.capital); debtAfter.set(r.month, v); return v; }, debtNow);
+  const statementOf = (month: string) => cardStatements.find((s) => s.account_id === cardId && s.due_date?.slice(0, 7) === month);
 
   async function addItem() {
     setErr(null);
@@ -622,18 +644,60 @@ function CardProjection({ account }: { account: Account }) {
         <p className="rounded-2xl bg-surface-2 px-3 py-2.5 text-sm text-muted">No hay cuotas pendientes en esta tarjeta.</p>
       ) : (
         <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface">
-          {rows.map((r) => (
-            <div key={r.month} className="flex items-center justify-between gap-2 px-3.5 py-2.5 text-sm">
-              <span className="min-w-0">{(() => { const m = `${monthName(Number(r.month.slice(5)) - 1, true)} ${r.month.slice(0, 4)}`; return byPayment ? `Pago de ${m.toLowerCase()}` : m.charAt(0).toUpperCase() + m.slice(1); })()} <span className="text-xs text-muted">· {r.purchases} compra{r.purchases === 1 ? "" : "s"}</span></span>
-              <span className="num shrink-0 whitespace-nowrap font-semibold">{formatCop(r.total)}</span>
-            </div>
-          ))}
+          {rows.map((r) => {
+            const st = statementOf(r.month);
+            const projected = st?.due_date ? projectedFor(account, transactions, cardItems, st.due_date) : null;
+            const diff = st && st.minimum_payment !== null && projected !== null ? Math.round(projected - st.minimum_payment) : null;
+            const expanded = openMonth === r.month;
+            return (
+              <div key={r.month} className="text-sm">
+                <button className="flex w-full items-center justify-between gap-2 px-3.5 py-2.5 text-left" onClick={() => setOpenMonth(expanded ? null : r.month)} aria-expanded={expanded}>
+                  <span className="min-w-0">
+                    {(() => { const m = `${monthName(Number(r.month.slice(5)) - 1, true)} ${r.month.slice(0, 4)}`; return byPayment ? `Pago de ${m.toLowerCase()}` : m.charAt(0).toUpperCase() + m.slice(1); })()}
+                    <span className="text-xs text-muted"> · {r.purchases} compra{r.purchases === 1 ? "" : "s"}</span>
+                    <span className="block text-xs text-muted">Deuda después: {formatCop(debtAfter.get(r.month) ?? 0)}</span>
+                  </span>
+                  <span className="shrink-0 text-right">
+                    <span className="num block whitespace-nowrap font-semibold">{formatCop(r.total)}</span>
+                    {diff !== null && (
+                      <span className={cn("block text-[11px]", squares(diff) ? "text-olive" : "text-warning")}>
+                        {squares(diff) ? "cuadra con el mínimo" : `mínimo ${formatCop(st!.minimum_payment!)}`}
+                      </span>
+                    )}
+                  </span>
+                </button>
+                {expanded && (
+                  <div className="space-y-1 bg-surface-2 px-3.5 py-2 text-xs">
+                    {r.lines.map((l) => (
+                      <div key={l.key} className="flex items-center justify-between gap-2">
+                        <span className="min-w-0 truncate">{l.label}{l.of > 0 ? <span className="text-muted"> · cuota {l.no} de {l.of}{l.source === "APP" ? " · app" : ""}</span> : null}</span>
+                        <span className="num shrink-0">{formatCop(l.capital + l.interest)}</span>
+                      </div>
+                    ))}
+                    <p className="pt-1 text-muted">Capital {formatCop(r.capital)} · intereses estimados {formatCop(r.interest)}. Solo el capital baja la deuda.</p>
+                    {st && (
+                      <p className={cn("rounded-lg px-2 py-1", diff !== null && squares(diff) ? "bg-olive-soft" : "bg-warning-soft")}>
+                        Extracto del {formatDay(st.cut_date)}: pago mínimo {st.minimum_payment !== null ? formatCop(st.minimum_payment) : "sin dato"}
+                        {projected !== null ? ` · la app calcula ${formatCop(projected)}` : ""}
+                        {diff !== null && !squares(diff) ? ` (${diff > 0 ? "+" : "−"}${formatCop(Math.abs(diff))})` : ""}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
+      {allRows.length > 12 && (
+        <button className="text-xs text-olive underline" onClick={() => setShowAll(!showAll)}>{showAll ? "Ver solo los próximos 12" : `Ver los ${allRows.length} meses`}</button>
+      )}
       {rows.length > 0 && (
-        <p className="text-xs text-muted">Total de estos meses: {formatCop(total)} (capital más intereses estimados). Es una estimación; el plan de pagos del banco manda.{byPayment ? " Incluye lo que compres después del corte, en el extracto que lo factura." : ""}</p>
+        <p className="text-xs text-muted">Toca un mes para ver qué compras y qué cuota de cada una se pagan. Total pendiente: {formatCop(total)} (capital más intereses estimados). Es una estimación; el plan de pagos del banco manda.{byPayment ? " Incluye lo que compres a cuotas después del corte, en el extracto que lo factura." : ""}</p>
       )}
       </Collapsible>
+
+      <CardStatementsSection account={account} />
 
       <Collapsible title="Compras del extracto que no registraste" summary={mine.length ? String(mine.length) : undefined}>
         <CardStatementPdf account={account} />

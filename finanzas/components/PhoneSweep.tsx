@@ -18,7 +18,7 @@ function summary(t: Tally): string {
   const parts = [
     t.ACCEPTED && `${t.ACCEPTED} quedaron en Por revisar`,
     t.MERGED && `${t.MERGED} ya estaban y se unieron`,
-    t.DUPLICATE && `${t.DUPLICATE} ya se habían subido`,
+    t.DUPLICATE && `${t.DUPLICATE} ya habían llegado antes y se saltaron`,
     t.IGNORED && `${t.IGNORED} no eran movimientos`,
     t.UNRECOGNIZED && `${t.UNRECOGNIZED} no se reconocieron (quedan en Captura automática → Avisos sin reconocer)`,
     t.errors && `${t.errors} fallaron por conexión: vuelve a subirlos, no se duplican`,
