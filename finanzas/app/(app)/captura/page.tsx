@@ -242,6 +242,7 @@ export default function CapturaPage() {
               Cuerpo (application/json):
               <div className="mt-2 space-y-2"><Code>{smsBody()}</Code><CopyButton text={smsBody()} /></div>
             </Step>
+            <Step n={4}>Los SMS y notificaciones que llegaron antes de instalar MacroDroid se suben en Ajustes → Periodos → <strong>Primer barrido</strong>.</Step>
           </ol>
         ))}
         {section("gmail", <Mail size={18} />, "Correos bancarios (Gmail + Apps Script)", (

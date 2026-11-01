@@ -2,6 +2,7 @@
 
 // Primer barrido de la captura automática: trae los correos bancarios desde el inicio del mes (o del periodo) hasta hoy.
 // La app no lee Gmail: deja el pedido y el Apps Script de la persona lo toma en su siguiente revisión (cada 5 minutos).
+// Los SMS y notificaciones de esas fechas se suben desde el celular (PhoneSweep).
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
@@ -10,6 +11,7 @@ import { useFinance } from "@/lib/data/FinanceProvider";
 import { Button } from "@/components/ui/button";
 import { periodFor, todayBogota } from "@/lib/finance/periods";
 import { errMsg } from "@/lib/utils";
+import { PhoneSweep } from "@/components/PhoneSweep";
 
 interface Backfill {
   from_date: string;
@@ -82,9 +84,10 @@ export function FirstSweep({ disabled }: { disabled: boolean }) {
     <div className="space-y-2 rounded-2xl bg-surface-2 p-3">
       <p className="text-sm font-semibold">Primer barrido</p>
       <p className="text-xs text-muted">
-        Trae los correos bancarios de Gmail desde el inicio del {unidad} ({dia(desde)}) hasta hoy. Lo que llegue queda en “Por revisar” en el inicio.
-        Las notificaciones y SMS del celular solo se capturan desde que MacroDroid las recibe, así que no se pueden traer hacia atrás.
+        Trae tus movimientos desde el inicio del {unidad} ({dia(desde)}) hasta hoy: los correos bancarios de Gmail y, más abajo, los SMS y notificaciones del celular.
+        Lo que llegue queda en “Por revisar” en el inicio.
       </p>
+      <p className="text-sm font-semibold">Correos de Gmail</p>
       {pending ? (
         <p className="text-sm">
           Pedido desde el {dia(row.from_date)}. Tu Apps Script de Gmail lo toma en máximo 5 minutos y trae los correos; esta pantalla se actualiza sola.
@@ -103,6 +106,7 @@ export function FirstSweep({ disabled }: { disabled: boolean }) {
           {error}{/token/i.test(error) && <> · <Link href="/captura" className="underline">Ir a Captura automática</Link></>}
         </p>
       )}
+      <PhoneSweep desde={desde} disabled={disabled} />
     </div>
   );
 }
