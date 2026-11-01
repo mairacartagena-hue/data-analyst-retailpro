@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Bell, BellOff, Download, LogOut, RefreshCw, Share2 } from "lucide-react";
@@ -12,6 +12,7 @@ import { ErrorText, Field, Input } from "@/components/ui/input";
 import { Segmented } from "@/components/ui/segmented";
 import { getInstallPrompt, isStandalone, subscribeInstallPrompt } from "@/lib/pwa";
 import { cn, errMsg } from "@/lib/utils";
+import { applyAccent } from "@/lib/accent";
 import { clearOffline } from "@/lib/offline/store";
 import { SecuritySettings } from "@/components/SecuritySettings";
 import { FirstSweep } from "@/components/FirstSweep";
@@ -38,6 +39,12 @@ export default function AjustesPage() {
 
   const [theme, setTheme] = useState<Theme>("system");
   const [error, setError] = useState<string | null>(null);
+
+  // Vista previa del color en toda la app mientras se elige; al salir sin guardar vuelve el guardado
+  useEffect(() => { applyAccent(color, false); }, [color]);
+  const savedColor = useRef(me.color);
+  useEffect(() => { savedColor.current = me.color; }, [me.color]);
+  useEffect(() => () => applyAccent(savedColor.current), []);
 
   useEffect(() => {
     try { setTheme((localStorage.getItem("theme") as Theme) || "system"); } catch {}
@@ -131,7 +138,7 @@ export default function AjustesPage() {
             <Field label="Nombre visible" htmlFor="name"><Input id="name" value={name} onChange={(e) => setName(e.target.value)} maxLength={40} /></Field>
           </div>
         </div>
-        <Field label="Color">
+        <Field label="Color" hint="También es el color de la app: botones, filtros y barras que hoy se ven en verde cambian a este color.">
           <div className="flex flex-wrap items-center gap-2">
             {COLORS.map((c) => (
               <button key={c} type="button" onClick={() => setColor(c)} aria-label={`Color ${c}`} aria-pressed={color === c}

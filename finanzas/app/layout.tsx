@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { DM_Sans, Fraunces } from "next/font/google";
 import { PwaBootstrap } from "@/components/PwaBootstrap";
+import { accentScript } from "@/lib/accent";
 import "./globals.css";
 
 const body = DM_Sans({ subsets: ["latin"], variable: "--font-body", display: "swap" });
@@ -35,7 +36,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="es-CO" className={`${body.variable} ${display.variable}`} suppressHydrationWarning>
       <head>
-        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+        <script dangerouslySetInnerHTML={{ __html: themeScript + accentScript }} />
       </head>
       <body className="min-h-dvh antialiased">
         {children}
