@@ -15,6 +15,7 @@ import { creditReserve, nextCuota } from "@/lib/finance/credit";
 import { responsibleOf } from "@/lib/finance/derive";
 import { creditBudgetMap } from "@/lib/finance/spaces";
 import { cardBudgetMap, legacySchedule } from "@/lib/finance/cardBudget";
+import { obligationDues, type ObligationDue } from "@/lib/finance/obligationDues";
 import { cn } from "@/lib/utils";
 
 export interface CardDue {
@@ -37,7 +38,7 @@ export interface CardDue {
  * cargo y las mías con presupuesto (su cuota está en Presupuestos aunque la pague mi pareja).
  */
 export function useUpcoming(period: Period) {
-  const { commitments, transactions, accounts, balances, me, cardItems } = useFinance();
+  const { commitments, transactions, accounts, balances, me, cardItems, obligationDebts, limits, budgets } = useFinance();
   return useMemo(() => {
     const today = todayBogota();
     const occ = occurrencesIn(commitments, transactions, period, today, new Map([...creditBudgetMap(accounts), ...cardBudgetMap(accounts)]));
@@ -71,8 +72,10 @@ export function useUpcoming(period: Period) {
         cards.push({ accountId: a.id, due, amount: cuota, debt: owed, interest: 0, credit: true, paid });
       }
     }
-    return { occurrences: occ, cards, today };
-  }, [commitments, transactions, accounts, balances, me.user_id, period, cardItems]);
+    // Cuotas de presupuestos obligatorios del hogar que paga la pareja: también se ven aquí
+    const obligations = obligationDues({ meId: me.user_id, debts: obligationDebts, accounts, limits, budgets, transactions }, period);
+    return { occurrences: occ, cards, obligations, today };
+  }, [commitments, transactions, accounts, balances, me.user_id, period, cardItems, obligationDebts, limits, budgets]);
 }
 
 function whenLabel(due: string, today: string, paid: boolean): { text: string; tone: "ok" | "warn" | "danger" | "muted" } {
@@ -85,10 +88,11 @@ function whenLabel(due: string, today: string, paid: boolean): { text: string; t
 
 /** Lista de próximos vencimientos con botón para registrar el pago. */
 export function UpcomingList({
-  occurrences, cards, today, onEdit, limit,
+  occurrences, cards, obligations = [], today, onEdit, limit,
 }: {
   occurrences: Occurrence[];
   cards: CardDue[];
+  obligations?: ObligationDue[];
   today: string;
   onEdit?: (p: ScheduledPayment) => void;
   limit?: number;
@@ -190,6 +194,37 @@ export function UpcomingList({
           {!c.paid && (
             <button className="shrink-0 rounded-full bg-olive-soft px-3 py-1.5 text-sm font-semibold"
               onClick={() => openPayment({ kind: "TRANSFER", toAccountId: c.accountId, amount: c.amount, description: "Pago de tarjeta", date: today })}>
+              Pagar
+            </button>
+          )}
+        </div>
+      ),
+    });
+  }
+  for (const o of obligations) {
+    const w = whenLabel(o.due, today, o.paid);
+    const resp = memberById(o.responsibleId);
+    rows.push({
+      key: `obligation-${o.accountId}-${o.due}`,
+      due: o.due,
+      node: (
+        <div className="flex items-center gap-3 px-3.5 py-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-2">
+            {o.paid ? <Check size={17} className="text-olive" /> : o.kind === "CREDIT_CARD" ? <CreditCard size={17} className="text-muted" /> : <Building2 size={17} className="text-muted" />}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className={cn("block truncate font-medium", o.paid && "text-muted line-through")}>Cuota {o.name}</span>
+            <span className="flex items-center gap-1 truncate text-xs text-muted">
+              <Home size={11} className="shrink-0" />
+              <span className={cn("truncate", w.tone === "danger" && "font-semibold text-danger", w.tone === "warn" && "font-semibold text-warning", w.tone === "ok" && "text-olive")}>
+                {w.text}{o.paid ? ` · vencía el ${formatDay(o.due)}` : ""} · obligatorio del hogar{resp ? ` · a cargo de ${resp.display_name}` : ""}
+              </span>
+            </span>
+          </span>
+          <span className={cn("num shrink-0 text-sm font-semibold", o.paid && "text-muted")}>{formatCop(o.amount)}</span>
+          {!o.paid && (
+            <button className="shrink-0 rounded-full bg-olive-soft px-3 py-1.5 text-sm font-semibold"
+              onClick={() => openPayment({ categoryId: o.categoryId, amount: o.amount, description: `Cuota ${o.name}`, scope: "HOUSEHOLD", responsibleId: o.responsibleId, date: today })}>
               Pagar
             </button>
           )}

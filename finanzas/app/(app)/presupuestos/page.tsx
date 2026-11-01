@@ -132,10 +132,10 @@ export default function PresupuestosPage() {
             No es gasto hasta que lo pagues.
           </p>
         )}
-        {upcoming.occurrences.length + upcoming.cards.length === 0 ? (
+        {upcoming.occurrences.length + upcoming.cards.length + upcoming.obligations.length === 0 ? (
           <p className="px-1 text-sm text-muted">Agrega cuotas, administración, seguros o pagos de una sola vez para verlos aquí antes de que venzan.</p>
         ) : (
-          <UpcomingList occurrences={upcoming.occurrences} cards={upcoming.cards} today={upcoming.today} onEdit={editCommitment} />
+          <UpcomingList occurrences={upcoming.occurrences} cards={upcoming.cards} obligations={upcoming.obligations} today={upcoming.today} onEdit={editCommitment} />
         )}
         </BudgetGroup>
 

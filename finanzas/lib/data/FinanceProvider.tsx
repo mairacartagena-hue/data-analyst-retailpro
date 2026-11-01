@@ -5,7 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabase } from "@/lib/supabase/client";
 import type {
   Account, AccountLabel, BudgetPlan, CategoryLimit, BudgetPlanCategory, Category, CategoryBudgetRow, CustomPeriodRow, Household, LedgerRow,
-  CardStatement, CardStatementItem, ManualAsset, Member, PeriodSettingsRow, Reconciliation, SavingsContribution, SavingsGoal, ScheduledPayment, Split, Tag, Transaction,
+  CardStatement, CardStatementItem, ObligationDebt, ManualAsset, Member, PeriodSettingsRow, Reconciliation, SavingsContribution, SavingsGoal, ScheduledPayment, Split, Tag, Transaction,
 } from "@/lib/types";
 import { toPeriodSettings, type Snapshot } from "@/lib/finance/derive";
 import type { SpendingRow } from "@/lib/finance/budget";
@@ -24,6 +24,8 @@ export interface FinanceState extends Snapshot {
   cardItems: CardStatementItem[];
   /** Extractos guardados de mis tarjetas (pago mínimo, total y deuda por corte). */
   cardStatements: CardStatement[];
+  /** Créditos y tarjetas con presupuesto obligatorio del hogar (también los privados de la pareja). */
+  obligationDebts: ObligationDebt[];
   /** Movimientos para presupuestos e informes: las compras a cuotas, una copia por cuota en su mes. */
   consumption: Transaction[];
   household: Household;
@@ -141,10 +143,14 @@ async function loadAll(sb: SupabaseClient, userId: string): Promise<Loaded> {
   const transactions: Transaction[] = txs.map((t) => ({ ...t, amount: Number(t.amount), installments: Number(t.installments ?? 1), interest_rate_ea: num(t.interest_rate_ea) as number | null, splits: splitsByTx.get(t.id) ?? [] }));
   const consumption = expandInstallments(transactions);
   // "*" para que as_of llegue cuando ya exista la columna (migración 0049) sin romper antes
-  const [cardItemRows, cardStatementRows] = await Promise.all([
+  const [cardItemRows, cardStatementRows, obligationRows] = await Promise.all([
     sb.from("card_statement_items").select("*"),
     sb.from("card_statements").select("id, account_id, cut_date, due_date, minimum_payment, total_payment, total_debt, source").order("cut_date", { ascending: false }),
+    sb.rpc("household_obligation_debts"),
   ]);
+  // Si la función aún no existe (migración 0051 pendiente) quedan solo los créditos y tarjetas visibles
+  const obligationDebts = obligationRows.error ? [] : ((obligationRows.data ?? []) as ObligationDebt[])
+    .map((d) => ({ ...d, statement_day: num(d.statement_day) as number | null, due_day: Number(d.due_day) }));
   if (cardItemRows.error) throw cardItemRows.error;
   const cardItems = ((cardItemRows.data ?? []) as Record<string, unknown>[]).map((r) => ({
     id: String(r.id), account_id: String(r.account_id), description: String(r.description), purchase_date: String(r.purchase_date),
@@ -209,6 +215,7 @@ async function loadAll(sb: SupabaseClient, userId: string): Promise<Loaded> {
     consumption,
     cardItems,
     cardStatements,
+    obligationDebts,
     sharedSpending,
     plans: ((plans.data ?? []) as BudgetPlan[]).map((b) => ({ ...b, amount: Number(b.amount), alert_pct: Number(b.alert_pct), shared_with_partner: !!b.shared_with_partner })),
     planCategories: ((planCategories.data ?? []) as BudgetPlanCategory[]).map((c) => ({ ...c, amount: num(c.amount) as number | null })),
