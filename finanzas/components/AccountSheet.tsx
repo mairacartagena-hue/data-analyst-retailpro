@@ -31,7 +31,6 @@ import { currentInstallmentFrom, type CreditStatementData } from "@/lib/capture/
 import { effectOn } from "@/lib/finance/reconcile";
 import { CreditPaymentAdjust } from "@/components/CreditPaymentAdjust";
 import { CardStatementPdf } from "@/components/CardStatementPdf";
-import { ManualCrossCheck, lastCutMonth } from "@/components/CardStatements";
 
 const KINDS: AccountKind[] = ["DEPOSIT", "WALLET", "CASH", "CREDIT_CARD", "LOAN", "CREDIT"];
 const VISIBILITIES: Visibility[] = ["PRIVATE", "BALANCE_ONLY", "PUBLIC"];
@@ -667,10 +666,6 @@ function CardProjection({ account }: { account: Account }) {
       {rows.length > 0 && (
         <p className="text-xs text-muted">Toca un mes para ver qué compras y qué cuota de cada una se pagan. Total pendiente: {formatCop(total)} (capital más intereses estimados). Es una estimación; el plan de pagos del banco manda.{byPayment ? " Incluye lo que compres a cuotas después del corte, en el extracto que lo factura." : ""}</p>
       )}
-      </Collapsible>
-
-      <Collapsible title="Cruce con el extracto">
-        <ManualCrossCheck account={account} month={lastCutMonth(account, todayBogota())} />
       </Collapsible>
 
       <Collapsible title="Compras del extracto que no registraste" summary={mine.length ? String(mine.length) : undefined}>

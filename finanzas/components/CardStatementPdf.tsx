@@ -21,7 +21,8 @@ import { cn, errMsg } from "@/lib/utils";
  *  · las compras a cuotas que no están en la app se pueden agregar, una por una, a la proyección de la tarjeta.
  * Las compras que ya están (como compra del extracto o registradas en la app con las mismas cuotas) no se repiten.
  */
-export function CardStatementPdf({ account, onBalance }: { account: Account; onBalance?: (v: number) => void }) {
+/** `crossCheck`: en el Cierre del mes muestra los valores del extracto y su cruce; en la tarjeta solo las compras a cuotas. */
+export function CardStatementPdf({ account, onBalance, crossCheck = false }: { account: Account; onBalance?: (v: number) => void; crossCheck?: boolean }) {
   const { cardItems, transactions, supabase, reload, me } = useFinance();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -92,12 +93,18 @@ export function CardStatementPdf({ account, onBalance }: { account: Account; onB
         <input type="file" accept="application/pdf,image/*" className="hidden" disabled={busy}
           onChange={(e) => { void pick(e.target.files?.[0]); e.target.value = ""; }} />
       </label>
-      {!read && !err && !notice && <p className="text-xs text-muted">La IA lee el pago mínimo, el total, la deuda y cada compra a cuotas, y los cruza con la app. Nada del extracto se guarda.</p>}
+      {!read && !err && !notice && <p className="text-xs text-muted">{crossCheck
+        ? "La IA lee el pago mínimo, el total, la deuda y cada compra a cuotas, y los cruza con la app. Nada del extracto se guarda."
+        : "La IA lee cada compra a cuotas del extracto para agregarla a la proyección. El archivo no se guarda."}</p>}
       {read && (
         <div className="space-y-3 text-xs">
-          <p className="font-medium">Lo que leí (puedes corregirlo; no se guarda):</p>
-          <StatementFields value={draft} onChange={setDraft} />
-          <StatementCrossCheck account={account} draft={draft} />
+          {crossCheck && (
+            <>
+              <p className="font-medium">Lo que leí (puedes corregirlo; no se guarda):</p>
+              <StatementFields value={draft} onChange={setDraft} />
+              <StatementCrossCheck account={account} draft={draft} />
+            </>
+          )}
           {onBalance && read.totalDebt !== undefined && <p className="text-muted">Ya puse la deuda abajo como deuda según tu extracto.</p>}
           {purchases.length > 0 && (
             <div className="space-y-1.5">

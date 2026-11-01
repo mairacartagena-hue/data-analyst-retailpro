@@ -264,7 +264,7 @@ function AccountClose({ account, month, open, onToggle }: { account: Account; mo
           {st.pending > 0 && <p className="text-xs text-warning">{st.pending} movimiento{st.pending === 1 ? "" : "s"} de esta cuenta siguen por revisar.</p>}
 
           {!isCredit && <StatementImport account={account} month={month} onBalance={(v) => setBank(String(v))} />}
-          {isCard && <CardStatementPdf account={account} onBalance={(v) => setBank(String(v))} />}
+          {isCard && <CardStatementPdf account={account} onBalance={(v) => setBank(String(v))} crossCheck />}
           {isCard && <ManualCrossCheck key={month} account={account} month={month} />}
 
           <Field label={isCredit ? `Saldo de capital según el extracto al ${Number(range.end.slice(8))} de ${monthName(Number(month.slice(5)) - 1, true)}` : isCard ? `Deuda según tu extracto al ${Number(range.end.slice(8))} de ${monthName(Number(month.slice(5)) - 1, true)}` : `Saldo según tu banco al ${Number(range.end.slice(8))} de ${monthName(Number(month.slice(5)) - 1, true)}`}>
