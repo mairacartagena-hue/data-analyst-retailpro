@@ -901,9 +901,11 @@ async function linkCreditBudget(state: ReturnType<typeof useFinance>, account: A
  * Interruptor "Incluir la cuota en Presupuestos": el crédito queda con un presupuesto del hogar por su cuota
  * (no es obligación: la cuota ya se aparta en el Saldo Seguro) y los pagos que lleguen solos se cruzan con él.
  */
-function CreditBudget({ account }: { account: Account }) {
+function CreditBudget({ account: opened }: { account: Account }) {
   const state = useFinance();
   const { settings, balances, categories, limits, budgets, supabase, reload } = state;
+  // Versión recargada de la cuenta: con la de cuando se abrió la hoja el interruptor se ve apagado después de guardar
+  const account = state.accounts.find((a) => a.id === opened.id) ?? opened;
   const linked = account.budget_category_id ? categories.find((c) => c.id === account.budget_category_id) ?? null : null;
   const currentStart = periodFor(settings, todayBogota()).start;
   const estimate = nextCuota(Math.max(0, -(balances[account.id] ?? 0)), account, todayBogota());
@@ -1121,9 +1123,11 @@ async function linkCardBudget(state: ReturnType<typeof useFinance>, account: Acc
  * Interruptor "Incluir la cuota del mes en Presupuestos" de una tarjeta: presupuesto del hogar con lo que vence de la
  * deuda que ya traía (las compras nuevas cuentan en su categoría). El pago a la tarjeta lo cruza solo.
  */
-function CardBudget({ account }: { account: Account }) {
+function CardBudget({ account: opened }: { account: Account }) {
   const state = useFinance();
   const { settings, categories, limits, budgets, cardItems, supabase, reload } = state;
+  // La hoja se abrió con la cuenta de antes: después de guardar se lee la versión recargada (si no, el interruptor se ve apagado)
+  const account = state.accounts.find((a) => a.id === opened.id) ?? opened;
   const linked = account.budget_category_id ? categories.find((c) => c.id === account.budget_category_id) ?? null : null;
   const today = todayBogota();
   const items = cardItems.filter((i) => i.account_id === account.id);
