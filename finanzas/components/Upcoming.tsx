@@ -14,7 +14,8 @@ import { cardDue, statementsDueIn } from "@/lib/finance/installments";
 import { creditReserve, nextCuota } from "@/lib/finance/credit";
 import { responsibleOf } from "@/lib/finance/derive";
 import { creditBudgetMap } from "@/lib/finance/spaces";
-import { cardBudgetMap } from "@/lib/finance/cardBudget";
+import { cardBudgetMap, legacySchedule } from "@/lib/finance/cardBudget";
+import { obligationDues, type ObligationDue } from "@/lib/finance/obligationDues";
 import { cn } from "@/lib/utils";
 
 export interface CardDue {
@@ -28,17 +29,23 @@ export interface CardDue {
   credit?: boolean;
   /** Ya se pagó: la cuota del crédito (abono después del corte anterior) o el extracto de la tarjeta. */
   paid?: boolean;
+  /** Tarjeta con presupuesto: cuota de la deuda que ya traía que vence ese día (va en su presupuesto). */
+  cuota?: number;
 }
 
-/** Vencimientos visibles del periodo (hogar + mis personales) y fechas de pago de mis tarjetas con deuda. */
+/**
+ * Vencimientos visibles del periodo (hogar + mis personales) y fechas de pago de mis tarjetas con deuda: las que tengo a
+ * cargo y las mías con presupuesto (su cuota está en Presupuestos aunque la pague mi pareja).
+ */
 export function useUpcoming(period: Period) {
-  const { commitments, transactions, accounts, balances, me, cardItems } = useFinance();
+  const { commitments, transactions, accounts, balances, me, cardItems, obligationDebts, limits, budgets } = useFinance();
   return useMemo(() => {
     const today = todayBogota();
     const occ = occurrencesIn(commitments, transactions, period, today, new Map([...creditBudgetMap(accounts), ...cardBudgetMap(accounts)]));
     const cards: CardDue[] = [];
     for (const a of accounts) {
-      if (responsibleOf(a) !== me.user_id || a.archived || a.kind !== "CREDIT_CARD" || !a.due_day) continue;
+      if (a.archived || a.kind !== "CREDIT_CARD" || !a.due_day) continue;
+      if (responsibleOf(a) !== me.user_id && !(a.budget_category_id && a.owner_user_id === me.user_id)) continue;
       const d = cardDue(a, balances[a.id] ?? 0, transactions, period, cardItems);
       // Pagado: ya no queda nada del extracto y hubo un pago a la tarjeta después de su corte
       const paidAmount = d.cutDate
@@ -47,8 +54,10 @@ export function useUpcoming(period: Period) {
         : 0;
       if (d.due <= 0 && paidAmount <= 0) continue;
       const fake = { frequency: "MONTHLY", day_of_month: a.due_day, start_date: period.start, end_date: null, due_date: null } as ScheduledPayment;
+      const plan = a.budget_category_id ? legacySchedule({ ...a, opening_balance: Number(a.opening_balance) }, cardItems) : [];
       for (const due of dueDatesBetween(fake, period.start, period.end)) {
-        cards.push({ accountId: a.id, due, amount: d.due > 0 ? d.due : paidAmount, debt: d.debt, interest: d.due > 0 ? d.interest : 0, paid: d.due <= 0 });
+        const cuota = plan.filter((c) => c.due === due).reduce((sum, c) => sum + c.amount, 0);
+        cards.push({ accountId: a.id, due, amount: d.due > 0 ? d.due : paidAmount, debt: d.debt, interest: d.due > 0 ? d.interest : 0, paid: d.due <= 0, cuota: cuota || undefined });
       }
     }
     // Cuotas de créditos con día de pago: vencen en el periodo y quedan pagadas con el abono después del corte anterior
@@ -63,8 +72,10 @@ export function useUpcoming(period: Period) {
         cards.push({ accountId: a.id, due, amount: cuota, debt: owed, interest: 0, credit: true, paid });
       }
     }
-    return { occurrences: occ, cards, today };
-  }, [commitments, transactions, accounts, balances, me.user_id, period, cardItems]);
+    // Cuotas de presupuestos obligatorios del hogar que paga la pareja: también se ven aquí
+    const obligations = obligationDues({ meId: me.user_id, debts: obligationDebts, accounts, limits, budgets, transactions }, period);
+    return { occurrences: occ, cards, obligations, today };
+  }, [commitments, transactions, accounts, balances, me.user_id, period, cardItems, obligationDebts, limits, budgets]);
 }
 
 function whenLabel(due: string, today: string, paid: boolean): { text: string; tone: "ok" | "warn" | "danger" | "muted" } {
@@ -77,10 +88,11 @@ function whenLabel(due: string, today: string, paid: boolean): { text: string; t
 
 /** Lista de próximos vencimientos con botón para registrar el pago. */
 export function UpcomingList({
-  occurrences, cards, today, onEdit, limit,
+  occurrences, cards, obligations = [], today, onEdit, limit,
 }: {
   occurrences: Occurrence[];
   cards: CardDue[];
+  obligations?: ObligationDue[];
   today: string;
   onEdit?: (p: ScheduledPayment) => void;
   limit?: number;
@@ -174,7 +186,7 @@ export function UpcomingList({
             <span className="flex items-center gap-1 truncate text-xs text-muted">
               <Lock size={11} className="shrink-0" />
               <span className={cn("truncate", w.tone === "danger" && "font-semibold text-danger", w.tone === "warn" && "font-semibold text-warning", w.tone === "ok" && "text-olive")}>
-                {w.text}{c.paid ? ` · vencía el ${formatDay(c.due)}` : `${c.amount < c.debt ? ` · de ${formatCop(c.debt)} de deuda` : " · deuda actual"}${c.interest > 0 ? ` · incluye ≈${formatCop(c.interest)} de intereses` : ""}`}
+                {w.text}{c.paid ? ` · vencía el ${formatDay(c.due)}` : `${c.cuota ? ` · cuota del presupuesto ${formatCop(c.cuota)}` : ""}${c.amount < c.debt ? ` · de ${formatCop(c.debt)} de deuda` : " · deuda actual"}${c.interest > 0 ? ` · incluye ≈${formatCop(c.interest)} de intereses` : ""}`}
               </span>
             </span>
           </span>
@@ -182,6 +194,37 @@ export function UpcomingList({
           {!c.paid && (
             <button className="shrink-0 rounded-full bg-olive-soft px-3 py-1.5 text-sm font-semibold"
               onClick={() => openPayment({ kind: "TRANSFER", toAccountId: c.accountId, amount: c.amount, description: "Pago de tarjeta", date: today })}>
+              Pagar
+            </button>
+          )}
+        </div>
+      ),
+    });
+  }
+  for (const o of obligations) {
+    const w = whenLabel(o.due, today, o.paid);
+    const resp = memberById(o.responsibleId);
+    rows.push({
+      key: `obligation-${o.accountId}-${o.due}`,
+      due: o.due,
+      node: (
+        <div className="flex items-center gap-3 px-3.5 py-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-2">
+            {o.paid ? <Check size={17} className="text-olive" /> : o.kind === "CREDIT_CARD" ? <CreditCard size={17} className="text-muted" /> : <Building2 size={17} className="text-muted" />}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className={cn("block truncate font-medium", o.paid && "text-muted line-through")}>Cuota {o.name}</span>
+            <span className="flex items-center gap-1 truncate text-xs text-muted">
+              <Home size={11} className="shrink-0" />
+              <span className={cn("truncate", w.tone === "danger" && "font-semibold text-danger", w.tone === "warn" && "font-semibold text-warning", w.tone === "ok" && "text-olive")}>
+                {w.text}{o.paid ? ` · vencía el ${formatDay(o.due)}` : ""} · obligatorio del hogar{resp ? ` · a cargo de ${resp.display_name}` : ""}
+              </span>
+            </span>
+          </span>
+          <span className={cn("num shrink-0 text-sm font-semibold", o.paid && "text-muted")}>{formatCop(o.amount)}</span>
+          {!o.paid && (
+            <button className="shrink-0 rounded-full bg-olive-soft px-3 py-1.5 text-sm font-semibold"
+              onClick={() => openPayment({ categoryId: o.categoryId, amount: o.amount, description: `Cuota ${o.name}`, scope: "HOUSEHOLD", responsibleId: o.responsibleId, date: today })}>
               Pagar
             </button>
           )}

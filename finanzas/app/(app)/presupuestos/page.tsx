@@ -86,11 +86,11 @@ export default function PresupuestosPage() {
     return { member: m!, available, spent };
   });
 
-  // Cuotas de créditos: fecha de pago dentro del periodo, según el día de pago del crédito
+  // Cuotas de créditos y tarjetas: fecha de pago dentro del periodo, según el día de pago
   const creditDue = new Map<string, string>();
   for (const a of state.accounts) {
-    if ((a.kind !== "CREDIT" && a.kind !== "LOAN") || a.archived || !a.budget_category_id || !a.due_day) continue;
-    const d = statementsDueIn(a.due_day, a.due_day, period)[0]?.due;
+    if ((a.kind !== "CREDIT" && a.kind !== "LOAN" && a.kind !== "CREDIT_CARD") || a.archived || !a.budget_category_id || !a.due_day) continue;
+    const d = statementsDueIn(a.kind === "CREDIT_CARD" ? (a.statement_day ?? a.due_day) : a.due_day, a.due_day, period)[0]?.due;
     if (d) creditDue.set(a.budget_category_id, d);
   }
 
@@ -132,10 +132,10 @@ export default function PresupuestosPage() {
             No es gasto hasta que lo pagues.
           </p>
         )}
-        {upcoming.occurrences.length + upcoming.cards.length === 0 ? (
+        {upcoming.occurrences.length + upcoming.cards.length + upcoming.obligations.length === 0 ? (
           <p className="px-1 text-sm text-muted">Agrega cuotas, administración, seguros o pagos de una sola vez para verlos aquí antes de que venzan.</p>
         ) : (
-          <UpcomingList occurrences={upcoming.occurrences} cards={upcoming.cards} today={upcoming.today} onEdit={editCommitment} />
+          <UpcomingList occurrences={upcoming.occurrences} cards={upcoming.cards} obligations={upcoming.obligations} today={upcoming.today} onEdit={editCommitment} />
         )}
         </BudgetGroup>
 

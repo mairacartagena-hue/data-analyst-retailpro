@@ -128,3 +128,62 @@ describe("presupuesto de la tarjeta con centavos del extracto", () => {
     for (const x of v) expect(Number.isInteger(x.amount)).toBe(true);
   });
 });
+
+describe("pago de la tarjeta con presupuesto: se cruza con la tarjeta", () => {
+  const ahorros = acc("ahorros", "DEPOSIT");
+  const s = { meId: A, accounts: [ahorros, visa], balances: { ahorros: 5_000_000, visa: -1_600_000 }, limits: [], budgets: [], cardItems: [item] };
+  const split = (amount: number, category_id: string) => [{ id: "s", transaction_id: "x", amount, category_id, responsible_user_id: A, origin: "NORMAL" as const, note: null }];
+
+  it("un pago registrado en la categoría de la tarjeta, entre la cuota y el extracto, se convierte en pago a la tarjeta", () => {
+    const t = tx({ amount: 1_000_000, occurred_on: "2026-11-04", splits: split(1_000_000, "cat-visa") });
+    const [m] = findCreditPayments({ ...s, transactions: [t] }, "2026-11-04");
+    expect(m?.credit.id).toBe("visa");
+    expect(m?.charges).toBe(0);
+    expect(m?.due).toBe("2026-11-05");
+  });
+
+  it("un aviso del banco que menciona la tarjeta con el valor del extracto se cruza", () => {
+    const t = tx({ source: "EMAIL", amount: 1_000_000, occurred_on: "2026-11-03", merchant: "Pago visa" });
+    expect(findCreditPayments({ ...s, transactions: [t] }, "2026-11-04")[0]?.credit.id).toBe("visa");
+  });
+
+  it("la tarjeta de la que soy responsable (aunque sea de mi pareja) también se cruza", () => {
+    const mine = { ...visa, owner_user_id: "pareja", responsible_user_id: A };
+    const t = tx({ amount: 1_000_000, occurred_on: "2026-11-04", splits: split(1_000_000, "cat-visa") });
+    expect(findCreditPayments({ ...s, accounts: [ahorros, mine], transactions: [t] }, "2026-11-04")).toHaveLength(1);
+  });
+
+  it("un gasto de otra categoría no se toca", () => {
+    const t = tx({ amount: 1_000_000, occurred_on: "2026-11-04", splits: split(1_000_000, "mercado") });
+    expect(findCreditPayments({ ...s, transactions: [t] }, "2026-11-04")).toEqual([]);
+  });
+});
+
+describe("vencimientos de los presupuestos obligatorios del hogar", () => {
+  const P = "pareja";
+  const limit = { id: "l", category_id: "cat-hip", scope: "HOUSEHOLD", owner_user_id: null, responsibility: "SHARED_50_50",
+    is_household_obligation: true, rollover_enabled: false, shared_with_partner: false } as unknown as import("@/lib/types").CategoryLimit;
+  const budgets = [{ id: "b", category_id: "cat-hip", limit_id: "l", valid_from: "2026-10-22", amount: 1_944_204, fixed_amount_a: null, fixed_amount_b: null }];
+  const hip = acc("hipoteca", "CREDIT", { owner_user_id: P, due_day: 4, budget_category_id: "cat-hip" });
+  const period = { start: "2026-10-22", end: "2026-11-21" };
+
+  it("la cuota del crédito que paga la pareja también me sale, con el monto del presupuesto", async () => {
+    const { obligationDues } = await import("@/lib/finance/obligationDues");
+    const [o] = obligationDues({ meId: A, debts: [], accounts: [hip], limits: [limit], budgets, transactions: [] }, period);
+    expect(o).toMatchObject({ accountId: "hipoteca", due: "2026-11-04", amount: 1_944_204, paid: false, responsibleId: P });
+  });
+
+  it("queda pagada con la transferencia al crédito y no se repite para quien lo paga", async () => {
+    const { obligationDues } = await import("@/lib/finance/obligationDues");
+    const t = tx({ kind: "TRANSFER", to_account_id: "hipoteca", amount: 1_944_204, occurred_on: "2026-11-03", payer_user_id: P });
+    expect(obligationDues({ meId: A, debts: [], accounts: [hip], limits: [limit], budgets, transactions: [t] }, period)[0].paid).toBe(true);
+    expect(obligationDues({ meId: P, debts: [], accounts: [hip], limits: [limit], budgets, transactions: [] }, period)).toEqual([]);
+  });
+
+  it("un crédito privado de la pareja llega por Supabase; sin presupuesto obligatorio no sale", async () => {
+    const { obligationDues } = await import("@/lib/finance/obligationDues");
+    const debt = { id: "nequi", owner_user_id: P, responsible_user_id: null, name: "Nequi", kind: "CREDIT" as const, statement_day: null, due_day: 1, budget_category_id: "cat-hip" };
+    expect(obligationDues({ meId: A, debts: [debt], accounts: [], limits: [limit], budgets, transactions: [] }, period)[0]?.due).toBe("2026-11-01");
+    expect(obligationDues({ meId: A, debts: [debt], accounts: [], limits: [{ ...limit, is_household_obligation: false }], budgets, transactions: [] }, period)).toEqual([]);
+  });
+});

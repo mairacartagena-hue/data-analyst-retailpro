@@ -57,6 +57,7 @@ export default function HomePage() {
   const upcoming = useUpcoming(period);
   const pendingDues = upcoming.occurrences.filter((o) => !o.paid && (scope !== "household" || o.payment.scope === "HOUSEHOLD"));
   const cardDues = scope === "household" ? [] : upcoming.cards.filter((c) => !c.paid);
+  const obligationDues = upcoming.obligations.filter((o) => !o.paid);
   const pendingTotal = pendingDues.reduce((sum, o) => sum + Number(o.payment.amount), 0);
   const shownNet = withPending ? flow.net - pendingTotal : flow.net;
 
@@ -111,13 +112,13 @@ export default function HomePage() {
           </Card>
         )}
 
-        {pendingDues.length + cardDues.length > 0 && (
+        {pendingDues.length + cardDues.length + obligationDues.length > 0 && (
           <>
             <div className="mt-5 flex items-center justify-between">
               <SectionTitle className="m-0">Próximos vencimientos</SectionTitle>
               <Link href="/presupuestos" className="text-sm font-semibold text-olive">Ver todos</Link>
             </div>
-            <UpcomingList occurrences={pendingDues} cards={cardDues} today={upcoming.today} limit={3} />
+            <UpcomingList occurrences={pendingDues} cards={cardDues} obligations={obligationDues} today={upcoming.today} limit={3} />
           </>
         )}
 

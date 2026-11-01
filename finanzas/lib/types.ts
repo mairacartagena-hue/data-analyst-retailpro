@@ -404,3 +404,15 @@ export interface SavingsContribution {
   note: string | null;
   created_at: string;
 }
+
+/** Crédito o tarjeta con presupuesto obligatorio del hogar: lo que ambos necesitan para ver su vencimiento. */
+export interface ObligationDebt {
+  id: string;
+  owner_user_id: string;
+  responsible_user_id: string | null;
+  name: string;
+  kind: "CREDIT" | "LOAN" | "CREDIT_CARD";
+  statement_day: number | null;
+  due_day: number;
+  budget_category_id: string;
+}

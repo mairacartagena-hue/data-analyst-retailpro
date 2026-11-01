@@ -150,6 +150,14 @@ GEMINI_MODEL=...            # opcional; por defecto gemini-flash-lite-latest
 - Un vencimiento manual se marca pagado también con una transferencia a un crédito o tarjeta cuyo presupuesto es de su categoría.
 - Quien paga la tarjeta o el crédito de su pareja (“¿Quién paga…?”) ya puede transferirle desde sus cuentas.
 
+**Cuota de la tarjeta en Vencimientos y cruce del pago (migración 0050):**
+- La tarjeta con presupuesto aparece en Vencimientos para quien la paga y también para su dueña, con la cuota del presupuesto de ese día de pago. En Presupuestos, la barra de la tarjeta muestra su fecha de pago.
+- Un pago registrado en la categoría de la tarjeta (a mano, o con Pagar en Presupuestos), entre la cuota y lo que vence del extracto (±25 %), o un aviso del banco que menciona la tarjeta con ese valor (±5 %), se convierte solo en la transferencia a la tarjeta: baja la deuda, queda pagado el vencimiento y cuenta en su presupuesto.
+
+**Vencimientos de los presupuestos obligatorios del hogar para los dos (migración 0051):**
+- La cuota de cada crédito o tarjeta cuyo presupuesto es del hogar y obligatorio sale en Vencimientos (Inicio y Presupuestos) a ambos, también si la cuenta es privada, con el monto del presupuesto y “a cargo de” quien la paga. Queda pagada con una transferencia a esa cuenta o un gasto en su categoría cerca del día de pago (`lib/finance/obligationDues.ts`).
+- `household_obligation_debts()` solo entrega nombre, tipo, días de corte y pago y la categoría; no saldos ni movimientos.
+
 ## Préstamos (migración 0028)
 
 Cuenta de tipo **Préstamo** (Cuentas → + → Préstamo): para plata que me prestan (por ejemplo mi hermana) o que le presto a alguien. Su saldo es negativo mientras se debe.
