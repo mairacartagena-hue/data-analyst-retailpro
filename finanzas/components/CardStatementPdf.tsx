@@ -4,7 +4,7 @@ import { useState } from "react";
 import { FileUp } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { Button } from "@/components/ui/button";
-import { StatementFields, saveStatement, emptyDraft, type StatementDraft } from "@/components/CardStatements";
+import { StatementCrossCheck, StatementFields, emptyDraft, type StatementDraft } from "@/components/CardStatements";
 import type { Account } from "@/lib/types";
 import type { CardStatementData, CardStatementPurchase } from "@/lib/capture/cardStatement";
 import { knownItem, registeredTx } from "@/lib/finance/cardStatements";
@@ -16,9 +16,9 @@ import { shrink, toBase64 } from "@/lib/capture/file";
 import { cn, errMsg } from "@/lib/utils";
 
 /**
- * La IA lee el extracto de la tarjeta (PDF o foto). La persona revisa y guarda:
- *  · el extracto (corte, fecha de pago, pago mínimo, pago total y deuda), editable, para cruzarlo con la app;
- *  · las compras a cuotas que no están en la app, una por una, para la proyección.
+ * La IA lee el extracto de la tarjeta (PDF o foto). Ni el archivo ni los valores del extracto se guardan:
+ *  · corte, fecha de pago, pago mínimo, pago total y deuda quedan en el formulario (editables) y se cruzan al momento con la app;
+ *  · las compras a cuotas que no están en la app se pueden agregar, una por una, a la proyección de la tarjeta.
  * Las compras que ya están (como compra del extracto o registradas en la app con las mismas cuotas) no se repiten.
  */
 export function CardStatementPdf({ account, onBalance }: { account: Account; onBalance?: (v: number) => void }) {
@@ -65,26 +65,22 @@ export function CardStatementPdf({ account, onBalance }: { account: Account; onB
     }
   }
 
-  async function save() {
-    if (!read) return;
+  async function addPurchases() {
+    if (fresh.length === 0) return;
     setBusy(true);
     setErr(null);
-    const e = await saveStatement(supabase, account, me.user_id, draft, "PDF");
-    if (e) { setBusy(false); return setErr(e); }
     // Compras de un extracto posterior al registro de la tarjeta: su saldo se factura desde el corte siguiente a este
     const open = account.opening_at ? openingDay(account.opening_at) : null;
-    const asOf = draft.cut && open && draft.cut > open ? draft.cut : null;
-    if (fresh.length > 0) {
-      const { error } = await supabase.from("card_statement_items").insert(fresh.map((p) => ({
-        account_id: account.id, description: p.description, purchase_date: p.purchaseDate, amount: p.amount, installments: p.installments,
-        paid_installments: p.paidInstallments, remaining_balance: p.remainingBalance, rate_ea: p.rateEa ?? null,
-        household_id: me.household_id, owner_user_id: me.user_id, ...(asOf ? { as_of: asOf } : {}),
-      })));
-      if (error) { setBusy(false); void reload(); return setErr(`El extracto quedó guardado, pero no las compras: ${errMsg(error)}`); }
-    }
+    const asOf = /^\d{4}-\d{2}-\d{2}$/.test(draft.cut) && open && draft.cut > open ? draft.cut : null;
+    const { error } = await supabase.from("card_statement_items").insert(fresh.map((p) => ({
+      account_id: account.id, description: p.description, purchase_date: p.purchaseDate, amount: p.amount, installments: p.installments,
+      paid_installments: p.paidInstallments, remaining_balance: p.remainingBalance, rate_ea: p.rateEa ?? null,
+      household_id: me.household_id, owner_user_id: me.user_id, ...(asOf ? { as_of: asOf } : {}),
+    })));
     setBusy(false);
-    setNotice(`Guardé el extracto${fresh.length ? ` y ${fresh.length} compra${fresh.length === 1 ? "" : "s"} a cuotas en la proyección` : ""}. El cruce queda en “Extractos y cruce con la app”.`);
-    setRead(null);
+    if (error) return setErr(errMsg(error));
+    setNotice(`Agregué ${fresh.length} compra${fresh.length === 1 ? "" : "s"} a cuotas a la proyección de la tarjeta.`);
+    setRead({ ...read!, purchases: [] });
     void reload();
   }
 
@@ -96,11 +92,12 @@ export function CardStatementPdf({ account, onBalance }: { account: Account; onB
         <input type="file" accept="application/pdf,image/*" className="hidden" disabled={busy}
           onChange={(e) => { void pick(e.target.files?.[0]); e.target.value = ""; }} />
       </label>
-      {!read && !err && !notice && <p className="text-xs text-muted">La IA lee el pago mínimo, el total, la deuda y cada compra a cuotas. Revisa antes de guardar. El archivo no se guarda.</p>}
+      {!read && !err && !notice && <p className="text-xs text-muted">La IA lee el pago mínimo, el total, la deuda y cada compra a cuotas, y los cruza con la app. Nada del extracto se guarda.</p>}
       {read && (
         <div className="space-y-3 text-xs">
-          <p className="font-medium">Revisa lo que leí (puedes corregirlo):</p>
+          <p className="font-medium">Lo que leí (puedes corregirlo; no se guarda):</p>
           <StatementFields value={draft} onChange={setDraft} />
+          <StatementCrossCheck account={account} draft={draft} />
           {onBalance && read.totalDebt !== undefined && <p className="text-muted">Ya puse la deuda abajo como deuda según tu extracto.</p>}
           {purchases.length > 0 && (
             <div className="space-y-1.5">
@@ -121,8 +118,8 @@ export function CardStatementPdf({ account, onBalance }: { account: Account; onB
             </div>
           )}
           <div className="flex gap-2">
-            <Button size="sm" onClick={() => void save()} disabled={busy}>Guardar extracto{fresh.length ? " y compras" : ""}</Button>
-            <Button size="sm" variant="ghost" onClick={() => setRead(null)} disabled={busy}>Descartar</Button>
+            {fresh.length > 0 && <Button size="sm" onClick={() => void addPurchases()} disabled={busy}>Agregar las compras a la proyección</Button>}
+            <Button size="sm" variant="ghost" onClick={() => setRead(null)} disabled={busy}>Cerrar</Button>
           </div>
         </div>
       )}

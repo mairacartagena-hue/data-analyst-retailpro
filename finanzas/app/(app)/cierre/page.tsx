@@ -13,7 +13,7 @@ import { ErrorText, Field, Input } from "@/components/ui/input";
 import { Sheet } from "@/components/ui/sheet";
 import { StatementImport } from "@/components/StatementImport";
 import { CardStatementPdf } from "@/components/CardStatementPdf";
-import { CardCloseCheck } from "@/components/CardStatements";
+import { ManualCrossCheck } from "@/components/CardStatements";
 import { CreditPaymentAdjust } from "@/components/CreditPaymentAdjust";
 import { creditMonthBreakdown } from "@/lib/finance/creditPayments";
 import { Segmented } from "@/components/ui/segmented";
@@ -265,7 +265,7 @@ function AccountClose({ account, month, open, onToggle }: { account: Account; mo
 
           {!isCredit && <StatementImport account={account} month={month} onBalance={(v) => setBank(String(v))} />}
           {isCard && <CardStatementPdf account={account} onBalance={(v) => setBank(String(v))} />}
-          {isCard && <CardCloseCheck account={account} month={month} />}
+          {isCard && <ManualCrossCheck key={month} account={account} month={month} />}
 
           <Field label={isCredit ? `Saldo de capital según el extracto al ${Number(range.end.slice(8))} de ${monthName(Number(month.slice(5)) - 1, true)}` : isCard ? `Deuda según tu extracto al ${Number(range.end.slice(8))} de ${monthName(Number(month.slice(5)) - 1, true)}` : `Saldo según tu banco al ${Number(range.end.slice(8))} de ${monthName(Number(month.slice(5)) - 1, true)}`}>
             <AmountInput value={bank} onChange={setBank} />

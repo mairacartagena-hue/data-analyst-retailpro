@@ -5,7 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabase } from "@/lib/supabase/client";
 import type {
   Account, AccountLabel, BudgetPlan, CategoryLimit, BudgetPlanCategory, Category, CategoryBudgetRow, CustomPeriodRow, Household, LedgerRow,
-  CardStatement, CardStatementItem, ManualAsset, Member, PeriodSettingsRow, Reconciliation, SavingsContribution, SavingsGoal, ScheduledPayment, Split, Tag, Transaction,
+  CardStatementItem, ManualAsset, Member, PeriodSettingsRow, Reconciliation, SavingsContribution, SavingsGoal, ScheduledPayment, Split, Tag, Transaction,
 } from "@/lib/types";
 import { toPeriodSettings, type Snapshot } from "@/lib/finance/derive";
 import type { SpendingRow } from "@/lib/finance/budget";
@@ -22,8 +22,6 @@ export interface FinanceState extends Snapshot {
   txTags: Record<string, string[]>;
   /** Compras del extracto de mis tarjetas que no son movimientos (solo para proyectar cuotas). */
   cardItems: CardStatementItem[];
-  /** Extractos guardados de mis tarjetas (pago mínimo, total y deuda por corte). */
-  cardStatements: CardStatement[];
   /** Movimientos para presupuestos e informes: las compras a cuotas, una copia por cuota en su mes. */
   consumption: Transaction[];
   household: Household;
@@ -141,22 +139,13 @@ async function loadAll(sb: SupabaseClient, userId: string): Promise<Loaded> {
   const transactions: Transaction[] = txs.map((t) => ({ ...t, amount: Number(t.amount), installments: Number(t.installments ?? 1), interest_rate_ea: num(t.interest_rate_ea) as number | null, splits: splitsByTx.get(t.id) ?? [] }));
   const consumption = expandInstallments(transactions);
   // "*" para que as_of llegue cuando ya exista la columna (migración 0049) sin romper antes
-  const [cardItemRows, cardStatementRows] = await Promise.all([
-    sb.from("card_statement_items").select("*"),
-    sb.from("card_statements").select("id, account_id, cut_date, due_date, minimum_payment, total_payment, total_debt, source").order("cut_date", { ascending: false }),
-  ]);
+  const cardItemRows = await sb.from("card_statement_items").select("*");
   if (cardItemRows.error) throw cardItemRows.error;
   const cardItems = ((cardItemRows.data ?? []) as Record<string, unknown>[]).map((r) => ({
     id: String(r.id), account_id: String(r.account_id), description: String(r.description), purchase_date: String(r.purchase_date),
     amount: Number(r.amount), installments: Number(r.installments), paid_installments: Number(r.paid_installments),
     remaining_balance: Number(r.remaining_balance), rate_ea: num(r.rate_ea) as number | null,
     as_of: typeof r.as_of === "string" ? r.as_of : null,
-  }));
-  // Si la tabla aún no existe (migración pendiente) la app sigue funcionando sin extractos
-  const cardStatements: CardStatement[] = cardStatementRows.error ? [] : ((cardStatementRows.data ?? []) as Record<string, unknown>[]).map((r) => ({
-    id: String(r.id), account_id: String(r.account_id), cut_date: String(r.cut_date), due_date: r.due_date ? String(r.due_date) : null,
-    minimum_payment: num(r.minimum_payment) as number | null, total_payment: num(r.total_payment) as number | null,
-    total_debt: num(r.total_debt) as number | null, source: r.source === "PDF" ? "PDF" : "MANUAL",
   }));
   const sharedSpending: SpendingRow[] = ((shared.data ?? []) as { owner_user_id: string; category_id: string; occurred_on: string; total: number }[])
     .map((r) => ({ categoryId: r.category_id, responsibleUserId: r.owner_user_id, occurredOn: r.occurred_on, total: Number(r.total), scope: "PERSONAL" }));
@@ -208,7 +197,6 @@ async function loadAll(sb: SupabaseClient, userId: string): Promise<Loaded> {
       cardPaymentPortions(((accounts.data ?? []) as Account[]).map((a) => ({ ...a, opening_balance: Number(a.opening_balance) })), transactions, cardItems)), ...sharedSpending],
     consumption,
     cardItems,
-    cardStatements,
     sharedSpending,
     plans: ((plans.data ?? []) as BudgetPlan[]).map((b) => ({ ...b, amount: Number(b.amount), alert_pct: Number(b.alert_pct), shared_with_partner: !!b.shared_with_partner })),
     planCategories: ((planCategories.data ?? []) as BudgetPlanCategory[]).map((c) => ({ ...c, amount: num(c.amount) as number | null })),

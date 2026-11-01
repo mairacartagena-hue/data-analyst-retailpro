@@ -1,4 +1,4 @@
-// Migración 0049: extractos de la tarjeta (pago mínimo, total y deuda por corte) y as_of en las compras del extracto.
+// Migraciones 0049 y 0050: as_of en las compras del extracto; los valores del extracto no se guardan.
 
 import { beforeAll, describe, expect, it } from "vitest";
 import type { PGlite } from "@electric-sql/pglite";
@@ -7,9 +7,9 @@ import { as, setupDb } from "./harness";
 const MAY = "00000000-0000-0000-0000-00000000000a";
 const BREI = "00000000-0000-0000-0000-00000000000b";
 
-describe("extractos de la tarjeta", () => {
+describe("compras del extracto y extractos", () => {
   let db: PGlite;
-  let hh: string, card: string, savings: string;
+  let hh: string, card: string;
 
   beforeAll(async () => {
     db = await setupDb();
@@ -21,24 +21,10 @@ describe("extractos de la tarjeta", () => {
     const acc = async (kind: string) => (await as<{ id: string }>(db, MAY, `insert into accounts (household_id, owner_user_id, name, kind, visibility, opening_balance, opening_at)
       values ($1, $2, $3, $4, 'PRIVATE', 0, '2026-10-21') returning id`, [hh, MAY, kind, kind]))[0].id;
     card = await acc("CREDIT_CARD");
-    savings = await acc("DEPOSIT");
   }, 30_000);
 
-  const insert = (uid: string, account: string, cut: string, min: number) => as(db, uid, `insert into card_statements (household_id, account_id, owner_user_id, cut_date, due_date, minimum_payment, total_debt, source)
-    values ($1, $2, $3, $4, ($4::date + 15), $5, 1000000, 'PDF')
-    on conflict (account_id, cut_date) do update set minimum_payment = excluded.minimum_payment`, [hh, account, uid, cut, min]);
-
-  it("la dueña guarda y corrige un extracto por corte", async () => {
-    await insert(MAY, card, "2026-10-20", 400000);
-    await insert(MAY, card, "2026-10-20", 410000);
-    const rows = await as<{ minimum_payment: string }>(db, MAY, `select minimum_payment::text from card_statements`);
-    expect(rows).toEqual([{ minimum_payment: "410000.00" }]);
-  });
-
-  it("la pareja no lo ve ni puede escribirlo, y solo se guarda en tarjetas", async () => {
-    expect(await as(db, BREI, `select * from card_statements`)).toHaveLength(0);
-    await expect(insert(BREI, card, "2026-11-20", 1)).rejects.toThrow();
-    await expect(insert(MAY, savings, "2026-11-20", 1)).rejects.toThrow();
+  it("los extractos no se guardan: no existe la tabla", async () => {
+    await expect(as(db, MAY, `select * from card_statements`)).rejects.toThrow(/card_statements/);
   });
 
   it("las compras del extracto aceptan el corte del que salieron", async () => {
