@@ -86,11 +86,11 @@ export default function PresupuestosPage() {
     return { member: m!, available, spent };
   });
 
-  // Cuotas de créditos: fecha de pago dentro del periodo, según el día de pago del crédito
+  // Cuotas de créditos y tarjetas: fecha de pago dentro del periodo, según el día de pago
   const creditDue = new Map<string, string>();
   for (const a of state.accounts) {
-    if ((a.kind !== "CREDIT" && a.kind !== "LOAN") || a.archived || !a.budget_category_id || !a.due_day) continue;
-    const d = statementsDueIn(a.due_day, a.due_day, period)[0]?.due;
+    if ((a.kind !== "CREDIT" && a.kind !== "LOAN" && a.kind !== "CREDIT_CARD") || a.archived || !a.budget_category_id || !a.due_day) continue;
+    const d = statementsDueIn(a.kind === "CREDIT_CARD" ? (a.statement_day ?? a.due_day) : a.due_day, a.due_day, period)[0]?.due;
     if (d) creditDue.set(a.budget_category_id, d);
   }
 

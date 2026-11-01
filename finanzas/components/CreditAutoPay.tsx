@@ -6,16 +6,16 @@ import { findCreditPayments } from "@/lib/finance/creditBudget";
 import { todayBogota } from "@/lib/finance/periods";
 
 /**
- * Cruce automático: cuando llega solo un pago con el valor de la cuota de un crédito con presupuesto,
+ * Cruce automático: cuando llega solo un pago con el valor de la cuota de un crédito o tarjeta con presupuesto,
  * lo convierte en el pago de ese crédito (baja la deuda y paga su presupuesto). Cada movimiento se intenta una vez.
  */
 export function CreditAutoPay() {
-  const { me, accounts, balances, transactions, limits, budgets, supabase, reload, offline } = useFinance();
+  const { me, accounts, balances, transactions, limits, budgets, cardItems, supabase, reload, offline } = useFinance();
   const tried = useRef(new Set<string>());
   const today = todayBogota();
   const matches = useMemo(
-    () => findCreditPayments({ meId: me.user_id, accounts, balances, transactions, limits, budgets }, today),
-    [me.user_id, accounts, balances, transactions, limits, budgets, today],
+    () => findCreditPayments({ meId: me.user_id, accounts, balances, transactions, limits, budgets, cardItems }, today),
+    [me.user_id, accounts, balances, transactions, limits, budgets, cardItems, today],
   );
 
   useEffect(() => {

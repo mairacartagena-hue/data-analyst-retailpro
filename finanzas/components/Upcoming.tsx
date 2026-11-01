@@ -14,7 +14,7 @@ import { cardDue, statementsDueIn } from "@/lib/finance/installments";
 import { creditReserve, nextCuota } from "@/lib/finance/credit";
 import { responsibleOf } from "@/lib/finance/derive";
 import { creditBudgetMap } from "@/lib/finance/spaces";
-import { cardBudgetMap } from "@/lib/finance/cardBudget";
+import { cardBudgetMap, legacySchedule } from "@/lib/finance/cardBudget";
 import { cn } from "@/lib/utils";
 
 export interface CardDue {
@@ -28,9 +28,14 @@ export interface CardDue {
   credit?: boolean;
   /** Ya se pagó: la cuota del crédito (abono después del corte anterior) o el extracto de la tarjeta. */
   paid?: boolean;
+  /** Tarjeta con presupuesto: cuota de la deuda que ya traía que vence ese día (va en su presupuesto). */
+  cuota?: number;
 }
 
-/** Vencimientos visibles del periodo (hogar + mis personales) y fechas de pago de mis tarjetas con deuda. */
+/**
+ * Vencimientos visibles del periodo (hogar + mis personales) y fechas de pago de mis tarjetas con deuda: las que tengo a
+ * cargo y las mías con presupuesto (su cuota está en Presupuestos aunque la pague mi pareja).
+ */
 export function useUpcoming(period: Period) {
   const { commitments, transactions, accounts, balances, me, cardItems } = useFinance();
   return useMemo(() => {
@@ -38,7 +43,8 @@ export function useUpcoming(period: Period) {
     const occ = occurrencesIn(commitments, transactions, period, today, new Map([...creditBudgetMap(accounts), ...cardBudgetMap(accounts)]));
     const cards: CardDue[] = [];
     for (const a of accounts) {
-      if (responsibleOf(a) !== me.user_id || a.archived || a.kind !== "CREDIT_CARD" || !a.due_day) continue;
+      if (a.archived || a.kind !== "CREDIT_CARD" || !a.due_day) continue;
+      if (responsibleOf(a) !== me.user_id && !(a.budget_category_id && a.owner_user_id === me.user_id)) continue;
       const d = cardDue(a, balances[a.id] ?? 0, transactions, period, cardItems);
       // Pagado: ya no queda nada del extracto y hubo un pago a la tarjeta después de su corte
       const paidAmount = d.cutDate
@@ -47,8 +53,10 @@ export function useUpcoming(period: Period) {
         : 0;
       if (d.due <= 0 && paidAmount <= 0) continue;
       const fake = { frequency: "MONTHLY", day_of_month: a.due_day, start_date: period.start, end_date: null, due_date: null } as ScheduledPayment;
+      const plan = a.budget_category_id ? legacySchedule({ ...a, opening_balance: Number(a.opening_balance) }, cardItems) : [];
       for (const due of dueDatesBetween(fake, period.start, period.end)) {
-        cards.push({ accountId: a.id, due, amount: d.due > 0 ? d.due : paidAmount, debt: d.debt, interest: d.due > 0 ? d.interest : 0, paid: d.due <= 0 });
+        const cuota = plan.filter((c) => c.due === due).reduce((sum, c) => sum + c.amount, 0);
+        cards.push({ accountId: a.id, due, amount: d.due > 0 ? d.due : paidAmount, debt: d.debt, interest: d.due > 0 ? d.interest : 0, paid: d.due <= 0, cuota: cuota || undefined });
       }
     }
     // Cuotas de créditos con día de pago: vencen en el periodo y quedan pagadas con el abono después del corte anterior
@@ -174,7 +182,7 @@ export function UpcomingList({
             <span className="flex items-center gap-1 truncate text-xs text-muted">
               <Lock size={11} className="shrink-0" />
               <span className={cn("truncate", w.tone === "danger" && "font-semibold text-danger", w.tone === "warn" && "font-semibold text-warning", w.tone === "ok" && "text-olive")}>
-                {w.text}{c.paid ? ` · vencía el ${formatDay(c.due)}` : `${c.amount < c.debt ? ` · de ${formatCop(c.debt)} de deuda` : " · deuda actual"}${c.interest > 0 ? ` · incluye ≈${formatCop(c.interest)} de intereses` : ""}`}
+                {w.text}{c.paid ? ` · vencía el ${formatDay(c.due)}` : `${c.cuota ? ` · cuota del presupuesto ${formatCop(c.cuota)}` : ""}${c.amount < c.debt ? ` · de ${formatCop(c.debt)} de deuda` : " · deuda actual"}${c.interest > 0 ? ` · incluye ≈${formatCop(c.interest)} de intereses` : ""}`}
               </span>
             </span>
           </span>

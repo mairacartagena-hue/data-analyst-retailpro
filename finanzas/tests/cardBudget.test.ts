@@ -128,3 +128,33 @@ describe("presupuesto de la tarjeta con centavos del extracto", () => {
     for (const x of v) expect(Number.isInteger(x.amount)).toBe(true);
   });
 });
+
+describe("pago de la tarjeta con presupuesto: se cruza con la tarjeta", () => {
+  const ahorros = acc("ahorros", "DEPOSIT");
+  const s = { meId: A, accounts: [ahorros, visa], balances: { ahorros: 5_000_000, visa: -1_600_000 }, limits: [], budgets: [], cardItems: [item] };
+  const split = (amount: number, category_id: string) => [{ id: "s", transaction_id: "x", amount, category_id, responsible_user_id: A, origin: "NORMAL" as const, note: null }];
+
+  it("un pago registrado en la categoría de la tarjeta, entre la cuota y el extracto, se convierte en pago a la tarjeta", () => {
+    const t = tx({ amount: 1_000_000, occurred_on: "2026-11-04", splits: split(1_000_000, "cat-visa") });
+    const [m] = findCreditPayments({ ...s, transactions: [t] }, "2026-11-04");
+    expect(m?.credit.id).toBe("visa");
+    expect(m?.charges).toBe(0);
+    expect(m?.due).toBe("2026-11-05");
+  });
+
+  it("un aviso del banco que menciona la tarjeta con el valor del extracto se cruza", () => {
+    const t = tx({ source: "EMAIL", amount: 1_000_000, occurred_on: "2026-11-03", merchant: "Pago visa" });
+    expect(findCreditPayments({ ...s, transactions: [t] }, "2026-11-04")[0]?.credit.id).toBe("visa");
+  });
+
+  it("la tarjeta de la que soy responsable (aunque sea de mi pareja) también se cruza", () => {
+    const mine = { ...visa, owner_user_id: "pareja", responsible_user_id: A };
+    const t = tx({ amount: 1_000_000, occurred_on: "2026-11-04", splits: split(1_000_000, "cat-visa") });
+    expect(findCreditPayments({ ...s, accounts: [ahorros, mine], transactions: [t] }, "2026-11-04")).toHaveLength(1);
+  });
+
+  it("un gasto de otra categoría no se toca", () => {
+    const t = tx({ amount: 1_000_000, occurred_on: "2026-11-04", splits: split(1_000_000, "mercado") });
+    expect(findCreditPayments({ ...s, transactions: [t] }, "2026-11-04")).toEqual([]);
+  });
+});

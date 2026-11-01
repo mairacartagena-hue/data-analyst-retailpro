@@ -5,12 +5,16 @@
 //  · monto: ±5 % de la cuota estimada o del presupuesto,
 //  · fecha: entre 15 días antes y 7 días después del día de pago (hay quien paga con la quincena anterior),
 //  · texto: menciona el nombre del crédito, el banco o sus últimos 4 dígitos.
+// Las tarjetas con presupuesto se cruzan igual: el pago pasa a ser la transferencia a la tarjeta (sin intereses aparte,
+// ya vienen en el extracto). Se espera la cuota del presupuesto o lo que vence del extracto; un pago en la categoría de la
+// tarjeta se acepta entre 25 % menos que lo menor y 25 % más que lo mayor (se puede pagar la cuota o el extracto completo).
 
-import type { Account, CategoryBudgetRow, CategoryLimit, Transaction } from "@/lib/types";
+import type { Account, CardStatementItem, CategoryBudgetRow, CategoryLimit, Transaction } from "@/lib/types";
 import { words } from "@/lib/ingest/match";
 import { budgetVersionAt } from "./budget";
 import { nextCuota, suggestSplit } from "./credit";
-import { toBudgetCategories } from "./derive";
+import { responsibleOf, toBudgetCategories } from "./derive";
+import { cardDue } from "./installments";
 
 export const AMOUNT_TOLERANCE = 0.05;
 /** Un pago en la categoría del crédito ya dice de qué crédito es: se acepta con más diferencia (ej. seguros que cambian). */
@@ -48,7 +52,7 @@ export function cuotaDueFor(iso: string, dueDay: number): string | null {
 export function expectedCuotas(
   credit: Account, balance: number, today: string, limits: CategoryLimit[], budgets: CategoryBudgetRow[],
 ): number[] {
-  const out = [nextCuota(Math.max(0, -balance), credit, today)];
+  const out = credit.kind === "CREDIT_CARD" ? [] : [nextCuota(Math.max(0, -balance), credit, today)];
   const limit = limits.find((l) => l.category_id === credit.budget_category_id && l.scope === "HOUSEHOLD");
   if (limit) {
     const v = budgetVersionAt(toBudgetCategories([limit], budgets)[0].budgets, today);
@@ -87,9 +91,13 @@ export function findCreditPayments(s: {
   transactions: Transaction[];
   limits: CategoryLimit[];
   budgets: CategoryBudgetRow[];
+  cardItems?: CardStatementItem[];
 }, today: string): CreditPaymentMatch[] {
-  const credits = s.accounts.filter((a) => (a.kind === "CREDIT" || a.kind === "LOAN") && a.budget_category_id && !a.archived
-    && a.owner_user_id === s.meId && a.due_day && s.balances[a.id] !== undefined && s.balances[a.id] < 0);
+  // Créditos propios; tarjetas propias o a mi cargo
+  const credits = s.accounts.filter((a) => a.budget_category_id && !a.archived && a.due_day
+    && ((a.kind === "CREDIT" || a.kind === "LOAN") ? a.owner_user_id === s.meId
+      : a.kind === "CREDIT_CARD" && (a.owner_user_id === s.meId || responsibleOf(a) === s.meId))
+    && s.balances[a.id] !== undefined && s.balances[a.id] < 0);
   if (credits.length === 0) return [];
   const cash = new Set(s.accounts.filter((a) => a.owner_user_id === s.meId && CASH_KINDS.includes(a.kind)).map((a) => a.id));
   const candidates = s.transactions.filter((t) => t.payer_user_id === s.meId && t.created_by === s.meId && t.status !== "PENDING_REVIEW"
@@ -101,6 +109,7 @@ export function findCreditPayments(s: {
   const used = new Set<string>();
   for (const credit of credits) {
     const balance = s.balances[credit.id];
+    const isCard = credit.kind === "CREDIT_CARD";
     const expected = expectedCuotas(credit, balance, today, s.limits, s.budgets);
     const paidOn = s.transactions.filter((t) => t.kind === "TRANSFER" && t.to_account_id === credit.id).map((t) => t.occurred_on);
     let best: { t: Transaction; due: string; gap: number } | null = null;
@@ -109,15 +118,27 @@ export function findCreditPayments(s: {
       // Pago registrado (a mano o desde un vencimiento) en la categoría del presupuesto del crédito: es el pago de su cuota
       const byCategory = isCategoryPayment(t, credit);
       if (!byCategory && (t.source === "MANUAL" || t.scheduled_payment_id)) continue;
-      const gap = Math.min(...expected.map((e) => Math.abs(t.amount - e) / e));
-      if (gap > (byCategory ? CATEGORY_TOLERANCE : AMOUNT_TOLERANCE)) continue;
       const due = cuotaDueFor(t.occurred_on, credit.due_day!);
-      if (!due || (!byCategory && !mentionsCredit(t, credit))) continue;
+      if (!due) continue;
+      // Tarjeta: también lo que vence del extracto ese día de pago
+      const exp = isCard
+        ? [...expected, cardDue(credit, balance, s.transactions, { start: due, end: due }, s.cardItems ?? []).due].filter((x) => x > 0)
+        : expected;
+      if (exp.length === 0) continue;
+      let gap = Math.min(...exp.map((e) => Math.abs(t.amount - e) / e));
+      // Pago de la tarjeta en su categoría: cualquier valor entre la cuota y el extracto completo
+      if (isCard && byCategory && t.amount >= Math.min(...exp) && t.amount <= Math.max(...exp)) gap = 0;
+      if (gap > (byCategory ? CATEGORY_TOLERANCE : AMOUNT_TOLERANCE)) continue;
+      if (!byCategory && !mentionsCredit(t, credit)) continue;
       if (paidOn.some((d) => Math.abs(dayDiff(d, t.occurred_on)) <= ALREADY_PAID_DAYS)) continue;
       if (!best || gap < best.gap) best = { t, due, gap };
     }
     if (!best) continue;
     used.add(best.t.id);
+    if (isCard) {
+      out.push({ transaction: best.t, credit, charges: 0, due: best.due });
+      continue;
+    }
     const split = suggestSplit(Math.max(0, -balance), credit.interest_rate_ea, best.t.amount, credit.monthly_costs ?? 0);
     out.push({ transaction: best.t, credit, charges: Math.min(split.interest + split.costs, best.t.amount - 1), due: best.due });
   }
