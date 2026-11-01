@@ -73,7 +73,7 @@ function Diff({ label, diff, okText }: { label: string; diff: number | null; okT
   );
 }
 
-function StatementRow({ account, st }: { account: Account; st: CardStatement }) {
+export function StatementRow({ account, st }: { account: Account; st: CardStatement }) {
   const { transactions, cardItems, supabase, reload, me } = useFinance();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<StatementDraft>(draftOf(st));
@@ -192,4 +192,72 @@ export function CardStatementsSection({ account }: { account: Account }) {
 function useLastCheck(account: Account, st: CardStatement | undefined) {
   const { transactions, cardItems } = useFinance();
   return st ? checkStatement(account, transactions, cardItems, st) : null;
+}
+
+const pad2 = (n: number) => String(n).padStart(2, "0");
+/** Día `day` del mes AAAA-MM (si el mes es más corto, el último día). */
+function dayIn(month: string, day: number): string {
+  const [y, m] = month.split("-").map(Number);
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return `${month}-${pad2(Math.min(day, last))}`;
+}
+
+/**
+ * Cierre del mes de una tarjeta: el extracto cuyo corte cae en ese mes, con su cruce (cuota vs. pago mínimo y deuda vs.
+ * extracto). Si aún no está, se escribe a mano (o se llena al cargar el PDF arriba).
+ */
+export function CardCloseCheck({ account, month }: { account: Account; month: string }) {
+  const { cardStatements, supabase, reload, me } = useFinance();
+  const st = cardStatements.find((s) => s.account_id === account.id && s.cut_date.slice(0, 7) === month);
+  const cut = account.statement_day ? dayIn(month, account.statement_day) : "";
+  const due = (() => {
+    if (!cut || !account.due_day) return "";
+    let d = dayIn(month, account.due_day);
+    if (d <= cut) {
+      const [y, m] = month.split("-").map(Number);
+      d = dayIn(m === 12 ? `${y + 1}-01` : `${y}-${pad2(m + 1)}`, account.due_day);
+    }
+    return d;
+  })();
+  const [draft, setDraft] = useState<StatementDraft>({ ...emptyDraft, cut, due });
+  const [open, setOpen] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function add() {
+    setBusy(true);
+    setErr(null);
+    const e = await saveStatement(supabase, account, me.user_id, draft, "MANUAL");
+    setBusy(false);
+    if (e) return setErr(e);
+    setOpen(false);
+    void reload();
+  }
+
+  return (
+    <div className="space-y-2">
+      <p className="text-sm font-medium text-muted">Extracto del mes y cruce con la app</p>
+      {st ? (
+        <div className="overflow-hidden rounded-2xl border border-border bg-surface">
+          <StatementRow account={account} st={st} />
+        </div>
+      ) : open ? (
+        <div className="space-y-2 rounded-2xl border border-border p-3">
+          <StatementFields value={draft} onChange={setDraft} />
+          <ErrorText>{err}</ErrorText>
+          <div className="flex gap-2">
+            <Button size="sm" onClick={() => void add()} disabled={busy}>Guardar extracto</Button>
+            <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>Cancelar</Button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <p className="text-xs text-muted">
+            Carga el PDF arriba o escribe el pago mínimo, el pago total y la deuda del extracto{cut ? ` del corte del ${formatDay(cut)}` : ""}: la app los cruza con su cuota del mes y su deuda.
+          </p>
+          <Button size="sm" variant="outline" onClick={() => setOpen(true)}>Escribir el extracto a mano</Button>
+        </>
+      )}
+    </div>
+  );
 }
