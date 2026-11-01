@@ -21,8 +21,8 @@ const tx = (over: Partial<Transaction>): Transaction => ({
 });
 const card = { id: "visa", statement_day: 20, due_day: 5, opening_at: account.opening_at, opening_balance: -1_000_000, interest_rate_ea: 0 };
 const st = (over: Partial<CardStatement>): CardStatement => ({
-  id: "s", account_id: "visa", cut_date: "2026-10-20", due_date: "2026-11-05", minimum_payment: 400_000, total_payment: 1_000_000,
-  total_debt: 1_000_000, source: "PDF", ...over,
+  account_id: "visa", cut_date: "2026-10-20", due_date: "2026-11-05", minimum_payment: 400_000, total_payment: 1_000_000,
+  total_debt: 1_000_000, ...over,
 });
 
 describe("proyección por compra", () => {
@@ -81,5 +81,16 @@ describe("compras del PDF que ya están", () => {
     expect(knownItem({ ...p, amount: 1 }, [item()], "visa")).toBeUndefined();
     expect(registeredTx({ description: "x", purchaseDate: "2026-10-25", amount: 200_000 }, [tx({})], "visa")?.id).toBe("t1");
     expect(registeredTx({ description: "x", purchaseDate: "2026-10-28", amount: 200_000 }, [tx({})], "visa")).toBeUndefined();
+  });
+});
+
+describe("fechas del cruce a mano", () => {
+  it("propone el último corte que ya pasó y su fecha de pago", async () => {
+    const { cutAndDue, lastCutMonth } = await import("@/components/CardStatements");
+    expect(cutAndDue({ statement_day: 20, due_day: 5 }, "2026-10")).toEqual({ cut: "2026-10-20", due: "2026-11-05" });
+    expect(cutAndDue({ statement_day: 10, due_day: 25 }, "2026-12")).toEqual({ cut: "2026-12-10", due: "2026-12-25" });
+    expect(lastCutMonth({ statement_day: 20, due_day: 5 }, "2026-11-01")).toBe("2026-10");
+    expect(lastCutMonth({ statement_day: 20, due_day: 5 }, "2026-11-20")).toBe("2026-11");
+    expect(lastCutMonth({ statement_day: 20, due_day: 5 }, "2026-01-05")).toBe("2025-12");
   });
 });
