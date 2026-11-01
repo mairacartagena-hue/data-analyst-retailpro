@@ -87,7 +87,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div className="pointer-events-none fixed inset-x-0 bottom-[calc(76px+env(safe-area-inset-bottom))] z-30">
         <div className="mx-auto flex max-w-2xl justify-start px-4">
           <button onClick={() => openPayment({ voice: true })} aria-label="Registrar por voz"
-            className="pointer-events-auto flex h-14 w-14 items-center justify-center rounded-full bg-wood text-on-olive shadow-soft ring-4 ring-bg active:scale-95">
+            className="pointer-events-auto flex h-14 w-14 items-center justify-center rounded-full bg-olive text-on-olive shadow-soft ring-4 ring-bg active:scale-95">
             <Mic size={26} />
           </button>
         </div>
