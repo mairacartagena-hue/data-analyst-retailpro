@@ -33,6 +33,7 @@ export function spendingByCategory(txs: Transaction[], categories: Category[], p
     const sign = consumptionSign(t.kind);
     if (!sign || !isWithin(t.occurred_on, period)) continue;
     for (const s of t.splits) {
+      if (s.contact_id) continue; // la parte de un contacto no es gasto propio
       const known = !!s.category_id && categories.some((c) => c.id === s.category_id);
       const id = known && byParent ? rootOf(categories, s.category_id!) : s.category_id;
       const label = categoryLabel(categories, id);
@@ -43,6 +44,12 @@ export function spendingByCategory(txs: Transaction[], categories: Category[], p
     }
   }
   return [...map.values()].filter((c) => c.total !== 0).sort((a, b) => b.total - a.total);
+}
+
+/** Lo que el movimiento cuenta como gasto propio: sus partes sin las de contactos (sin partes, el total). */
+export function ownAmount(t: Pick<Transaction, "amount" | "splits">): number {
+  if (t.splits.length === 0) return t.amount;
+  return t.splits.reduce((a, s) => a + (s.contact_id ? 0 : s.amount), 0);
 }
 
 export interface MonthTotals {
@@ -62,7 +69,7 @@ export function monthlyTrend(txs: Transaction[], months: string[]): MonthTotals[
     if (!r) continue;
     if (t.kind === "INCOME") r.income += t.amount;
     const sign = consumptionSign(t.kind);
-    if (sign) r.expense += sign * (t.splits.reduce((a, s) => a + s.amount, 0) || t.amount);
+    if (sign) r.expense += sign * ownAmount(t);
   }
   return months.map((m) => rows.get(m)!);
 }
@@ -81,6 +88,7 @@ export function spendingByPerson(txs: Transaction[], _categories: Category[], pe
     const sign = consumptionSign(t.kind);
     if (!sign || !isWithin(t.occurred_on, period)) continue;
     for (const s of t.splits) {
+      if (s.contact_id) continue;
       const row = out.get(s.responsible_user_id);
       if (!row) continue;
       if (t.scope === "HOUSEHOLD") row.household += sign * s.amount;
@@ -202,7 +210,7 @@ export function periodTrend(txs: Transaction[], periods: Period[]): PeriodTotals
     if (!r) continue;
     if (t.kind === "INCOME") r.income += t.amount;
     const sign = consumptionSign(t.kind);
-    if (sign) r.expense += sign * (t.splits.reduce((a, s) => a + s.amount, 0) || t.amount);
+    if (sign) r.expense += sign * ownAmount(t);
   }
   return rows;
 }
@@ -216,7 +224,7 @@ export function pendingInPeriod(txs: Transaction[], period: Period): { count: nu
     const sign = consumptionSign(t.kind);
     if (!sign) continue;
     count++;
-    amount += sign * (t.splits.reduce((a, s) => a + s.amount, 0) || t.amount);
+    amount += sign * ownAmount(t);
   }
   return { count, amount };
 }
@@ -321,7 +329,7 @@ export function fixedVsVariable(txs: Transaction[], period: Period, ctx: { categ
     if (!isWithin(t.occurred_on, period)) continue;
     const sign = consumptionSign(t.kind);
     if (!sign) continue;
-    const amount = sign * (t.splits.reduce((a, s) => a + s.amount, 0) || t.amount);
+    const amount = sign * ownAmount(t);
     if (t.scheduled_payment_id) out.scheduled += amount;
     else if ((t.tags.includes("#suscripcion") && (!t.movement_type || t.movement_type === "PURCHASE")) || t.splits.some((s) => s.category_id && subsCats.has(s.category_id))) out.subscriptions += amount;
     else if (t.account_id && ctx.creditIds.has(t.account_id)) out.creditCharges += amount;

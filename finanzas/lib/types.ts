@@ -164,6 +164,8 @@ export interface Split {
   responsible_user_id: string;
   origin: SplitOrigin;
   note: string | null;
+  /** Parte a cargo de un contacto fuera del hogar (sin categoría; queda a favor de quien pagó). */
+  contact_id?: string | null;
 }
 
 export interface Transaction {
@@ -266,6 +268,36 @@ export interface LedgerRow {
   transaction_id: string | null;
   /** Deuda que resuelve este asiento (pago o perdón). */
   resolves_id?: string | null;
+  description: string | null;
+  occurred_on: string;
+  created_by: string;
+  created_at: string;
+}
+
+/** Persona fuera del hogar con quien llevo cuentas (lista privada). */
+export interface Contact {
+  id: string;
+  owner_user_id: string;
+  name: string;
+  /** Usuario de la app (de otro hogar) con quien está vinculado: los dos ven los asientos. */
+  linked_user_id: string | null;
+  link_code: string | null;
+  archived: boolean;
+  created_at: string;
+}
+
+export type ContactEntryKind = "SPLIT" | "LOAN" | "ERRAND" | "PAYMENT" | "FORGIVEN";
+
+/** Asiento con un contacto. in_favor es desde quien lo anotó (owner_user_id): true = el contacto le debe. */
+export interface ContactEntry {
+  id: string;
+  contact_id: string;
+  owner_user_id: string;
+  amount: number;
+  in_favor: boolean;
+  kind: ContactEntryKind;
+  transaction_id: string | null;
+  received_transaction_id: string | null;
   description: string | null;
   occurred_on: string;
   created_by: string;
