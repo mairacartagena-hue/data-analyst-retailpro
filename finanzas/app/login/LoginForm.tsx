@@ -8,13 +8,14 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ErrorText, Field, Input } from "@/components/ui/input";
 import { errMsg } from "@/lib/utils";
+import { PasswordInput } from "@/components/PasswordInput";
 
 export function LoginForm() {
   const params = useSearchParams();
   const router = useRouter();
   const nextParam = params.get("next") || "/";
   const next = nextParam.startsWith("/") && !nextParam.startsWith("//") ? nextParam : "/";
-  const [mode, setMode] = useState<"password" | "link">("password");
+  const [mode, setMode] = useState<"password" | "link" | "forgot">("password");
   const [creating, setCreating] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -68,6 +69,18 @@ export function LoginForm() {
     else setSent(true);
   }
 
+  async function sendReset(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    const { error } = await getSupabase().auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent("/nueva-contrasena")}`,
+    });
+    setBusy(false);
+    if (error) setError(errMsg(error));
+    else setSent(true);
+  }
+
   async function verifyCode(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
@@ -102,6 +115,41 @@ export function LoginForm() {
     );
   }
 
+  if (mode === "forgot") {
+    return (
+      <Card>
+        {sent ? (
+          <div className="space-y-4">
+            <h2 className="font-display text-2xl">Revisa tu correo</h2>
+            <p className="text-[15px]">
+              Si <strong>{email}</strong> tiene cuenta, te llegará un enlace para crear una contraseña nueva. Ábrelo en este mismo dispositivo y navegador.
+            </p>
+            <p className="text-xs text-muted">¿No llega? Revisa la carpeta de spam o pide otro en un minuto.</p>
+            <button type="button" className="text-sm font-semibold text-olive underline" onClick={() => { setMode("password"); setSent(false); }}>
+              Volver a entrar
+            </button>
+          </div>
+        ) : (
+          <form onSubmit={sendReset} className="space-y-4">
+            <h2 className="font-display text-2xl">Olvidé mi contraseña</h2>
+            <p className="text-[15px] text-muted">Escribe tu correo y te enviamos un enlace para crear una contraseña nueva.</p>
+            <Field label="Tu correo" htmlFor="email-reset">
+              <Input id="email-reset" type="email" required autoComplete="email" value={email}
+                onChange={(e) => setEmail(e.target.value)} placeholder="tu@correo.com" />
+            </Field>
+            <Button type="submit" className="w-full" disabled={busy}>
+              <Mail size={18} /> {busy ? "Enviando..." : "Enviarme el enlace"}
+            </Button>
+            <ErrorText>{error}</ErrorText>
+            <button type="button" className="w-full text-sm font-semibold text-olive underline" onClick={() => { setMode("password"); setError(null); }}>
+              Volver a entrar con contraseña
+            </button>
+          </form>
+        )}
+      </Card>
+    );
+  }
+
   if (mode === "link") {
     return (
       <Card>
@@ -131,10 +179,16 @@ export function LoginForm() {
             onChange={(e) => setEmail(e.target.value)} placeholder="tu@correo.com" />
         </Field>
         <Field label="Contraseña" htmlFor="password">
-          <Input id="password" type="password" required minLength={8}
+          <PasswordInput id="password" required minLength={8}
             autoComplete={creating ? "new-password" : "current-password"} value={password}
             onChange={(e) => setPassword(e.target.value)} placeholder="Mínimo 8 caracteres" />
         </Field>
+        {!creating && (
+          <button type="button" className="-mt-2 block text-sm font-semibold text-olive underline"
+            onClick={() => { setMode("forgot"); setSent(false); setError(null); setNotice(null); }}>
+            Olvidé mi contraseña
+          </button>
+        )}
         <Button type="submit" className="w-full" disabled={busy}>
           {busy ? "Un momento..." : creating ? "Crear cuenta" : "Entrar"}
         </Button>
