@@ -209,6 +209,8 @@ function TxRow({ tx }: { tx: Transaction }) {
     icon = <Handshake size={18} className="text-wood" />;
     title = tx.description && tx.description !== "Liquidación" ? tx.description : "Liquidación";
     subtitle = `${payer?.display_name} → ${memberById(tx.counterparty_user_id)?.display_name}`;
+    // Para quien la recibe es una entrada; para quien la paga, una salida
+    sign = tx.counterparty_user_id === me.user_id ? "+" : tx.payer_user_id === me.user_id ? "−" : "";
   }
   if ((tx.installments ?? 1) > 1 && tx.kind === "EXPENSE") subtitle = `${subtitle} · ${tx.installments} cuotas`;
 
