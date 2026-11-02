@@ -9,7 +9,7 @@ import { Card } from "@/components/ui/card";
 import { ErrorText, Input } from "@/components/ui/input";
 import { verifyTotp } from "@/lib/mfa";
 
-export function VerifyForm({ email }: { email: string }) {
+export function VerifyForm({ email, next = "/" }: { email: string; next?: string }) {
   const router = useRouter();
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -21,7 +21,7 @@ export function VerifyForm({ email }: { email: string }) {
     setError(null);
     try {
       await verifyTotp(getSupabase(), code);
-      router.replace("/");
+      router.replace(next);
       router.refresh();
     } catch (err) {
       setError((err as Error).message);
