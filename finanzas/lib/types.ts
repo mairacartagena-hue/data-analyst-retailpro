@@ -192,6 +192,7 @@ export interface Transaction {
   tags: string[];
   created_by: string;
   created_at: string;
+  updated_at?: string | null;
   occurred_at?: string | null;
   merchant_norm?: string | null;
   movement_type?: "PURCHASE" | "TRANSFER_OUT" | "TRANSFER_IN" | "WITHDRAWAL" | "CARD_PAYMENT" | "INCOME" | "OWN_TRANSFER" | null;

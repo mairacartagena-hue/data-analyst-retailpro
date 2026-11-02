@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { accountStatement, gmfEstimate, inCloseWindow, monthRange, shiftMonth, suggestedCloseMonth } from "@/lib/finance/reconcile";
+import { accountStatement, gmfEstimate, inCloseWindow, monthRange, reconciliationDrift, shiftMonth, suggestedCloseMonth } from "@/lib/finance/reconcile";
 import type { Account, Transaction } from "@/lib/types";
 
 const acc: Account = {
@@ -67,5 +67,32 @@ describe("cierre del mes", () => {
     expect(inCloseWindow("2026-11-05")).toBe(true);
     expect(suggestedCloseMonth("2026-11-03")).toBe("2026-10");
     expect(suggestedCloseMonth("2026-10-30")).toBe("2026-10");
+  });
+});
+
+describe("cuenta conciliada que se mueve después", () => {
+  const credit: Account = { ...acc, id: "lulo", kind: "CREDIT", opening_balance: -17_972_309, opening_at: "2026-10-26T05:00:00Z" };
+  const rec = { month: "2026-10-01", status: "RECONCILED" as const, statement_balance: -17_972_309, updated_at: "2026-10-27T01:42:08Z" };
+  const old = [tx({ account_id: null, to_account_id: "lulo", kind: "TRANSFER", amount: 838_058, occurred_on: "2026-10-23", created_at: "2026-10-24T07:00:00Z" })];
+
+  it("sin cambios después de conciliar: no hay aviso", () => {
+    expect(reconciliationDrift(credit, old, rec)).toBeNull();
+  });
+
+  it("un movimiento de antes del corte registrado después: avisa la diferencia y cuál fue", () => {
+    const late = tx({ account_id: "lulo", kind: "ADJUSTMENT", direction: "OUT", amount: 78_203, occurred_on: "2026-10-26", created_at: "2026-11-02T15:00:00Z" });
+    const d = reconciliationDrift(credit, [...old, late], rec)!;
+    expect(d.drift).toBe(-78_203);
+    expect(d.cutoff).toBe("2026-10-26"); // se concilió el 26 en Bogotá, antes de terminar el mes
+    expect(d.changed.map((t) => t.id)).toEqual([late.id]);
+  });
+
+  it("movimientos después del corte no descuadran la conciliación", () => {
+    const next = tx({ account_id: null, to_account_id: "lulo", kind: "TRANSFER", amount: 900_000, occurred_on: "2026-11-01", created_at: "2026-11-01T15:00:00Z" });
+    expect(reconciliationDrift(credit, [...old, next], rec)).toBeNull();
+  });
+
+  it("cambiar el saldo inicial después de conciliar también avisa", () => {
+    expect(reconciliationDrift({ ...credit, opening_balance: -18_000_000 }, old, rec)?.drift).toBe(-27_691);
   });
 });
