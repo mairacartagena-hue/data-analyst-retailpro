@@ -11,6 +11,7 @@ import { creditReserve, isCreditKind, nextCuota } from "./credit";
 import { formatCop } from "./money";
 import { addDays, monthName } from "./periods";
 import { upcomingSubscriptions } from "./subscriptions";
+import { driftedAccounts } from "./reconcile";
 
 export interface Reminder {
   key: string;
@@ -28,7 +29,7 @@ export interface ReminderInput {
   transactions: Transaction[];
   commitments: ScheduledPayment[];
   cardItems: CardStatementItem[];
-  reconciliations: Pick<Reconciliation, "account_id" | "month" | "status">[];
+  reconciliations: (Pick<Reconciliation, "account_id" | "month" | "status"> & Partial<Reconciliation>)[];
 }
 
 /** Días hacia adelante que se programan. Se recalculan cada vez que se abre la app. */
@@ -121,7 +122,15 @@ export function buildReminders(s: ReminderInput): Reminder[] {
     push({ key: `suscripcion:${day}:${list.map((x) => x.key).join(",")}`.slice(0, 200), send_on: send, title: title.slice(0, 120), body: body.slice(0, 300), url: "/movimientos" });
   }
 
-  // 5. Cierre del mes: el primer día del mes siguiente, si faltan cuentas o créditos por conciliar
+  // 5. Cuentas conciliadas que se movieron después (movimiento nuevo, editado o borrado): aviso hoy
+  const fullRecs = s.reconciliations.filter((r): r is Reconciliation => r.statement_balance !== undefined && !!r.updated_at);
+  for (const { account, rec, d } of driftedAccounts(mine, s.transactions, fullRecs)) {
+    push({ key: `descuadre:${account.id}:${rec.month}:${d.drift}`, send_on: today,
+      title: `${account.name} se movió después de conciliarla`,
+      body: `Hay ${formatCop(Math.abs(d.drift))} de diferencia con lo que conciliaste. Revisa qué cambió.`, url: `/cierre?mes=${rec.month.slice(0, 7)}` });
+  }
+
+  // 6. Cierre del mes: el primer día del mes siguiente, si faltan cuentas o créditos por conciliar
   const month = monthStart(today);
   const missing = mine.filter((a) => !s.reconciliations.some((r) => r.account_id === a.id && r.month === month && r.status === "RECONCILED"));
   if (missing.length > 0) {

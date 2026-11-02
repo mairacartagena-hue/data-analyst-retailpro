@@ -13,6 +13,7 @@ import { PendingReview } from "@/components/PendingReview";
 import { BudgetDetailSheet } from "@/components/BudgetDetailSheet";
 import type { CategoryLimit } from "@/lib/types";
 import { CloseReminder } from "@/components/CloseReminder";
+import { DriftAlert } from "@/components/DriftAlert";
 import { CreditCheck } from "@/components/CreditCheck";
 import { UpcomingList, useUpcoming } from "@/components/Upcoming";
 import { Card, SectionTitle } from "@/components/ui/card";
@@ -85,6 +86,7 @@ export default function HomePage() {
       ]} />
 
       <SwipePeriods>
+        <DriftAlert />
         <CloseReminder />
         <CreditCheck />
         <PendingReview />

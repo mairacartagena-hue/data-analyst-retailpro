@@ -2,7 +2,7 @@
 // y estimado del 4x1000 (GMF). Replica la regla de account_balances(): un movimiento cuenta para el saldo
 // solo si ocurrió desde el momento del saldo inicial de la cuenta (opening_at).
 
-import type { Account, Transaction } from "@/lib/types";
+import type { Account, Reconciliation, Transaction } from "@/lib/types";
 import { addDays } from "./periods";
 import { accountSign } from "./spaces";
 
@@ -106,4 +106,70 @@ export function inCloseWindow(today: string): boolean {
   const day = Number(today.slice(8, 10));
   const end = monthRange(today.slice(0, 7)).end;
   return day <= 5 || today >= addDays(end, -2);
+}
+
+/** Saldo de la cuenta en un momento dado, con los datos de hoy. `at` cambia el momento efectivo de un movimiento. */
+export function balanceAt(account: Account, txs: Transaction[], atMs: number, at: (t: Transaction) => number = effectiveAt): number {
+  const openingAt = account.opening_at ? Date.parse(account.opening_at) : 0;
+  let b = account.opening_balance;
+  for (const t of txs) {
+    const e = effectOn(account.id, t);
+    if (e === 0) continue;
+    const when = at(t);
+    if (when >= openingAt && when <= atMs) b += e;
+    else if (when < openingAt && when > atMs) b -= e;
+  }
+  return b;
+}
+
+export interface ReconciliationDrift {
+  /** Saldo de la app hoy al corte de la conciliación menos el saldo conciliado (+ la app subió, − bajó). */
+  drift: number;
+  /** Saldo de la app hoy a ese corte. */
+  now: number;
+  /** Saldo conciliado. */
+  reconciled: number;
+  /** Fecha de corte (YYYY-MM-DD). */
+  cutoff: string;
+  /** Movimientos de antes del corte creados o editados después de conciliar. */
+  changed: Transaction[];
+}
+
+/**
+ * ¿Se movió una cuenta ya conciliada? Compara el saldo conciliado con el saldo de la app hoy a la misma fecha de corte
+ * (el último día del mes; si se concilió antes de que terminara el mes, el día en que se concilió). Si alguien
+ * registró, editó o borró movimientos de antes del corte, o cambió el saldo inicial, la diferencia deja de ser 0.
+ */
+export function reconciliationDrift(
+  account: Account,
+  txs: Transaction[],
+  rec: Pick<Reconciliation, "month" | "status" | "statement_balance" | "updated_at">,
+): ReconciliationDrift | null {
+  if (rec.status !== "RECONCILED") return null;
+  const range = monthRange(rec.month.slice(0, 7));
+  // Corte: el final del mes, o el momento de conciliar si fue antes (el saldo del banco era el de ese momento)
+  const recMs = Date.parse(rec.updated_at);
+  const monthEndMs = Date.parse(`${range.end}T23:59:59.999-05:00`);
+  const cutoffMs = Math.min(recMs, monthEndMs);
+  const cutoff = new Date(cutoffMs - 5 * 3_600_000).toISOString().slice(0, 10); // día en Bogotá
+  // Los movimientos sin hora del mismo día del corte cuentan dentro del corte
+  const at = (t: Transaction) => (!t.occurred_at && t.occurred_on === cutoff ? cutoffMs : effectiveAt(t));
+  const now = balanceAt(account, txs, cutoffMs, at);
+  const drift = Math.round(now - rec.statement_balance);
+  if (drift === 0) return null;
+  const changed = txs.filter((t) => effectOn(account.id, t) !== 0 && at(t) <= cutoffMs
+    && Math.max(Date.parse(t.created_at), t.updated_at ? Date.parse(t.updated_at) : 0) > recMs);
+  return { drift, now, reconciled: rec.statement_balance, cutoff, changed };
+}
+
+/** Cuentas propias conciliadas que se movieron después (la conciliación más reciente de cada una). */
+export function driftedAccounts(accounts: Account[], txs: Transaction[], recs: Reconciliation[]): { account: Account; rec: Reconciliation; d: ReconciliationDrift }[] {
+  const out: { account: Account; rec: Reconciliation; d: ReconciliationDrift }[] = [];
+  for (const a of accounts) {
+    const rec = recs.filter((r) => r.account_id === a.id && r.status === "RECONCILED").sort((x, y) => y.month.localeCompare(x.month))[0];
+    if (!rec) continue;
+    const d = reconciliationDrift(a, txs, rec);
+    if (d) out.push({ account: a, rec, d });
+  }
+  return out;
 }

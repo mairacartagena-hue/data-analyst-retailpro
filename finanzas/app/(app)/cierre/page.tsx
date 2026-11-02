@@ -19,7 +19,7 @@ import { creditMonthBreakdown } from "@/lib/finance/creditPayments";
 import { Segmented } from "@/components/ui/segmented";
 import type { Account } from "@/lib/types";
 import { ACCOUNT_KIND_LABEL } from "@/lib/types";
-import { accountStatement, gmfEstimate, monthRange, shiftMonth, suggestedCloseMonth, type GmfMode } from "@/lib/finance/reconcile";
+import { accountStatement, gmfEstimate, monthRange, reconciliationDrift, shiftMonth, suggestedCloseMonth, type GmfMode } from "@/lib/finance/reconcile";
 import { formatCop, parseCop } from "@/lib/finance/money";
 import { addDays, monthName, periodFor, todayBogota } from "@/lib/finance/periods";
 import { statusesFor } from "@/lib/finance/derive";
@@ -66,7 +66,11 @@ export default function CierrePage() {
   }, []);
   const range = monthRange(month);
   const mine = accounts.filter((a) => a.owner_user_id === me.user_id && !a.archived);
-  const done = mine.filter((a) => reconciliations.some((r) => r.account_id === a.id && r.month === range.start && r.status === "RECONCILED"));
+  // Conciliadas que siguen cuadrando: si algo cambió después de conciliar, vuelven a faltar
+  const done = mine.filter((a) => {
+    const r = reconciliations.find((x) => x.account_id === a.id && x.month === range.start && x.status === "RECONCILED");
+    return !!r && !reconciliationDrift(a, transactions, r);
+  });
   const myAccounts = mine.filter((a) => !isCreditKind(a.kind));
   const myCredits = mine.filter((a) => isCreditKind(a.kind));
   const doneOf = (list: Account[]) => list.filter((a) => done.includes(a)).length;
@@ -169,6 +173,7 @@ function AccountClose({ account, month, open, onToggle }: { account: Account; mo
   // Créditos: lo que bajó el capital, sin los intereses y seguros de las cuotas cargados al crédito
   const cb = useMemo(() => creditMonthBreakdown(account, transactions, range, st.inflow, st.outflow), [account, transactions, range, st]);
   const rec = reconciliations.find((r) => r.account_id === account.id && r.month === range.start);
+  const drift = useMemo(() => (rec ? reconciliationDrift(account, transactions, rec) : null), [account, transactions, rec]);
   const isCard = account.kind === "CREDIT_CARD";
   const isCredit = isCreditKind(account.kind);
   const isDebt = isCard || isCredit;
@@ -242,7 +247,9 @@ function AccountClose({ account, month, open, onToggle }: { account: Account; mo
           <span className="block truncate font-semibold">{account.name}{account.last4 ? ` ··${account.last4}` : ""}</span>
           <span className="text-xs text-muted">{open ? ACCOUNT_KIND_LABEL[account.kind] : `${isDebt ? "Deuda" : "Saldo"} según la app ${formatCop(appValue)}`}</span>
         </span>
-        {rec?.status === "RECONCILED" ? (
+        {drift ? (
+          <span className="flex items-center gap-1 rounded-full bg-danger-soft px-2 py-0.5 text-xs font-semibold"><AlertCircle size={13} /> Se movió</span>
+        ) : rec?.status === "RECONCILED" ? (
           <span className="flex items-center gap-1 rounded-full bg-olive-soft px-2 py-0.5 text-xs font-semibold"><CheckCircle2 size={13} /> Conciliada</span>
         ) : rec ? (
           <span className="rounded-full bg-warning-soft px-2 py-0.5 text-xs font-semibold">Con diferencia</span>
@@ -254,6 +261,34 @@ function AccountClose({ account, month, open, onToggle }: { account: Account; mo
 
       {open && (
         <div className="space-y-4 border-t border-border p-4">
+          {drift && (
+            <div className="space-y-2 rounded-xl bg-danger-soft px-3 py-2 text-sm">
+              <p className="flex items-start gap-2 font-semibold"><AlertCircle size={16} className="mt-0.5 shrink-0" /> Se movió después de conciliar</p>
+              <p>
+                Al conciliar, {isDebt ? "la deuda" : "el saldo"} al {Number(drift.cutoff.slice(8))} de {monthName(Number(drift.cutoff.slice(5, 7)) - 1, true)} era{" "}
+                <strong className="num">{formatCop(isDebt ? -drift.reconciled : drift.reconciled)}</strong>; hoy la app dice{" "}
+                <strong className="num">{formatCop(isDebt ? -drift.now : drift.now)}</strong> ({formatCop(Math.abs(drift.drift))} {(isDebt ? -drift.drift : drift.drift) > 0 ? "más" : "menos"}).
+              </p>
+              {drift.changed.length > 0 ? (
+                <>
+                  <p className="text-xs">Movimientos registrados o editados después de conciliar:</p>
+                  <ul className="space-y-1">
+                    {drift.changed.map((t) => (
+                      <li key={t.id}>
+                        <button className="flex w-full justify-between gap-2 text-left text-xs underline" onClick={() => openTransaction(t)}>
+                          <span className="truncate">{t.occurred_on} · {t.description ?? t.merchant ?? "Movimiento"}</span>
+                          <span className="num shrink-0">{formatCop(t.amount)}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : (
+                <p className="text-xs">Puede ser un movimiento borrado o un cambio en el saldo inicial de la cuenta.</p>
+              )}
+              <p className="text-xs">Si fue un error, corrígelo y vuelve a cuadrar. Si está bien, concilia de nuevo con el extracto.</p>
+            </div>
+          )}
           <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
             <dt className="text-muted">{isDebt ? "Deuda al empezar" : "Saldo al empezar"}</dt><dd className="num text-right">{formatCop(isDebt ? -st.opening : st.opening)}</dd>
             <dt className="text-muted">{isCredit ? "Abonos a capital" : isCard ? "Pagos y abonos" : "Entró"}</dt><dd className="num text-right text-olive">+{formatCop(isCredit ? cb.capital : st.inflow)}</dd>
