@@ -26,6 +26,7 @@ import { statusesFor } from "@/lib/finance/derive";
 import { fixedAmountsExcess } from "@/lib/finance/budget";
 import { unassigned, validateSplits, type SplitDraft } from "@/lib/finance/crossLedger";
 import { accountLabel, categoryLabel } from "@/lib/finance/labels";
+import { contactIdOf, contactKey } from "@/lib/finance/contacts";
 import { categoryPath, hasSplits } from "@/lib/finance/spaces";
 import { errMsg } from "@/lib/utils";
 import { installmentPlan, MAX_INSTALLMENTS, rateOf } from "@/lib/finance/installments";
@@ -108,7 +109,7 @@ export function TransactionSheet({
 }: { open: boolean; onOpenChange: (v: boolean) => void; editing: Transaction | null; preset?: TxPreset | null }) {
   const state = useFinance();
   const router = useRouter();
-  const { me, partner, accounts, categories, labels, supabase, reload, memberById } = state;
+  const { me, partner, accounts, categories, labels, supabase, reload, memberById, contacts } = state;
 
   const myAccounts = accounts.filter((a) => a.owner_user_id === me.user_id && !a.archived);
   // Destinos de una transferencia: mis cuentas y las tarjetas o créditos de mi pareja que me toca pagar
@@ -182,12 +183,13 @@ export function TransactionSheet({
       const sp = editing.splits;
       if (sp.length > 1) {
         setSplitMode(true);
-        setSplits(sp.map((s) => ({ key: s.id, amount: String(s.amount), categoryId: s.category_id ?? "", responsibleId: s.responsible_user_id })));
+        setSplits(sp.map((s) => ({ key: s.id, amount: String(s.amount), categoryId: s.category_id ?? "", responsibleId: s.contact_id ? contactKey(s.contact_id) : s.responsible_user_id })));
       } else {
         setSplitMode(false);
         const pendingCat = editing.status === "PENDING_REVIEW" && !sp[0]?.category_id ? editing.suggested_category_id ?? "" : "";
         setCategoryId(sp[0]?.category_id ?? pendingCat);
-        setResponsibleId(pendingCat ? (editing.suggested_responsible_user_id ?? me.user_id) : (sp[0]?.responsible_user_id ?? payerId));
+        setResponsibleId(pendingCat ? (editing.suggested_responsible_user_id ?? me.user_id)
+          : sp[0]?.contact_id ? contactKey(sp[0].contact_id) : (sp[0]?.responsible_user_id ?? payerId));
         // Un aviso que llegó solo queda personal; al revisarlo se propone el último espacio usado
         if (editing.status === "PENDING_REVIEW") setScope(lastScope());
       }
@@ -266,6 +268,14 @@ export function TransactionSheet({
     label: m!.user_id === me.user_id ? "Yo" : m!.display_name,
     color: m!.color,
   }));
+  // Un gasto mío puede tener partes a cargo de contactos fuera del hogar (no los ve la pareja)
+  const contactsAllowed = kind === "EXPENSE" && !partnerEdit && payerId === me.user_id;
+  const responsibleOptions = [
+    ...memberOptions,
+    ...(contactsAllowed ? contacts.filter((c) => !c.archived || [responsibleId, ...splits.map((x) => x.responsibleId)].includes(contactKey(c.id)))
+      .map((c) => ({ value: contactKey(c.id), label: c.name, color: "var(--color-muted, #9a9a9a)" })) : []),
+  ];
+  const contactName = (key: string) => contacts.find((c) => c.id === contactIdOf(key))?.name ?? "tu contacto";
 
   // Categorías que puede elegir cada responsable en el desglose: las privadas solo su dueño y solo en lo personal.
   const categoriesFor = (_userId: string) => usable;
@@ -281,9 +291,11 @@ export function TransactionSheet({
     ? splits.map((s) => ({ amount: parseCop(s.amount) ?? 0, categoryId: s.categoryId || null, responsibleUserId: s.responsibleId }))
     : [{ amount: total, categoryId: categoryId || null, responsibleUserId: responsibleId }];
   const remaining = unassigned(total, splitDrafts);
-  // Partes que le corresponden a alguien distinto de quien pagó
-  const crossedAmount = withSplits ? splitDrafts.filter((s) => s.responsibleUserId !== payerId).reduce((a, s) => a + s.amount, 0) : 0;
-  const otherId = splitDrafts.find((s) => s.responsibleUserId !== payerId)?.responsibleUserId ?? null;
+  // Partes que le corresponden a alguien del hogar distinto de quien pagó (las de contactos van aparte)
+  const householdParts = splitDrafts.filter((s) => !contactIdOf(s.responsibleUserId));
+  const crossedAmount = withSplits ? householdParts.filter((s) => s.responsibleUserId !== payerId).reduce((a, s) => a + s.amount, 0) : 0;
+  const otherId = householdParts.find((s) => s.responsibleUserId !== payerId)?.responsibleUserId ?? null;
+  const contactParts = withSplits && contactsAllowed ? splitDrafts.filter((s) => contactIdOf(s.responsibleUserId)) : [];
 
   const fixedContext = useMemo(() => {
     if (kind !== "EXPENSE" || splitMode || !selectedCategory || !partner || partnerEdit || scope !== "HOUSEHOLD") return null;
@@ -463,12 +475,17 @@ export function TransactionSheet({
         income_category_id: kind === "INCOME" ? incomeCategoryId || null : null,
         scheduled_payment_id: scheduled && (kind === "EXPENSE" || kind === "DEBT_PAYMENT") ? scheduled.id : null,
         scheduled_for: scheduled && (kind === "EXPENSE" || kind === "DEBT_PAYMENT") ? scheduled.for : null,
-        splits: withSplits ? payloadSplits.map((s) => ({
-          amount: s.amount,
-          category_id: s.categoryId,
-          responsible_user_id: s.responsibleUserId,
-          origin: s.origin ?? "NORMAL",
-        })) : [],
+        splits: withSplits ? payloadSplits.map((s) => {
+          // Parte de un contacto: sin categoría y a cargo de quien pagó (el asiento queda con el contacto)
+          const contactId = contactIdOf(s.responsibleUserId);
+          if (contactId) return { amount: s.amount, category_id: null, responsible_user_id: payerId, origin: "NORMAL", ...(kind === "EXPENSE" ? { contact_id: contactId } : {}) };
+          return {
+            amount: s.amount,
+            category_id: s.categoryId,
+            responsible_user_id: s.responsibleUserId,
+            origin: s.origin ?? "NORMAL",
+          };
+        }) : [],
     }, tagIds, !editing);
     if (sent.queued) return finishQueued();
     const { data: savedId, error } = sent;
@@ -709,10 +726,10 @@ export function TransactionSheet({
                   onPick={pickCategory} onNew={partnerEdit ? undefined : () => setNewCategory("EXPENSE")} />
               </Field>
 
-              {partner && (
+              {responsibleOptions.length > 1 && (
                 <Field label="¿A quién le corresponde?" hint={preset?.categoryId && !editing ? "Propuesto por el presupuesto de la categoría; puedes cambiarlo. No tiene que ser quien pagó." : "Quién asume económicamente el gasto; no tiene que ser quien pagó."}>
                   <ChipGroup value={responsibleId} onChange={setResponsibleId}
-                    options={memberOptions} />
+                    options={responsibleOptions} />
                 </Field>
               )}
             </>
@@ -742,18 +759,22 @@ export function TransactionSheet({
                       </button>
                     )}
                   </div>
-                  {partner && (
-                    <ChipGroup value={s.responsibleId} options={memberOptions}
+                  {responsibleOptions.length > 1 && (
+                    <ChipGroup value={s.responsibleId} options={responsibleOptions}
                       onChange={(v) => setSplits(splits.map((x) => (x.key === s.key ? {
                         ...x, responsibleId: v,
                         categoryId: categoriesFor(v).some((c) => c.id === x.categoryId) ? x.categoryId : "",
                       } : x)))} />
                   )}
-                  <Select value={s.categoryId} aria-label="Categoría de esta parte"
-                    onChange={(e) => setSplits(splits.map((x) => (x.key === s.key ? { ...x, categoryId: e.target.value } : x)))}>
-                    <option value="">{s.responsibleId === me.user_id ? "Sin categoría" : `Sin categoría (la elige ${nameOf(s.responsibleId)})`}</option>
-                    <CategoryOptions categories={categoriesFor(s.responsibleId)} />
-                  </Select>
+                  {contactIdOf(s.responsibleId) ? (
+                    <p className="px-1 text-xs text-muted">Parte de {contactName(s.responsibleId)}: queda por cobrar y no cuenta en tus presupuestos.</p>
+                  ) : (
+                    <Select value={s.categoryId} aria-label="Categoría de esta parte"
+                      onChange={(e) => setSplits(splits.map((x) => (x.key === s.key ? { ...x, categoryId: e.target.value } : x)))}>
+                      <option value="">{s.responsibleId === me.user_id ? "Sin categoría" : `Sin categoría (la elige ${nameOf(s.responsibleId)})`}</option>
+                      <CategoryOptions categories={categoriesFor(s.responsibleId)} />
+                    </Select>
+                  )}
                 </div>
               ))}
               <div className="flex gap-2">
@@ -769,6 +790,17 @@ export function TransactionSheet({
                   Sin dividir
                 </Button>
               </div>
+            </div>
+          )}
+
+          {contactParts.length > 0 && (
+            <div className="flex items-start gap-2 rounded-2xl bg-wood-soft px-3 py-2.5 text-sm">
+              <ArrowRightLeft size={16} className="mt-0.5 shrink-0 text-wood" />
+              <p>
+                {contactParts.map((c, i) => (
+                  <span key={i}>{i > 0 ? " · " : ""}{contactName(c.responsibleUserId)} te debe {formatCop(c.amount)}</span>
+                ))}. Queda en Cuentas › Cruce › Contactos y no cuenta en tus presupuestos.
+              </p>
             </div>
           )}
 
@@ -853,7 +885,7 @@ export function TransactionSheet({
 /** Vista de solo lectura (movimientos personales de la pareja en los que participo, o liquidaciones). */
 function TransactionDetail({ open, onOpenChange, tx }: { open: boolean; onOpenChange: (v: boolean) => void; tx: Transaction }) {
   const state = useFinance();
-  const { me, categories, labels, supabase, reload, memberById } = state;
+  const { me, categories, labels, supabase, reload, memberById, contacts } = state;
   const [error, setError] = useState<string | null>(null);
   const payer = memberById(tx.payer_user_id);
   const hiddenAmount = hasSplits(tx.kind) ? tx.amount - tx.splits.reduce((a, s) => a + s.amount, 0) : 0;
@@ -882,10 +914,12 @@ function TransactionDetail({ open, onOpenChange, tx }: { open: boolean; onOpenCh
           return (
             <div key={s.id} className="space-y-2 rounded-2xl border border-border bg-surface p-3">
               <div className="flex items-center justify-between gap-2">
-                <span className="flex items-center gap-2"><MemberBadge member={resp} size={22} /> {cat.icon} {categoryPath(categories, s.category_id) || cat.name}</span>
+                {s.contact_id
+                  ? <span className="flex items-center gap-2"><ArrowRightLeft size={16} className="text-wood" /> Parte de {contacts.find((c) => c.id === s.contact_id)?.name ?? "un contacto"}</span>
+                  : <span className="flex items-center gap-2"><MemberBadge member={resp} size={22} /> {cat.icon} {categoryPath(categories, s.category_id) || cat.name}</span>}
                 <span className="num font-semibold">{formatCop(s.amount)}</span>
               </div>
-              {s.responsible_user_id === me.user_id && (
+              {s.responsible_user_id === me.user_id && !s.contact_id && (
                 <Select value={s.category_id ?? ""} aria-label="Categoría de mi parte" onChange={(e) => setCategory(s.id, e.target.value)}>
                   <option value="">Sin categoría</option>
                   <CategoryOptions categories={myCategories} />

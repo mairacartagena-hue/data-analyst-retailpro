@@ -5,7 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabase } from "@/lib/supabase/client";
 import type {
   Account, AccountLabel, BudgetPlan, CategoryLimit, BudgetPlanCategory, Category, CategoryBudgetRow, CustomPeriodRow, Household, LedgerRow,
-  CardStatementItem, ObligationDebt, ManualAsset, Member, PeriodSettingsRow, Reconciliation, SavingsContribution, SavingsGoal, ScheduledPayment, Split, Tag, Transaction,
+  CardStatementItem, Contact, ContactEntry, ObligationDebt, ManualAsset, Member, PeriodSettingsRow, Reconciliation, SavingsContribution, SavingsGoal, ScheduledPayment, Split, Tag, Transaction,
 } from "@/lib/types";
 import { toPeriodSettings, type Snapshot } from "@/lib/finance/derive";
 import type { SpendingRow } from "@/lib/finance/budget";
@@ -24,6 +24,9 @@ export interface FinanceState extends Snapshot {
   cardItems: CardStatementItem[];
   /** Créditos y tarjetas con presupuesto obligatorio del hogar (también los privados de la pareja). */
   obligationDebts: ObligationDebt[];
+  /** Mis contactos fuera del hogar y los asientos que veo (los míos y los de contactos vinculados). */
+  contacts: Contact[];
+  contactLedger: ContactEntry[];
   /** Movimientos para presupuestos e informes: las compras a cuotas, una copia por cuota en su mes. */
   consumption: Transaction[];
   household: Household;
@@ -141,10 +144,17 @@ async function loadAll(sb: SupabaseClient, userId: string): Promise<Loaded> {
   const transactions: Transaction[] = txs.map((t) => ({ ...t, amount: Number(t.amount), installments: Number(t.installments ?? 1), interest_rate_ea: num(t.interest_rate_ea) as number | null, splits: splitsByTx.get(t.id) ?? [] }));
   const consumption = expandInstallments(transactions);
   // "*" para que as_of llegue cuando ya exista la columna (migración 0049) sin romper antes
-  const [cardItemRows, obligationRows] = await Promise.all([
+  const [cardItemRows, obligationRows, contactRows, contactLedgerRows] = await Promise.all([
     sb.from("card_statement_items").select("*"),
     sb.rpc("household_obligation_debts"),
+    sb.from("contacts").select("*").order("name"),
+    fetchAll<ContactEntry>((f, t) =>
+      sb.from("contact_ledger").select("*").order("occurred_on", { ascending: false }).order("created_at", { ascending: false }).range(f, t))
+      .catch(() => [] as ContactEntry[]),
   ]);
+  // Si las tablas aún no existen (migración 0052 pendiente) no hay contactos
+  const contacts = contactRows.error ? [] : (contactRows.data ?? []) as Contact[];
+  const contactLedger = contactLedgerRows.map((e) => ({ ...e, amount: Number(e.amount) }));
   // Si la función aún no existe (migración 0051 pendiente) quedan solo los créditos y tarjetas visibles
   const obligationDebts = obligationRows.error ? [] : ((obligationRows.data ?? []) as ObligationDebt[])
     .map((d) => ({ ...d, statement_day: num(d.statement_day) as number | null, due_day: Number(d.due_day) }));
@@ -206,6 +216,8 @@ async function loadAll(sb: SupabaseClient, userId: string): Promise<Loaded> {
     consumption,
     cardItems,
     obligationDebts,
+    contacts,
+    contactLedger,
     sharedSpending,
     plans: ((plans.data ?? []) as BudgetPlan[]).map((b) => ({ ...b, amount: Number(b.amount), alert_pct: Number(b.alert_pct), shared_with_partner: !!b.shared_with_partner })),
     planCategories: ((planCategories.data ?? []) as BudgetPlanCategory[]).map((c) => ({ ...c, amount: num(c.amount) as number | null })),
@@ -370,6 +382,10 @@ export function FinanceProvider({ userId, children }: { userId: string; children
         schedule,
       );
     }
+    // Contactos: los míos y los asientos de contactos vinculados (de otro hogar; la RLS filtra lo que veo)
+    channel = channel
+      .on("postgres_changes", { event: "*", schema: "public", table: "contacts", filter: `owner_user_id=eq.${userId}` }, schedule)
+      .on("postgres_changes", { event: "*", schema: "public", table: "contact_ledger" }, schedule);
     channel.subscribe();
     const onVisible = () => document.visibilityState === "visible" && schedule();
     document.addEventListener("visibilitychange", onVisible);
@@ -377,7 +393,7 @@ export function FinanceProvider({ userId, children }: { userId: string; children
       document.removeEventListener("visibilitychange", onVisible);
       void supabase.removeChannel(channel);
     };
-  }, [householdId, reload, supabase]);
+  }, [householdId, reload, supabase, userId]);
 
   const settings = data?.settings;
   useEffect(() => {
@@ -396,6 +412,9 @@ export function FinanceProvider({ userId, children }: { userId: string; children
     const all = [data.me, data.partner].filter(Boolean) as Member[];
     return {
       ...data,
+      // Una copia guardada sin conexión de antes de los contactos no los trae
+      contacts: data.contacts ?? [],
+      contactLedger: data.contactLedger ?? [],
       period,
       setPeriod,
       reload,

@@ -7,6 +7,7 @@ import { HandCoins, Trash2, Undo2 } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { useShell } from "@/components/AppShell";
 import { MemberBadge } from "@/components/MemberBadge";
+import { ContactsSection } from "@/components/ContactsSection";
 import { AmountInput } from "@/components/AmountInput";
 import { Button } from "@/components/ui/button";
 import { Card, SectionTitle } from "@/components/ui/card";
@@ -143,6 +144,10 @@ export function CruceView() {
           <p className="mt-2 px-1 text-xs text-muted">Verde: a tu favor. Rojo: lo debes tú. Los asientos de compras se corrigen editando el movimiento.</p>
         </>
       )}
+
+      <div className="mt-8">
+        <ContactsSection />
+      </div>
 
       <LedgerEntrySheet open={addOpen} onOpenChange={setAddOpen} />
       <ResolveDebtSheet resolving={resolving} onClose={() => setResolving(null)} maxTotal={Math.max(0, net)} />

@@ -158,6 +158,11 @@ GEMINI_MODEL=...            # opcional; por defecto gemini-flash-lite-latest
 - La cuota de cada crédito o tarjeta cuyo presupuesto es del hogar y obligatorio sale en Vencimientos (Inicio y Presupuestos) a ambos, también si la cuenta es privada, con el monto del presupuesto y “a cargo de” quien la paga. Queda pagada con una transferencia a esa cuenta o un gasto en su categoría cerca del día de pago (`lib/finance/obligationDues.ts`).
 - `household_obligation_debts()` solo entrega nombre, tipo, días de corte y pago y la categoría; no saldos ni movimientos.
 
+**Contactos fuera del hogar y cruce con otro hogar (migración 0052):**
+- Cuentas › Cruce › **Contactos**: lista privada de personas fuera del hogar (`contacts`) con su saldo (`contact_ledger`): préstamos y encargos, **Me pagó** (entra a una cuenta como ajuste, no es ingreso), **Le pagué** (sale como ajuste, no es gasto) y **Condonar**. Nunca por más de lo que se debe (`settle_contact()`).
+- **Dividir una compra con un contacto:** en «¿A quién le corresponde?» aparecen los contactos. Esa parte queda sin categoría, no cuenta en presupuestos ni informes (`ownAmount()` en `lib/finance/reports.ts`) y deja el asiento a favor de quien pagó (`transaction_splits.contact_id`). La pareja no ve el contacto ni puede ajustar ese movimiento.
+- **Vincular con alguien de otro hogar que usa la app:** el dueño del contacto crea un código (o comparte el enlace `/cuentas?vista=cruce&vincular=CÓDIGO`); el otro lo escribe en **Tengo un código** y elige uno de sus contactos o crea uno. Desde ahí cada uno ve los asientos del otro (al revés) y el mismo saldo, pero nada más de su hogar. Con un contacto vinculado, el pago lo registra quien paga y quien recibe marca en qué cuenta le entró (`receive_contact_payment()`). Cualquiera puede desvincular: los asientos vuelven a ser solo de quien los anotó.
+
 ## Préstamos (migración 0028)
 
 Cuenta de tipo **Préstamo** (Cuentas → + → Préstamo): para plata que me prestan (por ejemplo mi hermana) o que le presto a alguien. Su saldo es negativo mientras se debe.
