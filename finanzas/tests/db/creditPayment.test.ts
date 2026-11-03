@@ -58,3 +58,27 @@ describe("pago de la cuota de un crédito", () => {
     await expect(rpc(db, MAY, "apply_credit_payment", { transaction_id: manual, credit_id: credit, charges: 300_000 })).rejects.toThrow(/automáticamente/);
   });
 });
+
+describe("cuota registrada a mano de un crédito con presupuesto", () => {
+  it("la transferencia al crédito queda del hogar, también las de antes de incluirlo en Presupuestos", async () => {
+    const db = await setupDb();
+    await db.exec(`insert into auth.users values ('${MAY}')`);
+    await as(db, MAY, `select public.create_household('Casa', 'May')`);
+    const hh = (await db.query<{ id: string }>(`select id from households`)).rows[0].id;
+    const acc = async (name: string, kind: string, opening: number) =>
+      (await as<{ id: string }>(db, MAY, `insert into accounts (household_id, owner_user_id, name, kind, visibility, opening_balance, opening_at)
+        values ($1, $2, $3, $4, 'PRIVATE', $5, '2026-01-01') returning id`, [hh, MAY, name, kind, opening]))[0].id;
+    const bank = await acc("Nequi", "DEPOSIT", 1_000_000);
+    const credit = await acc("Crédito Nequi", "CREDIT", -900_000);
+    const pay = (on: string) => rpc<string>(db, MAY, "save_transaction", {
+      kind: "TRANSFER", amount: 58_245, occurred_on: on, account_id: bank, to_account_id: credit, creates_debt: false, tags: [] });
+    const scope = async (id: string) => (await db.query<{ scope: string }>(`select scope from transactions where id = $1`, [id])).rows[0].scope;
+
+    const before = await pay("2026-09-29");
+    expect(await scope(before)).toBe("PERSONAL");
+    const cat = await rpc<string>(db, MAY, "save_category", { name: "Consumo" });
+    await as(db, MAY, `update accounts set budget_category_id = $1 where id = $2`, [cat, credit]);
+    expect(await scope(before)).toBe("HOUSEHOLD");
+    expect(await scope(await pay("2026-10-29"))).toBe("HOUSEHOLD");
+  }, 30_000);
+});

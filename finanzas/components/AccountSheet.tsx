@@ -765,7 +765,9 @@ function CreditPayments({ account, autoOpen = false }: { account: Account; autoO
     setBusy(true);
     if (capitalN > 0) {
       const r = await supabase.rpc("save_transaction", { p: {
-        kind: "TRANSFER", amount: capitalN, occurred_on: date, description: `Cuota crédito · capital (${account.name})`,
+        // Con presupuesto del crédito, la cuota es del hogar: así los dos la ven completa en el presupuesto
+        kind: "TRANSFER", scope: account.budget_category_id ? "HOUSEHOLD" : "PERSONAL", amount: capitalN, occurred_on: date,
+        description: `Cuota crédito · capital (${account.name})`,
         account_id: payFrom, to_account_id: account.id, creates_debt: false, tags: [],
       } });
       if (r.error) { setBusy(false); return setErr(errMsg(r.error)); }
