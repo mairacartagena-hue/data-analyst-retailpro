@@ -321,19 +321,36 @@ export interface FixedVariable {
   variable: number;
 }
 
-/** Gastos fijos (vencimientos, suscripciones, cuotas de créditos) frente a variables en el periodo. */
-export function fixedVsVariable(txs: Transaction[], period: Period, ctx: { categories: Category[]; creditIds: Set<string> }): FixedVariable {
+export type FixedKind = "scheduled" | "subscriptions" | "creditCharges" | "variable";
+
+/** Un gasto del periodo con su tipo (fijo o variable) y lo que cuenta. */
+export interface FixedVariableItem {
+  t: Transaction;
+  kind: FixedKind;
+  amount: number;
+}
+
+/** Cada gasto del periodo clasificado como fijo (vencimiento, suscripción o cuota de crédito) o variable. */
+export function fixedVariableItems(txs: Transaction[], period: Period, ctx: { categories: Category[]; creditIds: Set<string> }): FixedVariableItem[] {
   const subsCats = new Set(ctx.categories.filter((c) => /suscrip/i.test(c.name)).map((c) => c.id));
-  const out: FixedVariable = { scheduled: 0, subscriptions: 0, creditCharges: 0, variable: 0 };
+  const out: FixedVariableItem[] = [];
   for (const t of txs) {
     if (!isWithin(t.occurred_on, period)) continue;
     const sign = consumptionSign(t.kind);
     if (!sign) continue;
     const amount = sign * ownAmount(t);
-    if (t.scheduled_payment_id) out.scheduled += amount;
-    else if ((t.tags.includes("#suscripcion") && (!t.movement_type || t.movement_type === "PURCHASE")) || t.splits.some((s) => s.category_id && subsCats.has(s.category_id))) out.subscriptions += amount;
-    else if (t.account_id && ctx.creditIds.has(t.account_id)) out.creditCharges += amount;
-    else out.variable += amount;
+    const kind: FixedKind = t.scheduled_payment_id ? "scheduled"
+      : (t.tags.includes("#suscripcion") && (!t.movement_type || t.movement_type === "PURCHASE")) || t.splits.some((s) => s.category_id && subsCats.has(s.category_id)) ? "subscriptions"
+      : t.account_id && ctx.creditIds.has(t.account_id) ? "creditCharges"
+      : "variable";
+    out.push({ t, kind, amount });
   }
+  return out;
+}
+
+/** Gastos fijos (vencimientos, suscripciones, cuotas de créditos) frente a variables en el periodo. */
+export function fixedVsVariable(txs: Transaction[], period: Period, ctx: { categories: Category[]; creditIds: Set<string> }): FixedVariable {
+  const out: FixedVariable = { scheduled: 0, subscriptions: 0, creditCharges: 0, variable: 0 };
+  for (const i of fixedVariableItems(txs, period, ctx)) out[i.kind] += i.amount;
   return out;
 }
