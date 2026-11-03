@@ -103,7 +103,7 @@ export default function HomePage() {
               </p>
             </div>
             {net < 0 ? (
-              <Button size="sm" onClick={openSettle}>Liquidar</Button>
+              <Button size="sm" onClick={openSettle}>Pagar o abonar</Button>
             ) : (
               <Link href="/cuentas?vista=cruce" className="text-sm font-semibold text-olive">Ver</Link>
             )}

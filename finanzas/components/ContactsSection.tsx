@@ -8,6 +8,7 @@ import { Archive, ArchiveRestore, HandCoins, KeyRound, Link2, Link2Off, Pencil, 
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { useShell } from "@/components/AppShell";
 import { AmountInput } from "@/components/AmountInput";
+import { PayAmountField, payAmountError, type PayMode } from "@/components/PayAmountField";
 import { Button } from "@/components/ui/button";
 import { Card, SectionTitle } from "@/components/ui/card";
 import { ErrorText, Field, Input } from "@/components/ui/input";
@@ -237,8 +238,8 @@ function ContactSheet({ summary, onClose }: { summary: ContactSummary; onClose: 
           </p>
           <div className="mt-4 grid grid-cols-2 gap-2">
             <Button variant="outline" size="sm" disabled={contact.archived} onClick={() => setAction("ENTRY")}><HandCoins size={16} /> Préstamo o encargo</Button>
-            {net > 0 && !linked && <Button size="sm" onClick={() => setAction("RECEIVED")}>Me pagó</Button>}
-            {net < 0 && <Button size="sm" onClick={() => setAction("PAID")}>Le pagué</Button>}
+            {net > 0 && !linked && <Button size="sm" onClick={() => setAction("RECEIVED")}>Me pagó o abonó</Button>}
+            {net < 0 && <Button size="sm" onClick={() => setAction("PAID")}>Pagar o abonar</Button>}
             {net > 0 && <Button variant="outline" size="sm" onClick={() => setAction("FORGIVEN")}>Condonar</Button>}
           </div>
           {net > 0 && linked && <p className="mt-2 text-xs text-muted">Cuando te pague, lo registra {contact.name} y aquí marcas en qué cuenta te entró.</p>}
@@ -388,6 +389,7 @@ function SettleContactSheet({ mode, contactId, name, max, onClose }: { mode: "RE
   const { supabase, reload, labels } = useFinance();
   const cash = useCashAccounts();
   const [amount, setAmount] = useState(String(max));
+  const [payMode, setPayMode] = useState<PayMode>("ALL");
   const [account, setAccount] = useState(cash[0]?.id ?? "");
   const [date, setDate] = useState(todayBogota());
   const [error, setError] = useState<string | null>(null);
@@ -396,8 +398,8 @@ function SettleContactSheet({ mode, contactId, name, max, onClose }: { mode: "RE
   const moves = mode !== "FORGIVEN";
 
   async function save() {
-    if (n <= 0) return setError("Escribe el monto.");
-    if (n > max) return setError(`El saldo es de ${formatCop(max)}.`);
+    const e = payAmountError(amount, max);
+    if (e) return setError(e);
     if (moves && !account) return setError("Elige la cuenta.");
     setBusy(true);
     setError(null);
@@ -410,15 +412,16 @@ function SettleContactSheet({ mode, contactId, name, max, onClose }: { mode: "RE
     void reload();
   }
 
-  const title = mode === "RECEIVED" ? `${name} me pagó` : mode === "PAID" ? `Le pagué a ${name}` : "Condonar la deuda";
+  const title = mode === "RECEIVED" ? `Pago de ${name}` : mode === "PAID" ? `Pagarle a ${name}` : "Condonar la deuda";
   return (
     <Sheet open onOpenChange={(v) => !v && onClose()} title={title} description={`Saldo: ${formatCop(max)}`}
       footer={<div className="space-y-2"><ErrorText>{error}</ErrorText><Button size="lg" className="w-full" disabled={busy} onClick={save}>
-        {busy ? "Guardando..." : `${mode === "FORGIVEN" ? "Condonar" : "Registrar"} ${formatCop(n)}`}
+        {busy ? "Guardando..." : `${mode === "FORGIVEN" ? "Condonar" : n < max ? "Registrar abono de" : "Registrar pago de"} ${formatCop(n)}`}
       </Button></div>}>
       <div className="space-y-4 pb-2">
-        <AmountInput large value={amount} onChange={setAmount} />
-        <p className="-mt-2 text-xs text-muted">Puede ser solo una parte; el resto queda pendiente.</p>
+        <PayAmountField total={max} mode={payMode} onModeChange={setPayMode} amount={amount} onAmountChange={setAmount}
+          allLabel={mode === "FORGIVEN" ? "Condonar todo" : mode === "RECEIVED" ? "Me pagó todo" : "Pagar todo"}
+          partLabel={mode === "FORGIVEN" ? "Una parte" : mode === "RECEIVED" ? "Me abonó" : "Abonar"} />
         {moves ? (
           <>
             <Field label={mode === "RECEIVED" ? "Entró a" : "Salió de"}>
