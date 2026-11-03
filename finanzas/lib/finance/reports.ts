@@ -130,12 +130,39 @@ export interface TxFilter {
   payerId?: string;
   responsibleId?: string;
   status?: Transaction["status"];
+  /**
+   * Créditos con presupuesto (crédito → categoría de su presupuesto). Con filtro de categoría, el pago al crédito
+   * (la transferencia del capital, que no lleva categoría) sale en la categoría de su presupuesto, como en Informes.
+   */
+  creditBudgets?: Map<string, string>;
+}
+
+/** Pago a un crédito con presupuesto en una de las categorías del filtro. */
+function isCreditPaymentIn(t: Transaction, cats: Set<string>, creditBudgets?: Map<string, string>): boolean {
+  if (t.kind !== "TRANSFER" || !t.to_account_id || !creditBudgets) return false;
+  const cat = creditBudgets.get(t.to_account_id);
+  return !!cat && cats.has(cat);
+}
+
+/**
+ * Lo pagado de una lista filtrada por categoría, igual que en Informes y Presupuestos: el pago a un crédito con
+ * presupuesto cuenta completo y los intereses cargados al propio crédito no se suman otra vez (ya van en ese pago).
+ */
+export function filteredPaid(txs: Transaction[], creditBudgets: Map<string, string>): number {
+  let total = 0;
+  for (const t of txs) {
+    if (t.kind === "TRANSFER" && t.to_account_id && creditBudgets.has(t.to_account_id)) total += t.amount;
+    else if (t.account_id && creditBudgets.has(t.account_id)) continue;
+    else total += consumptionSign(t.kind) * t.amount;
+  }
+  return total;
 }
 
 export function matchesFilter(t: Transaction, f: TxFilter): boolean {
   if (f.tag && !t.tags.includes(f.tag)) return false;
   const cats = f.categoryIds ?? (f.categoryId ? new Set([f.categoryId]) : null);
-  if (cats && !t.splits.some((s) => s.category_id && cats.has(s.category_id)) && !(t.income_category_id && cats.has(t.income_category_id))) return false;
+  if (cats && !t.splits.some((s) => s.category_id && cats.has(s.category_id)) && !(t.income_category_id && cats.has(t.income_category_id))
+    && !isCreditPaymentIn(t, cats, f.creditBudgets)) return false;
   if (f.accountId && t.account_id !== f.accountId && t.to_account_id !== f.accountId) return false;
   if (f.kind && t.kind !== f.kind) return false;
   if (f.scope && t.scope !== f.scope) return false;
