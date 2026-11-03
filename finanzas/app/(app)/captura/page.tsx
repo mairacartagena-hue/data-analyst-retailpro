@@ -70,6 +70,8 @@ export default function CapturaPage() {
   const [editingMemory, setEditingMemory] = useState<MemoryGroup | null>(null);
   const [retrying, setRetrying] = useState<{ done: number; total: number } | null>(null);
   const [retrySummary, setRetrySummary] = useState<string | null>(null);
+  const recent = logs.filter((l) => !FAILED_RESULTS.includes(l.result));
+  const memoryGroups = groupMemory(memory);
 
   useEffect(() => setOrigin(window.location.origin), []);
   const webhook = `${origin}/api/webhook/android-ingest`;
@@ -281,21 +283,22 @@ export default function CapturaPage() {
         )}
       </section>
 
-      <SectionTitle>Últimos eventos</SectionTitle>
-      {logs.filter((l) => !FAILED_RESULTS.includes(l.result)).length === 0 ? (
+      <FoldSection id="eventos" title="Últimos eventos" count={recent.length}>
+      {recent.length === 0 ? (
         <p className="px-1 text-sm text-muted">Aún no ha llegado nada reconocido. Cuando conectes MacroDroid o Gmail verás aquí cada aviso y qué se hizo con él.</p>
       ) : (
         <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface">
-          {logs.filter((l) => !FAILED_RESULTS.includes(l.result)).map((l) => <LogRow key={l.id} log={l} onChanged={refresh} />)}
+          {recent.map((l) => <LogRow key={l.id} log={l} onChanged={refresh} />)}
         </div>
       )}
+      </FoldSection>
 
-      <SectionTitle>Memoria de comercios</SectionTitle>
+      <FoldSection id="memoria" title="Memoria de comercios" count={memoryGroups.length}>
       {memory.length === 0 ? (
         <p className="px-1 text-sm text-muted">Cuando revises un movimiento con “Recordar este comercio”, aparecerá aquí.</p>
       ) : (
         <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface">
-          {groupMemory(memory).map((g) => {
+          {memoryGroups.map((g) => {
             const m = g.main;
             const cat = categoryLabel(categories, m.category_id);
             const resp = memberById(m.responsible_user_id);
@@ -318,8 +321,38 @@ export default function CapturaPage() {
         </div>
       )}
       <p className="mt-2 px-1 text-xs text-muted">Toca un nombre para cambiar dónde se guarda. El texto original de cada aviso se borra solo a los 30 días.</p>
+      </FoldSection>
       <MemorySheet group={editingMemory} onClose={() => setEditingMemory(null)} onChanged={load} />
     </main>
+  );
+}
+
+/**
+ * Sección que se comprime tocando su título (con cuántos hay). Recuerda en este teléfono si quedó abierta o cerrada;
+ * la primera vez está abierta.
+ */
+function FoldSection({ id, title, count, children }: { id: string; title: string; count: number; children: React.ReactNode }) {
+  const key = `captura-${id}-abierta`;
+  const [open, setOpen] = useState(true);
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(key) === "0") setOpen(false);
+    } catch {}
+  }, [key]);
+  function toggle() {
+    const next = !open;
+    setOpen(next);
+    try { localStorage.setItem(key, next ? "1" : "0"); } catch {}
+  }
+  return (
+    <section aria-label={title}>
+      <button type="button" onClick={toggle} aria-expanded={open} className="mb-2 mt-6 flex w-full items-center gap-2 px-1 text-left">
+        <span className="flex-1 text-xs font-semibold uppercase tracking-[0.12em] text-muted">{title}{count > 0 ? ` (${count})` : ""}</span>
+        <span className="text-xs text-muted">{open ? "Comprimir" : "Ver"}</span>
+        <ChevronDown size={16} className={cn("shrink-0 text-muted transition-transform", open && "rotate-180")} />
+      </button>
+      {open && children}
+    </section>
   );
 }
 
