@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Check, ChevronDown, Copy, KeyRound, Mail, MessageSquareText, Pencil, Plus, RefreshCw, Smartphone, Trash2, X } from "lucide-react";
+import { ArrowLeft, Check, ChevronDown, Copy, KeyRound, Mail, Pencil, Plus, RefreshCw, Smartphone, Trash2, X } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { useShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,7 @@ import { groupMemory, type MemoryGroup } from "@/lib/finance/memoryApply";
 import type { IngestLog, MerchantMemory } from "@/lib/types";
 import { CHANNEL_LABEL } from "@/lib/types";
 import { categoryLabel } from "@/lib/finance/labels";
-import { appsScript, authHeader, notificationBody, smsBody } from "@/lib/ingest/templates";
+import { appsScript, authHeader, notificationBody } from "@/lib/ingest/templates";
 import { findAmount } from "@/lib/ingest/normalize";
 import { cn, errMsg } from "@/lib/utils";
 
@@ -221,8 +221,8 @@ export default function CapturaPage() {
       <div className="space-y-3">
         {section("android", <Smartphone size={18} />, "Notificaciones de Android (MacroDroid)", (
           <ol className="space-y-3">
-            <Step n={1}>Instala <strong>MacroDroid</strong> desde Play Store (gratis, hasta 5 macros; usaremos 2).</Step>
-            <Step n={2}>Crea una macro → <strong>Disparador</strong>: Dispositivo/Aplicaciones → <strong>Notificación recibida</strong>. Elige las apps: Nequi, Bancolombia, BBVA, Banco de Bogotá y Google Wallet (Billetera de Google). Concede el acceso a notificaciones cuando lo pida.</Step>
+            <Step n={1}>Instala <strong>MacroDroid</strong> desde Play Store (gratis, hasta 5 macros; usaremos 1).</Step>
+            <Step n={2}>Crea una macro → <strong>Disparador</strong>: Dispositivo/Aplicaciones → <strong>Notificación recibida</strong>. Elige las apps: Nequi, Bancolombia, BBVA, Banco de Bogotá, Google Wallet (Billetera de Google) y <strong>Mensajes</strong> (la app de SMS del celular: así los SMS del banco llegan por esta misma macro). Concede el acceso a notificaciones cuando lo pida.</Step>
             <Step n={3}><strong>Acción</strong>: Conectividad → <strong>Solicitud HTTP</strong>. Método <strong>POST</strong>, URL la del paso 1.</Step>
             <Step n={4}>En <strong>Encabezados</strong> agrega <code>Authorization</code> con el valor <code>Bearer TU_TOKEN</code> (la palabra Bearer, un espacio y tu token).
               {newToken && <div className="mt-2"><CopyButton text={authHeader(newToken)} label="Copiar el valor con tu token" /></div>}
@@ -232,17 +232,7 @@ export default function CapturaPage() {
               <div className="mt-2 space-y-2"><Code>{notificationBody()}</Code><CopyButton text={notificationBody()} /></div>
             </Step>
             <Step n={6}>Guarda la macro, ponle de nombre “Finanzas notificaciones” y desactiva la optimización de batería para MacroDroid en Ajustes de Android.</Step>
-          </ol>
-        ))}
-        {section("sms", <MessageSquareText size={18} />, "SMS bancarios (MacroDroid)", (
-          <ol className="space-y-3">
-            <Step n={1}>Crea otra macro → <strong>Disparador</strong>: Llamadas/SMS → <strong>SMS recibido</strong>. Puedes limitarlo a los números de tus bancos.</Step>
-            <Step n={2}><strong>Acción</strong>: <strong>Solicitud HTTP</strong> igual que antes (POST, misma URL y mismo encabezado Authorization).</Step>
-            <Step n={3}>
-              Cuerpo (application/json):
-              <div className="mt-2 space-y-2"><Code>{smsBody()}</Code><CopyButton text={smsBody()} /></div>
-            </Step>
-            <Step n={4}>Los SMS y notificaciones que llegaron antes de instalar MacroDroid se suben en Ajustes → Periodos → <strong>Primer barrido</strong>.</Step>
+            <Step n={7}>Los avisos y SMS que llegaron antes de instalar MacroDroid se suben en Ajustes → Periodos → <strong>Primer barrido</strong>.</Step>
           </ol>
         ))}
         {section("gmail", <Mail size={18} />, "Correos bancarios (Gmail + Apps Script)", (

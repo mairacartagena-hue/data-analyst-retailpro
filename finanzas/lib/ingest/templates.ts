@@ -4,10 +4,6 @@ export function notificationBody(): string {
   return `{"channel":"ANDROID_NOTIFICATION","app":"{not_app_name}","title":"{not_title}","text":"[notification]"}`;
 }
 
-export function smsBody(): string {
-  return `{"channel":"ANDROID_SMS","sender":"[sms_number]","text":"[sms_message]"}`;
-}
-
 /** Valor del encabezado Authorization para MacroDroid. */
 export function authHeader(token: string): string {
   return `Bearer ${token}`;

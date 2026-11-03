@@ -4,7 +4,7 @@ import type { Channel, RawEvent } from "@/lib/ingest/types";
 import { interpret, toDbEvent } from "@/lib/ingest/pipeline";
 import { dropUnfilled } from "@/lib/ingest/normalize";
 
-// Webhook único de ingesta: MacroDroid (notificaciones y SMS) y Google Apps Script (Gmail).
+// Webhook único de ingesta: MacroDroid (notificaciones, incluidos los SMS vía la app de Mensajes), barrido del celular y Google Apps Script (Gmail).
 // Autenticación: "Authorization: Bearer <token de la persona>". La identidad la resuelve
 // la base de datos a partir del token, así que este servidor no usa claves secretas de Supabase.
 
