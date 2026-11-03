@@ -9,7 +9,7 @@ import type { Transaction } from "@/lib/types";
 import { statusesFor } from "@/lib/finance/derive";
 import { formatCop, formatCopShort } from "@/lib/finance/money";
 import { addDays, formatDay, periodFor, shiftPeriod, todayBogota, type Period } from "@/lib/finance/periods";
-import { fixedVariableItems, taxSummary, type FixedKind, type ReportSpace } from "@/lib/finance/reports";
+import { creditChargeIds, fixedVariableItems, taxSummary, type FixedKind, type ReportSpace } from "@/lib/finance/reports";
 import { useShell } from "@/components/AppShell";
 import { Sheet } from "@/components/ui/sheet";
 
@@ -70,7 +70,9 @@ export function BudgetVsActual({ space }: { space: ReportSpace }) {
 export function FixedVsVariable({ consumption, period }: { consumption: Transaction[]; period: Period }) {
   const { categories, accounts, transactions, me } = useFinance();
   const creditIds = useMemo(() => new Set(accounts.filter((a) => (a.kind === "CREDIT" || a.kind === "LOAN") && a.household_id === me.household_id).map((a) => a.id)), [accounts]);
-  const all = useMemo(() => fixedVariableItems(consumption, period, { categories, creditIds }), [consumption, period, categories, creditIds]);
+  // Intereses y seguros de las cuotas pagados desde una cuenta: también son cuota del crédito
+  const chargeIds = useMemo(() => creditChargeIds(accounts.filter((a) => creditIds.has(a.id)), transactions), [accounts, creditIds, transactions]);
+  const all = useMemo(() => fixedVariableItems(consumption, period, { categories, creditIds, chargeIds }), [consumption, period, categories, creditIds, chargeIds]);
   const r = useMemo(() => {
     const out: Record<FixedKind, number> = { scheduled: 0, subscriptions: 0, creditCharges: 0, variable: 0 };
     for (const i of all) out[i.kind] += i.amount;
