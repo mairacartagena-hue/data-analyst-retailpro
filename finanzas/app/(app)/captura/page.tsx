@@ -284,21 +284,22 @@ export default function CapturaPage() {
       </section>
 
       <FoldSection id="eventos" title="Últimos eventos" count={recent.length}>
-      {recent.length === 0 ? (
+      {(limit) => recent.length === 0 ? (
         <p className="px-1 text-sm text-muted">Aún no ha llegado nada reconocido. Cuando conectes MacroDroid o Gmail verás aquí cada aviso y qué se hizo con él.</p>
       ) : (
         <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface">
-          {recent.map((l) => <LogRow key={l.id} log={l} onChanged={refresh} />)}
+          {recent.slice(0, limit).map((l) => <LogRow key={l.id} log={l} onChanged={refresh} />)}
         </div>
       )}
       </FoldSection>
 
       <FoldSection id="memoria" title="Memoria de comercios" count={memoryGroups.length}>
+      {(limit) => <>
       {memory.length === 0 ? (
         <p className="px-1 text-sm text-muted">Cuando revises un movimiento con “Recordar este comercio”, aparecerá aquí.</p>
       ) : (
         <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface">
-          {memoryGroups.map((g) => {
+          {memoryGroups.slice(0, limit).map((g) => {
             const m = g.main;
             const cat = categoryLabel(categories, m.category_id);
             const resp = memberById(m.responsible_user_id);
@@ -321,17 +322,27 @@ export default function CapturaPage() {
         </div>
       )}
       <p className="mt-2 px-1 text-xs text-muted">Toca un nombre para cambiar dónde se guarda. El texto original de cada aviso se borra solo a los 30 días.</p>
+      </>}
       </FoldSection>
       <MemorySheet group={editingMemory} onClose={() => setEditingMemory(null)} onChanged={load} />
     </main>
   );
 }
 
+/** Cuántos se siguen viendo con la sección comprimida. */
+const PEEK = 3;
+
 /**
- * Sección que se comprime tocando su título (con cuántos hay). Recuerda en este teléfono si quedó abierta o cerrada;
- * la primera vez está abierta.
+ * Sección que se comprime tocando su título (con cuántos hay): comprimida deja ver los primeros (PEEK) y un enlace
+ * para ver todos. Recuerda en este teléfono si quedó abierta o cerrada; la primera vez está abierta.
  */
-function FoldSection({ id, title, count, children }: { id: string; title: string; count: number; children: React.ReactNode }) {
+function FoldSection({ id, title, count, children }: {
+  id: string;
+  title: string;
+  count: number;
+  /** Recibe cuántos mostrar (undefined = todos). */
+  children: (limit: number | undefined) => React.ReactNode;
+}) {
   const key = `captura-${id}-abierta`;
   const [open, setOpen] = useState(true);
   useEffect(() => {
@@ -348,10 +359,13 @@ function FoldSection({ id, title, count, children }: { id: string; title: string
     <section aria-label={title}>
       <button type="button" onClick={toggle} aria-expanded={open} className="mb-2 mt-6 flex w-full items-center gap-2 px-1 text-left">
         <span className="flex-1 text-xs font-semibold uppercase tracking-[0.12em] text-muted">{title}{count > 0 ? ` (${count})` : ""}</span>
-        <span className="text-xs text-muted">{open ? "Comprimir" : "Ver"}</span>
-        <ChevronDown size={16} className={cn("shrink-0 text-muted transition-transform", open && "rotate-180")} />
+        {count > PEEK && <span className="text-xs text-muted">{open ? "Comprimir" : "Ver todos"}</span>}
+        {count > PEEK && <ChevronDown size={16} className={cn("shrink-0 text-muted transition-transform", open && "rotate-180")} />}
       </button>
-      {open && children}
+      {children(open ? undefined : PEEK)}
+      {!open && count > PEEK && (
+        <button type="button" onClick={toggle} className="mt-2 px-1 text-sm font-semibold text-olive">Ver {count - PEEK} más</button>
+      )}
     </section>
   );
 }
