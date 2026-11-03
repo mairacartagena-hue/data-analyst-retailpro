@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { requireApiMember } from "@/lib/supabase/server";
 import type { Channel, RawEvent } from "@/lib/ingest/types";
 import { interpret, toDbEvent } from "@/lib/ingest/pipeline";
 
@@ -10,9 +10,8 @@ export const runtime = "nodejs";
 const CHANNELS: Channel[] = ["ANDROID_SMS", "ANDROID_NOTIFICATION"];
 
 export async function POST(req: NextRequest) {
-  const sb = await createClient();
-  const { data: auth } = await sb.auth.getUser();
-  if (!auth.user) return NextResponse.json({ ok: false, error: "Inicia sesión" }, { status: 401 });
+  const { supabase: sb, denied } = await requireApiMember();
+  if (denied) return NextResponse.json({ ok: false, error: denied.error }, { status: denied.status });
 
   const b = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   const channel = String(b?.channel ?? "") as Channel;

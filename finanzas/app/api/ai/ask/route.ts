@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { requireApiMember } from "@/lib/supabase/server";
 import { askGemini, type ChatTurn } from "@/lib/ai/gemini";
 
 // Asistente: la app envía la pregunta, el historial corto y el resumen de los datos que la persona puede ver.
@@ -9,9 +9,8 @@ export const maxDuration = 60;
 const MAX_CONTEXT = 120_000;
 
 export async function POST(req: NextRequest) {
-  const sb = await createClient();
-  const { data: auth } = await sb.auth.getUser();
-  if (!auth.user) return NextResponse.json({ ok: false, error: "Inicia sesión" }, { status: 401 });
+  const { denied } = await requireApiMember();
+  if (denied) return NextResponse.json({ ok: false, error: denied.error }, { status: denied.status });
 
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   const question = typeof body?.question === "string" ? body.question.trim() : "";
