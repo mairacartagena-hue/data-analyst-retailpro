@@ -8,8 +8,11 @@ import { Segmented } from "@/components/ui/segmented";
 import type { Transaction } from "@/lib/types";
 import { statusesFor } from "@/lib/finance/derive";
 import { formatCop, formatCopShort } from "@/lib/finance/money";
-import { addDays, periodFor, shiftPeriod, todayBogota, type Period } from "@/lib/finance/periods";
-import { fixedVsVariable, taxSummary, type ReportSpace } from "@/lib/finance/reports";
+import { addDays, formatDay, periodFor, shiftPeriod, todayBogota, type Period } from "@/lib/finance/periods";
+import { fixedVariableItems, taxSummary, type FixedKind, type ReportSpace } from "@/lib/finance/reports";
+import { useShell } from "@/components/AppShell";
+import { Sheet } from "@/components/ui/sheet";
+
 import { isKnownSubscription } from "@/lib/finance/subscriptions";
 import { categoryPath } from "@/lib/finance/spaces";
 import { shortPeriod } from "@/lib/finance/periodLabels";
@@ -67,7 +70,14 @@ export function BudgetVsActual({ space }: { space: ReportSpace }) {
 export function FixedVsVariable({ consumption, period }: { consumption: Transaction[]; period: Period }) {
   const { categories, accounts, transactions, me } = useFinance();
   const creditIds = useMemo(() => new Set(accounts.filter((a) => (a.kind === "CREDIT" || a.kind === "LOAN") && a.household_id === me.household_id).map((a) => a.id)), [accounts]);
-  const r = useMemo(() => fixedVsVariable(consumption, period, { categories, creditIds }), [consumption, period, categories, creditIds]);
+  const all = useMemo(() => fixedVariableItems(consumption, period, { categories, creditIds }), [consumption, period, categories, creditIds]);
+  const r = useMemo(() => {
+    const out: Record<FixedKind, number> = { scheduled: 0, subscriptions: 0, creditCharges: 0, variable: 0 };
+    for (const i of all) out[i.kind] += i.amount;
+    return out;
+  }, [all]);
+  // Al tocar Fijos, Variables o un tipo de fijo: la lista de los gastos que lo componen
+  const [shown, setShown] = useState<"fixed" | FixedKind | null>(null);
   // Suscripciones activas: cobros de los últimos 45 días marcados como suscripción, en una categoría de suscripciones
   // o de un servicio conocido (Netflix, Spotify…). Un mercado que se repite cada mes no es una suscripción.
   const list = useMemo(() => {
@@ -90,9 +100,9 @@ export function FixedVsVariable({ consumption, period }: { consumption: Transact
   const total = fixed + r.variable;
   // Detalle de lo fijo (lo variable es un solo total)
   const items = [
-    { key: "sch", label: "Vencimientos programados", value: r.scheduled },
-    { key: "sub", label: "Suscripciones", value: r.subscriptions },
-    { key: "cred", label: "Cuotas de créditos", value: r.creditCharges },
+    { key: "scheduled", label: FIXED_LABELS.scheduled, value: r.scheduled },
+    { key: "subscriptions", label: FIXED_LABELS.subscriptions, value: r.subscriptions },
+    { key: "creditCharges", label: FIXED_LABELS.creditCharges, value: r.creditCharges },
   ].filter((i) => i.value > 0);
   const pct = (v: number) => (total > 0 ? Math.round((v / total) * 100) : 0);
 
@@ -102,14 +112,16 @@ export function FixedVsVariable({ consumption, period }: { consumption: Transact
       {total === 0 ? <p className="text-sm text-muted">No hay gastos en este periodo.</p> : (
         <>
           <div className="grid grid-cols-2 gap-2">
-            <div className="rounded-2xl bg-surface-2 px-3 py-2.5">
+            <button type="button" onClick={() => setShown("fixed")} className="rounded-2xl bg-surface-2 px-3 py-2.5 text-left hover:bg-border/40">
               <p className="text-xs text-muted">Fijos · {pct(fixed)} %</p>
               <p className="num font-display text-xl">{formatCop(fixed)}</p>
-            </div>
-            <div className="rounded-2xl bg-surface-2 px-3 py-2.5">
+              <p className="text-xs font-semibold text-olive">Ver qué son</p>
+            </button>
+            <button type="button" onClick={() => setShown("variable")} className="rounded-2xl bg-surface-2 px-3 py-2.5 text-left hover:bg-border/40">
               <p className="text-xs text-muted">Variables · {pct(r.variable)} %</p>
               <p className="num font-display text-xl">{formatCop(r.variable)}</p>
-            </div>
+              <p className="text-xs font-semibold text-olive">Ver qué son</p>
+            </button>
           </div>
           <div className="mt-2 flex h-2.5 overflow-hidden rounded-full bg-surface-2" aria-hidden>
             <span className="h-full" style={{ width: `${pct(fixed)}%`, background: "var(--series-1)" }} />
@@ -118,7 +130,7 @@ export function FixedVsVariable({ consumption, period }: { consumption: Transact
           {items.length > 0 && (
             <div className="mt-3">
               <p className="mb-1.5 text-sm font-medium">De qué son los fijos</p>
-              <BarList items={items} color="var(--series-1)" />
+              <BarList items={items} color="var(--series-1)" onSelect={(k) => setShown(k as FixedKind)} />
             </div>
           )}
         </>
@@ -135,7 +147,74 @@ export function FixedVsVariable({ consumption, period }: { consumption: Transact
           </div>
         </div>
       )}
+      <FixedVariableSheet shown={shown} items={all} onClose={() => setShown(null)} />
     </ChartCard>
+  );
+}
+
+const FIXED_LABELS: Record<FixedKind, string> = {
+  scheduled: "Vencimientos programados",
+  subscriptions: "Suscripciones",
+  creditCharges: "Cuotas de créditos",
+  variable: "Gastos variables",
+};
+
+/** Los gastos que componen los fijos (por tipo) o los variables; cada uno abre su movimiento. */
+function FixedVariableSheet({ shown, items, onClose }: {
+  shown: "fixed" | FixedKind | null;
+  items: ReturnType<typeof fixedVariableItems>;
+  onClose: () => void;
+}) {
+  const { transactions, categories } = useFinance();
+  const { openTransaction } = useShell();
+  const kinds: FixedKind[] = shown === "fixed" ? ["scheduled", "subscriptions", "creditCharges"] : shown ? [shown] : [];
+  const groups = kinds
+    .map((k) => ({
+      kind: k,
+      rows: items.filter((i) => i.kind === k).sort((a, b) => b.t.occurred_on.localeCompare(a.t.occurred_on) || b.amount - a.amount),
+    }))
+    .filter((g) => g.rows.length > 0);
+  const total = groups.reduce((s, g) => s + g.rows.reduce((a, i) => a + i.amount, 0), 0);
+  const title = shown === "fixed" ? "Gastos fijos" : shown ? FIXED_LABELS[shown] : "";
+  // El abono a capital de una cuota es un renglón armado para el informe: abre la transferencia al crédito
+  const original = (t: Transaction) => t.installment_of
+    ?? (t.id.startsWith("capital:") ? transactions.find((x) => x.id === t.id.slice("capital:".length)) ?? null : t);
+
+  return (
+    <Sheet open={!!shown} onOpenChange={(v) => !v && onClose()} title={title} description={`${formatCop(total)} en el periodo`}>
+      <div className="space-y-4 pb-2">
+        {groups.length === 0 && <p className="text-sm text-muted">No hay gastos de este tipo en el periodo.</p>}
+        {groups.map((g) => (
+          <div key={g.kind}>
+            {kinds.length > 1 && (
+              <div className="mb-1.5 flex items-baseline justify-between px-1 text-sm">
+                <span className="font-medium">{FIXED_LABELS[g.kind]}</span>
+                <span className="num text-muted">{formatCop(g.rows.reduce((a, i) => a + i.amount, 0))}</span>
+              </div>
+            )}
+            <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface">
+              {g.rows.map(({ t, amount }) => {
+                const cat = t.splits.find((s) => s.category_id)?.category_id;
+                const open = original(t);
+                return (
+                  <button key={`${t.id}:${t.installment_no ?? 0}`} type="button" disabled={!open}
+                    onClick={() => { if (!open) return; onClose(); openTransaction(open); }}
+                    className="flex w-full items-center gap-3 px-3.5 py-3 text-left hover:bg-surface-2">
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-medium">{t.merchant || t.description || (cat ? categoryPath(categories, cat) : "Gasto")}</span>
+                      <span className="block truncate text-xs text-muted">
+                        {formatDay(t.occurred_on)}{cat ? ` · ${categoryPath(categories, cat)}` : ""}{t.installment_no ? ` · cuota ${t.installment_no} de ${t.installments}` : ""}
+                      </span>
+                    </span>
+                    <span className="num shrink-0 font-semibold">{amount < 0 ? "−" : ""}{formatCop(Math.abs(amount))}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </Sheet>
   );
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fixedVsVariable, matchesFilter, monthlyTrend, pendingInPeriod, periodTrend, spendingByCategory, spendingByPerson, tagStats, taxSummary, toCsv, withCreditCapital } from "@/lib/finance/reports";
+import { fixedVariableItems, fixedVsVariable, matchesFilter, monthlyTrend, pendingInPeriod, periodTrend, spendingByCategory, spendingByPerson, tagStats, taxSummary, toCsv, withCreditCapital } from "@/lib/finance/reports";
 import { expandInstallments } from "@/lib/finance/installments";
 import { periodFor, shiftPeriod } from "@/lib/finance/periods";
 import type { Category, Member, Transaction } from "@/lib/types";
@@ -163,6 +163,16 @@ describe("informes de la etapa 4", () => {
       tx({ kind: "TRANSFER", amount: 930_000, to_account_id: "hip" }),
     ], oct, { categories: cats, creditIds: new Set(["hip"]) });
     expect(r).toEqual({ scheduled: 420_000, subscriptions: 44_900, creditCharges: 1_020_000, variable: 150_000 });
+  });
+
+  it("lista los gastos que componen cada tipo (fijos y variables)", () => {
+    const items = fixedVariableItems([
+      tx({ id: "adm", amount: 420_000, scheduled_payment_id: "adm", splits: [split(420_000, "merc")] }),
+      tx({ id: "pan", amount: 80_000, splits: [split(80_000, "merc")] }),
+      tx({ id: "int", amount: 1_020_000, account_id: "hip", splits: [split(1_020_000, "merc")] }),
+      tx({ id: "tr", kind: "TRANSFER", amount: 930_000, to_account_id: "hip" }),
+    ], oct, { categories: cats, creditIds: new Set(["hip"]) });
+    expect(items.map((i) => [i.t.id, i.kind, i.amount])).toEqual([["adm", "scheduled", 420_000], ["pan", "variable", 80_000], ["int", "creditCharges", 1_020_000]]);
   });
 
   it("la cuota de un crédito cuenta completa: capital más intereses y seguros, en la categoría de la cuota", () => {
