@@ -901,6 +901,23 @@ function TransactionDetail({ open, onOpenChange, tx }: { open: boolean; onOpenCh
     else void reload();
   }
 
+  // Etiquetas: cualquiera que vea el movimiento (ej. quien recibió el pago) puede ponerlas o quitarlas
+  const currentTags = state.txTags[tx.id] ?? [];
+  const [tagIds, setTagIds] = useState<string[]>(currentTags);
+  useEffect(() => setTagIds(state.txTags[tx.id] ?? []), [state.txTags, tx.id]);
+  async function changeTags(next: string[]) {
+    setError(null);
+    setTagIds(next);
+    const { add, remove } = diffTags(currentTags, next);
+    const del = remove.length > 0 ? await supabase.from("transaction_tags").delete().eq("transaction_id", tx.id).in("tag_id", remove) : { error: null };
+    const ins = add.length > 0 ? await supabase.from("transaction_tags").insert(add.map((tag_id) => ({ transaction_id: tx.id, tag_id, household_id: state.household.id }))) : { error: null };
+    if (del.error || ins.error) {
+      setError(errMsg(del.error ?? ins.error));
+      setTagIds(currentTags);
+    }
+    void reload();
+  }
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange} title={tx.description || tx.merchant || TX_KIND_LABEL[tx.kind]}>
       <div className="space-y-4 pb-2">
@@ -932,18 +949,16 @@ function TransactionDetail({ open, onOpenChange, tx }: { open: boolean; onOpenCh
         })}
         {hiddenAmount > 0 && <p className="text-sm text-muted">Y {formatCop(hiddenAmount)} en conceptos privados.</p>}
         <ErrorText>{error}</ErrorText>
+        <Field label="Etiquetas">
+          <TagPicker value={tagIds} onChange={(v) => void changeTags(v)} />
+        </Field>
         <p className="text-xs text-muted">
           {tx.kind === "SETTLEMENT"
-            ? "Las liquidaciones no se editan."
-            : "Es un movimiento personal de tu pareja: solo quien lo registró puede editarlo. Los del hogar los pueden ajustar los dos."}
+            ? "Las liquidaciones no se editan ni llevan categoría (no son gasto ni ingreso), pero puedes ponerles etiquetas."
+            : tx.splits.some((s) => s.responsible_user_id === me.user_id && !s.contact_id)
+            ? "Lo registró tu pareja: puedes cambiar la categoría de tu parte y las etiquetas. El monto y la cuenta solo los cambia quien lo registró."
+            : "Lo registró tu pareja: puedes cambiar las etiquetas. El resto solo lo cambia quien lo registró; los del hogar los pueden ajustar los dos."}
         </p>
-        {(state.txTags[tx.id] ?? []).length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
-            {(state.txTags[tx.id] ?? []).map((id) => state.tags.find((t) => t.id === id)).filter((t): t is NonNullable<typeof t> => !!t).map((t) => (
-              <span key={t.id} className="rounded-full bg-surface-2 px-2.5 py-1 text-xs">{t.name}</span>
-            ))}
-          </div>
-        )}
         <TransactionComments txId={tx.id} />
       </div>
     </Sheet>
