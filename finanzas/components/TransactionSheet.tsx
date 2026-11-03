@@ -391,7 +391,9 @@ export function TransactionSheet({
     if (!error && savedId && editing && isPendingReview) {
       // Era un aviso por revisar (ej. "Cuenta ···4993"): el aviso pasa al envío y el pendiente se quita
       await supabase.from("ingest_logs").update({ transaction_id: savedId, result: "ACCEPTED", reason: "Registrado como envío a la pareja" }).eq("transaction_id", editing.id);
-      const del = await supabase.rpc("delete_transaction", { p_id: editing.id });
+      // La base ya une al envío el aviso del banco por esa misma plata; si no lo hizo, se quita aquí
+      const still = await supabase.from("transactions").select("id").eq("id", editing.id).maybeSingle();
+      const del = still.data ? await supabase.rpc("delete_transaction", { p_id: editing.id }) : { error: null };
       if (del.error) {
         setBusy(false);
         void reload();

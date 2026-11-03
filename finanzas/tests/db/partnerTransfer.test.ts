@@ -63,10 +63,9 @@ describe("transferencia a las cuentas de la pareja", () => {
     })]))[0].r;
     const before = Number(await net());
 
-    // lo que hace la app: crear el envío, mover el aviso y quitar el pendiente
+    // Al crear el envío, la base une el aviso que ya había llegado y quita el pendiente
     const settled = await rpc<string>(db, MAY, "save_transaction", { kind: "SETTLEMENT", amount: 400_000, occurred_on: "2026-10-26", description: "Préstamo", account_id: mayAcc, to_account_id: breiAcc, counterparty_user_id: BREI });
-    await as(db, MAY, `update ingest_logs set transaction_id = $1 where transaction_id = $2`, [settled, r.transaction_id]);
-    await as(db, MAY, `select public.delete_transaction($1)`, [r.transaction_id]);
+    expect(await as(db, MAY, `select 1 from transactions where id = $1`, [r.transaction_id])).toHaveLength(0);
 
     expect(Number(await net())).toBe(before + 400_000);
     expect((await db.query(`select 1 from transactions where status = 'PENDING_REVIEW'`)).rows).toHaveLength(0);
