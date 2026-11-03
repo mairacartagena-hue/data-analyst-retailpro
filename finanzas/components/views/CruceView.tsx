@@ -9,6 +9,7 @@ import { useShell } from "@/components/AppShell";
 import { MemberBadge } from "@/components/MemberBadge";
 import { ContactsSection } from "@/components/ContactsSection";
 import { AmountInput } from "@/components/AmountInput";
+import { PayAmountField, payAmountError, type PayMode } from "@/components/PayAmountField";
 import { Button } from "@/components/ui/button";
 import { Card, SectionTitle } from "@/components/ui/card";
 import { ErrorText, Field, Input } from "@/components/ui/input";
@@ -82,9 +83,10 @@ export function CruceView() {
             )}
             <div className="mt-4 grid grid-cols-2 gap-3">
               <Button variant="outline" onClick={() => setAddOpen(true)}><HandCoins size={18} /> Préstamo o encargo</Button>
-              <Button onClick={openSettle} disabled={net >= 0}>Liquidar</Button>
+              <Button onClick={openSettle} disabled={net >= 0}>{net < 0 ? "Pagar o abonar" : "Liquidar"}</Button>
             </div>
-            {net > 0 && <p className="mt-2 text-xs text-muted">La liquidación la registra quien paga.</p>}
+            {net > 0 && <p className="mt-2 text-xs text-muted">El pago o abono lo registra quien paga.</p>}
+            {net < 0 && <p className="mt-2 text-xs text-muted">Puedes pagar todo o abonar una parte; el resto queda pendiente.</p>}
           </Card>
 
           <ErrorText>{error}</ErrorText>
@@ -179,6 +181,7 @@ function ResolveDebtSheet({ resolving, onClose, maxTotal }: { resolving: { debt:
   const { me, partner, accounts, labels, supabase, reload } = useFinance();
   const [mode, setMode] = useState<"PAID" | "FORGIVEN">("PAID");
   const [amount, setAmount] = useState("");
+  const [payMode, setPayMode] = useState<PayMode>("ALL");
   const [account, setAccount] = useState("");
   const [date, setDate] = useState(todayBogota());
   const [error, setError] = useState<string | null>(null);
@@ -189,6 +192,7 @@ function ResolveDebtSheet({ resolving, onClose, maxTotal }: { resolving: { debt:
     if (!resolving) return;
     setMode(resolving.mode);
     setAmount(String(Math.min(resolving.debt.remaining, maxTotal)));
+    setPayMode("ALL");
     setAccount(myAccounts[0]?.id ?? "");
     setDate(todayBogota());
     setError(null);
@@ -198,10 +202,11 @@ function ResolveDebtSheet({ resolving, onClose, maxTotal }: { resolving: { debt:
   if (!resolving || !partner) return null;
   const debt = resolving.debt;
   const n = parseCop(amount) ?? 0;
+  const total = Math.min(debt.remaining, maxTotal);
 
   async function save() {
-    if (n <= 0) return setError("Escribe el monto.");
-    if (n > debt.remaining) return setError(`Esta deuda es de ${formatCop(debt.remaining)}.`);
+    const e = payAmountError(amount, total);
+    if (e) return setError(e);
     if (mode === "PAID" && !account) return setError("Elige en qué cuenta entró el pago.");
     setBusy(true);
     setError(null);
@@ -222,12 +227,12 @@ function ResolveDebtSheet({ resolving, onClose, maxTotal }: { resolving: { debt:
     <Sheet open onOpenChange={(v) => !v && onClose()} title={mode === "PAID" ? "Cobrar la deuda" : "Condonar la deuda"}
       description={`${debt.description || KIND_LABEL[debt.kind]} · ${formatCop(debt.remaining)} pendientes`}
       footer={<div className="space-y-2"><ErrorText>{error}</ErrorText><Button size="lg" className="w-full" disabled={busy} onClick={save}>
-          {busy ? "Guardando..." : mode === "PAID" ? `Cobrar ${formatCop(n)}` : `Condonar ${formatCop(n)}`}
+          {busy ? "Guardando..." : mode === "PAID" ? `${n < total ? "Registrar abono de" : "Cobrar"} ${formatCop(n)}` : `Condonar ${formatCop(n)}`}
         </Button></div>}>
       <div className="space-y-4 pb-2">
         <Segmented value={mode} onChange={setMode} options={[{ value: "PAID", label: "Cobrar" }, { value: "FORGIVEN", label: "Condonar" }]} />
-        <AmountInput large value={amount} onChange={setAmount} />
-        <p className="-mt-2 text-xs text-muted">Puedes resolver solo una parte; el resto queda pendiente.</p>
+        <PayAmountField total={total} mode={payMode} onModeChange={setPayMode} amount={amount} onAmountChange={setAmount}
+          allLabel={mode === "PAID" ? "Cobrar todo" : "Condonar todo"} partLabel={mode === "PAID" ? "Me abonó" : "Una parte"} />
         {mode === "PAID" ? (
           <>
             <Field label="Entró a">
