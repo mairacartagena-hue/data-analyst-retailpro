@@ -1,6 +1,6 @@
 // Informes y etiquetas. Todo se calcula con lo que la persona puede ver (respeta la privacidad).
 
-import type { AccountLabel, Category, Member, Space, Transaction, TxKind } from "@/lib/types";
+import type { Account, AccountLabel, Category, Member, Space, Transaction, TxKind } from "@/lib/types";
 import { SPACE_LABEL, TX_KIND_LABEL } from "@/lib/types";
 import { isWithin, type Period } from "./periods";
 import { accountLabel, categoryLabel } from "./labels";
@@ -358,7 +358,12 @@ export interface FixedVariableItem {
 }
 
 /** Cada gasto del periodo clasificado como fijo (vencimiento, suscripción o cuota de crédito) o variable. */
-export function fixedVariableItems(txs: Transaction[], period: Period, ctx: { categories: Category[]; creditIds: Set<string> }): FixedVariableItem[] {
+export function fixedVariableItems(txs: Transaction[], period: Period, ctx: {
+  categories: Category[];
+  creditIds: Set<string>;
+  /** Intereses y seguros de una cuota pagados desde una cuenta (no cargados al crédito): ver `creditChargeIds`. */
+  chargeIds?: Set<string>;
+}): FixedVariableItem[] {
   const subsCats = new Set(ctx.categories.filter((c) => /suscrip/i.test(c.name)).map((c) => c.id));
   const out: FixedVariableItem[] = [];
   for (const t of txs) {
@@ -368,15 +373,25 @@ export function fixedVariableItems(txs: Transaction[], period: Period, ctx: { ca
     const amount = sign * ownAmount(t);
     const kind: FixedKind = t.scheduled_payment_id ? "scheduled"
       : (t.tags.includes("#suscripcion") && (!t.movement_type || t.movement_type === "PURCHASE")) || t.splits.some((s) => s.category_id && subsCats.has(s.category_id)) ? "subscriptions"
-      : t.account_id && ctx.creditIds.has(t.account_id) ? "creditCharges"
+      : (t.account_id && ctx.creditIds.has(t.account_id)) || ctx.chargeIds?.has(t.id) ? "creditCharges"
       : "variable";
     out.push({ t, kind, amount });
   }
   return out;
 }
 
+/** Gastos de intereses y seguros de las cuotas de los créditos, también los pagados desde una cuenta. */
+export function creditChargeIds(accounts: Pick<Account, "id" | "name" | "kind">[], txs: Transaction[]): Set<string> {
+  const out = new Set<string>();
+  for (const a of accounts) {
+    if (a.kind !== "CREDIT" && a.kind !== "LOAN") continue;
+    for (const p of creditPayments(a, txs)) if (p.charge) out.add(p.charge.id);
+  }
+  return out;
+}
+
 /** Gastos fijos (vencimientos, suscripciones, cuotas de créditos) frente a variables en el periodo. */
-export function fixedVsVariable(txs: Transaction[], period: Period, ctx: { categories: Category[]; creditIds: Set<string> }): FixedVariable {
+export function fixedVsVariable(txs: Transaction[], period: Period, ctx: Parameters<typeof fixedVariableItems>[2]): FixedVariable {
   const out: FixedVariable = { scheduled: 0, subscriptions: 0, creditCharges: 0, variable: 0 };
   for (const i of fixedVariableItems(txs, period, ctx)) out[i.kind] += i.amount;
   return out;

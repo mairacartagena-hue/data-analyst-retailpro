@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filteredPaid, fixedVariableItems, fixedVsVariable, matchesFilter, monthlyTrend, pendingInPeriod, periodTrend, spendingByCategory, spendingByPerson, tagStats, taxSummary, toCsv, withCreditCapital } from "@/lib/finance/reports";
+import { creditChargeIds, filteredPaid, fixedVariableItems, fixedVsVariable, matchesFilter, monthlyTrend, pendingInPeriod, periodTrend, spendingByCategory, spendingByPerson, tagStats, taxSummary, toCsv, withCreditCapital } from "@/lib/finance/reports";
 import { expandInstallments } from "@/lib/finance/installments";
 import { periodFor, shiftPeriod } from "@/lib/finance/periods";
 import type { Category, Member, Transaction } from "@/lib/types";
@@ -180,6 +180,19 @@ describe("informes de la etapa 4", () => {
     expect(filteredPaid(shown, credits)).toBe(1_953_000 + 58_245 + 26_248);
     // Sin los créditos, como antes: solo lo que lleva la categoría
     expect(txs.filter((t) => matchesFilter(t, { categoryIds: cats })).map((t) => t.id)).toEqual(["int", "nint"]);
+  });
+
+  it("los intereses de una cuota pagados desde una cuenta son cuota del crédito (fijos)", () => {
+    const txs = [
+      tx({ id: "cap", kind: "TRANSFER", amount: 58_245, account_id: "ah", to_account_id: "neq", occurred_on: "2026-10-29" }),
+      tx({ id: "int", amount: 26_248, account_id: "ah", occurred_on: "2026-10-29", description: "Cuota crédito · intereses y costos (Nequi)", splits: [split(26_248, "merc")] }),
+      tx({ id: "pan", amount: 80_000, account_id: "ah", occurred_on: "2026-10-29", splits: [split(80_000, "merc")] }),
+    ];
+    const chargeIds = creditChargeIds([{ id: "neq", name: "Nequi", kind: "CREDIT" }], txs);
+    expect([...chargeIds]).toEqual(["int"]);
+    const r = fixedVsVariable(withCreditCapital(txs, [{ id: "neq", name: "Nequi", kind: "CREDIT", budget_category_id: "merc" }]), oct,
+      { categories: cats, creditIds: new Set(["neq"]), chargeIds });
+    expect(r).toEqual({ scheduled: 0, subscriptions: 0, creditCharges: 58_245 + 26_248, variable: 80_000 });
   });
 
   it("lista los gastos que componen cada tipo (fijos y variables)", () => {
