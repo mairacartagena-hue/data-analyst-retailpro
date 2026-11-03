@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fixedVariableItems, fixedVsVariable, matchesFilter, monthlyTrend, pendingInPeriod, periodTrend, spendingByCategory, spendingByPerson, tagStats, taxSummary, toCsv, withCreditCapital } from "@/lib/finance/reports";
+import { filteredPaid, fixedVariableItems, fixedVsVariable, matchesFilter, monthlyTrend, pendingInPeriod, periodTrend, spendingByCategory, spendingByPerson, tagStats, taxSummary, toCsv, withCreditCapital } from "@/lib/finance/reports";
 import { expandInstallments } from "@/lib/finance/installments";
 import { periodFor, shiftPeriod } from "@/lib/finance/periods";
 import type { Category, Member, Transaction } from "@/lib/types";
@@ -163,6 +163,23 @@ describe("informes de la etapa 4", () => {
       tx({ kind: "TRANSFER", amount: 930_000, to_account_id: "hip" }),
     ], oct, { categories: cats, creditIds: new Set(["hip"]) });
     expect(r).toEqual({ scheduled: 420_000, subscriptions: 44_900, creditCharges: 1_020_000, variable: 150_000 });
+  });
+
+  it("filtro por categoría: incluye el pago al crédito con presupuesto y suma la cuota completa", () => {
+    const credits = new Map([["hip", "merc"], ["neq", "merc"]]);
+    const txs = [
+      tx({ id: "cap", kind: "TRANSFER", amount: 1_953_000, account_id: "ah", to_account_id: "hip" }),
+      tx({ id: "int", amount: 1_020_417, account_id: "hip", splits: [split(1_020_417, "merc")] }), // cargado al crédito: ya va en el pago
+      tx({ id: "ncap", kind: "TRANSFER", amount: 58_245, account_id: "ah", to_account_id: "neq" }),
+      tx({ id: "nint", amount: 26_248, account_id: "ah", splits: [split(26_248, "merc")] }),
+      tx({ id: "otro", kind: "TRANSFER", amount: 10_000, account_id: "ah", to_account_id: "ah2" }),
+    ];
+    const cats = new Set(["merc"]);
+    const shown = txs.filter((t) => matchesFilter(t, { categoryIds: cats, creditBudgets: credits }));
+    expect(shown.map((t) => t.id)).toEqual(["cap", "int", "ncap", "nint"]);
+    expect(filteredPaid(shown, credits)).toBe(1_953_000 + 58_245 + 26_248);
+    // Sin los créditos, como antes: solo lo que lleva la categoría
+    expect(txs.filter((t) => matchesFilter(t, { categoryIds: cats })).map((t) => t.id)).toEqual(["int", "nint"]);
   });
 
   it("lista los gastos que componen cada tipo (fijos y variables)", () => {

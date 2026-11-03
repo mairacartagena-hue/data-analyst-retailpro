@@ -16,9 +16,9 @@ import { formatCop } from "@/lib/finance/money";
 import { formatDay, isWithin } from "@/lib/finance/periods";
 import { accountLabel, categoryLabel, householdAccountOptions } from "@/lib/finance/labels";
 import { cn } from "@/lib/utils";
-import { matchesFilter } from "@/lib/finance/reports";
+import { filteredPaid, matchesFilter } from "@/lib/finance/reports";
 import { CategoryOptions } from "@/components/CategoryPicker";
-import { categoryPath, consumptionSign, hasSplits, withDescendants } from "@/lib/finance/spaces";
+import { categoryPath, consumptionSign, creditBudgetMap, hasSplits, withDescendants } from "@/lib/finance/spaces";
 import { hasTag } from "@/lib/finance/tags";
 
 type Filter = "all" | "mine" | "cross" | "pending";
@@ -46,6 +46,8 @@ export default function MovimientosPage() {
   }, []);
   const activeFilters = [categoryId, accountId, kind, space, payerId, responsibleId, tagId].filter(Boolean).length;
   const categoryIds = useMemo(() => (categoryId ? withDescendants(categories, [categoryId]) : undefined), [categories, categoryId]);
+  // Créditos con presupuesto: su pago (capital) sale en la categoría del presupuesto, como en Informes
+  const creditBudgets = useMemo(() => creditBudgetMap(accounts), [accounts]);
   const people = [me, partner].filter(Boolean).map((m) => ({ id: m!.user_id, name: m!.user_id === me.user_id ? "Yo" : m!.display_name }));
   // Solo cuentas del hogar; con "Solo hogar", las que se usan para lo del hogar
   const accountOptions = useMemo(
@@ -67,7 +69,7 @@ export default function MovimientosPage() {
       if (tagId && !hasTag(txTags, t.id, tagId)) return false;
       if (!matchesFilter(t, {
         categoryIds, accountId: accountId || undefined, kind: kind || undefined, scope: space || undefined,
-        payerId: payerId || undefined, responsibleId: responsibleId || undefined,
+        payerId: payerId || undefined, responsibleId: responsibleId || undefined, creditBudgets,
       })) return false;
       if (q) {
         const text = [t.description, t.merchant, ...t.splits.map((s) => categoryPath(categories, s.category_id) || categoryLabel(categories, s.category_id).name)].join(" ").toLowerCase();
@@ -75,7 +77,7 @@ export default function MovimientosPage() {
       }
       return true;
     });
-  }, [transactions, period, filter, me.user_id, query, categories, categoryIds, accountId, kind, space, payerId, responsibleId, tagId, txTags]);
+  }, [transactions, period, filter, me.user_id, query, categories, categoryIds, creditBudgets, accountId, kind, space, payerId, responsibleId, tagId, txTags]);
 
   const groups = useMemo(() => {
     const map = new Map<string, Transaction[]>();
@@ -83,7 +85,8 @@ export default function MovimientosPage() {
     return [...map.entries()];
   }, [list]);
 
-  const totalExpense = list.reduce((a, t) => a + consumptionSign(t.kind) * t.amount, 0);
+  // Con categoría: la cuota completa de los créditos, como en Informes
+  const totalExpense = categoryIds ? filteredPaid(list, creditBudgets) : list.reduce((a, t) => a + consumptionSign(t.kind) * t.amount, 0);
   const totalIncome = list.filter((t) => t.kind === "INCOME").reduce((a, t) => a + t.amount, 0);
 
   return (
