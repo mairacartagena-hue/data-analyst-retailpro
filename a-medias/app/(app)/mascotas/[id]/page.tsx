@@ -96,7 +96,7 @@ export default function MascotaPage() {
             tasks,
           );
           const pendientes = sortOccurrences(
-            occurrences.filter((o) => o.task_id === t.id && o.fecha < hoy && !o.completada),
+            occurrences.filter((o) => o.task_id === t.id && o.fecha < hoy && !o.completada && !o.omitida),
             tasks,
           );
           return (

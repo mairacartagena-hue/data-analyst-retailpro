@@ -33,7 +33,16 @@ export function useToggleOccurrence() {
   };
 }
 
-export function OccurrenceRow({ occurrence: o, showDate = false }: { occurrence: Occurrence; showDate?: boolean }) {
+export function OccurrenceRow({
+  occurrence: o,
+  showDate = false,
+  onNoSeHizo,
+}: {
+  occurrence: Occurrence;
+  showDate?: boolean;
+  /** Se llama después de marcarla como "No se hizo" (para ofrecer Deshacer) */
+  onNoSeHizo?: (o: Occurrence) => void;
+}) {
   const { tasks, pets, memberById, members, optimistic } = useHousehold();
   const toggle = useToggleOccurrence();
 
@@ -78,7 +87,7 @@ export function OccurrenceRow({ occurrence: o, showDate = false }: { occurrence:
           {pendiente && <span className="tag tag-alerta">Pendiente</span>}
           {o.completada && quien && <span>Lo hizo {quien.nombre}</span>}
           {showDate && !o.completada && !o.omitida && (
-            <button className="font-semibold text-accion" onClick={() => cambiarOmitida(true)}>
+            <button className="font-semibold text-accion" onClick={() => (cambiarOmitida(true), onNoSeHizo?.(o))}>
               No se hizo
             </button>
           )}
