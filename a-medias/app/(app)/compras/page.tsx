@@ -449,7 +449,11 @@ function ItemRow({
         </p>
       </div>
       {i.es_automatico && <span className="tag tag-oscuro">Auto</span>}
-      {pedidoPor && <Avatar member={pedidoPor} size={24} label={`Lo pidió ${pedidoPor.nombre}`} />}
+      {i.pedido_juntos ? (
+        <Avatar juntos size={24} label="Lo pidieron los dos" />
+      ) : (
+        pedidoPor && <Avatar member={pedidoPor} size={24} label={`Lo pidió ${pedidoPor.nombre}`} />
+      )}
       <button onClick={onDelete} aria-label={`Borrar ${i.nombre}`} className="p-1 text-sec">
         <Trash2 size={16} />
       </button>

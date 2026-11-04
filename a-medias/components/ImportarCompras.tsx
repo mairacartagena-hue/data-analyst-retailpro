@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { getSupabase } from "@/lib/supabase/client";
-import { fechaDesdeTexto, normalizar, parseCsv, plantillaCsv } from "@/lib/csv";
+import { esJuntos, fechaDesdeTexto, normalizar, parseCsv, plantillaCsv } from "@/lib/csv";
 import { todayStr } from "@/lib/dates";
 import { CATEGORIAS, CATEGORIAS_MASCOTAS, LISTAS, type Categoria, type NombreLista } from "@/lib/types";
 import { useHousehold } from "./HouseholdProvider";
@@ -60,6 +60,7 @@ export function ImportarCompras({ open, onClose }: { open: boolean; onClose: () 
         ["Zanahoria", "Mascotas", "500 g", "Frutas y verduras", "", p1, m2],
         ["Hueso carnoso de res", "Mascotas", "2 unidades", "Hueso carnoso", "", p1, m2],
         ["Papel higienico", "Mercado", "2 rollos", "Abarrotes", "30", "", m1],
+        ["Arroz 1 kg", "Mercado", "2", "Abarrotes", "", "", "Juntos"],
       ]),
     );
   }
@@ -192,10 +193,13 @@ export function ImportarCompras({ open, onClose }: { open: boolean; onClose: () 
       }
 
       let pedidoPor: string | null = null;
+      let pedidoJuntos = false;
       const pedidoTxt = col(fila, "pedido_por");
-      if (pedidoTxt) {
+      if (pedidoTxt && esJuntos(pedidoTxt)) {
+        pedidoJuntos = true;
+      } else if (pedidoTxt) {
         const persona = members.find((x) => normalizar(x.nombre) === normalizar(pedidoTxt));
-        if (!persona) return fallo(`la persona "${pedidoTxt}" no existe en el hogar`);
+        if (!persona) return fallo(`la persona "${pedidoTxt}" no existe en el hogar (escribe un nombre o Juntos)`);
         pedidoPor = persona.id;
       }
 
@@ -217,6 +221,7 @@ export function ImportarCompras({ open, onClose }: { open: boolean; onClose: () 
           duracion_dias: duracion,
           pet_id: petId,
           pedido_por: pedidoPor,
+          pedido_juntos: pedidoJuntos,
           comprado: false,
         },
       });

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { getSupabase } from "@/lib/supabase/client";
-import { fechaDesdeTexto, horaDesdeTexto, normalizar, parseCsv, plantillaCsv } from "@/lib/csv";
+import { esJuntos, fechaDesdeTexto, horaDesdeTexto, normalizar, parseCsv, plantillaCsv } from "@/lib/csv";
 import { toBogotaISO } from "@/lib/dates";
 import { useHousehold } from "./HouseholdProvider";
 import { ErrorText, Sheet, errMsg } from "./ui";
@@ -88,7 +88,7 @@ export function ImportarRecordar({ open, onClose }: { open: boolean; onClose: ()
     const eventoOps: EvOp[] = [];
     const otrasOps: OtraOp[] = [];
     const personaId = (txt: string): string | null | undefined => {
-      if (!txt || ["juntos", "los dos"].includes(normalizar(txt))) return null;
+      if (!txt || esJuntos(txt)) return null;
       const p = members.find((m) => normalizar(m.nombre) === normalizar(txt));
       return p ? p.id : undefined;
     };
@@ -174,7 +174,7 @@ export function ImportarRecordar({ open, onClose }: { open: boolean; onClose: ()
       const paraTxt = col(fila, "para");
       const paraN = normalizar(paraTxt);
       let responsables: string[] = [];
-      if (paraN && paraN !== "los dos" && paraN !== "juntos") {
+      if (paraN && !esJuntos(paraN)) {
         const id = personaId(paraTxt);
         if (!id) return fallo(`la persona "${paraTxt}" no existe en el hogar`);
         responsables = [id];

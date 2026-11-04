@@ -99,3 +99,8 @@ export function horaDesdeTexto(t: string): string | null {
 export function normalizar(t: string) {
   return t.normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase();
 }
+
+/** "Juntos", "Ambos", "Los dos" o "Las dos" (sin importar tildes ni mayúsculas) */
+export function esJuntos(t: string) {
+  return ["juntos", "ambos", "ambas", "los dos", "las dos"].includes(normalizar(t));
+}

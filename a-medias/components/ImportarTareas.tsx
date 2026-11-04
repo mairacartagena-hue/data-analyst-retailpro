@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { getSupabase } from "@/lib/supabase/client";
-import { fechaDesdeTexto, horaDesdeTexto, normalizar, parseCsv, plantillaCsv } from "@/lib/csv";
+import { esJuntos, fechaDesdeTexto, horaDesdeTexto, normalizar, parseCsv, plantillaCsv } from "@/lib/csv";
 import { todayStr } from "@/lib/dates";
 import type { Frecuencia, Task } from "@/lib/types";
 import { useHousehold } from "./HouseholdProvider";
@@ -100,7 +100,7 @@ export function ImportarTareas({ open, onClose }: { open: boolean; onClose: () =
       let modo: Task["modo"];
       let responsable: string | null = null;
       if (r === "rotar") modo = "rota";
-      else if (r === "juntos" || r === "los dos") modo = "juntos";
+      else if (esJuntos(r)) modo = "juntos";
       else {
         const persona = members.find((m) => normalizar(m.nombre) === r);
         if (!persona) return malas.push({ numero, motivo: `la persona "${responsableTexto}" no existe en el hogar` });
