@@ -84,7 +84,7 @@ export async function construirRespaldo(d: DatosHogar): Promise<Blob> {
     i.categoria,
     i.duracion_dias ? String(i.duracion_dias) : "",
     nombreMascota(i.pet_id),
-    nombrePersona(i.pedido_por),
+    i.pedido_juntos ? "Juntos" : nombrePersona(i.pedido_por),
     si(i.comprado),
   ]);
 

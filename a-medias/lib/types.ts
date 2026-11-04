@@ -109,6 +109,7 @@ export interface ShoppingItem {
   categoria: Categoria;
   cantidad: string | null;
   pedido_por: string | null;
+  pedido_juntos?: boolean;
   comprado: boolean;
   comprado_en: string | null;
   es_automatico: boolean;
