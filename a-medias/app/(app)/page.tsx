@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Settings } from "lucide-react";
 import { useHousehold } from "@/components/HouseholdProvider";
@@ -8,14 +8,31 @@ import { BalanceBar } from "@/components/BalanceBar";
 import { OccurrenceRow, sortOccurrences } from "@/components/OccurrenceRow";
 import { PantrySoonCard } from "@/components/PantrySoon";
 import { PushButton } from "@/components/PushButton";
+import { getSupabase } from "@/lib/supabase/client";
 import { PageHeader, Pills } from "@/components/ui";
 import { formatLong, todayStr } from "@/lib/dates";
 import { Loading } from "@/components/Loading";
 import type { Occurrence } from "@/lib/types";
 
 export default function HoyPage() {
-  const { ready, occurrences, tasks, household, members } = useHousehold();
+  const { ready, occurrences, tasks, household, members, optimistic } = useHousehold();
   const [persona, setPersona] = useState<string>("todas");
+  // La última marcada "No se hizo": sale de la lista, pero se puede deshacer unos segundos
+  const [noHecha, setNoHecha] = useState<Occurrence | null>(null);
+  useEffect(() => {
+    if (!noHecha) return;
+    const t = setTimeout(() => setNoHecha(null), 6000);
+    return () => clearTimeout(t);
+  }, [noHecha]);
+
+  async function deshacerNoHecha() {
+    if (!noHecha) return;
+    const o = noHecha;
+    setNoHecha(null);
+    optimistic("occurrences", { ...o, omitida: false });
+    const { error } = await getSupabase().from("task_occurrences").update({ omitida: false }).eq("id", o.id);
+    if (error) optimistic("occurrences", { ...o, omitida: true });
+  }
   const hoy = todayStr();
   const deDePersona = (o: Occurrence) => persona === "todas" || o.responsable_id === persona;
 
@@ -25,7 +42,7 @@ export default function HoyPage() {
     tasks,
   );
   const pendientesAntes = sortOccurrences(
-    occurrences.filter((o) => o.fecha < hoy && !o.completada && activas.has(o.task_id) && deDePersona(o)),
+    occurrences.filter((o) => o.fecha < hoy && !o.completada && !o.omitida && activas.has(o.task_id) && deDePersona(o)),
     tasks,
   );
   const hechas = deHoy.filter((o) => o.completada).length;
@@ -79,10 +96,19 @@ export default function HoyPage() {
               <p className="text-xs text-sec">Quedaron sin marcar. Márcalas o toca &quot;No se hizo&quot;.</p>
               <ul className="mt-1">
                 {pendientesAntes.map((o) => (
-                  <OccurrenceRow key={o.id} occurrence={o} showDate />
+                  <OccurrenceRow key={o.id} occurrence={o} showDate onNoSeHizo={setNoHecha} />
                 ))}
               </ul>
             </section>
+          )}
+
+          {noHecha && (
+            <div role="status" className="flex items-center justify-between gap-3 rounded-[10px] bg-vino px-4 py-3 text-sm text-crema">
+              <span>Marcada como no hecha</span>
+              <button className="font-semibold text-rosa-claro underline" onClick={deshacerNoHecha}>
+                Deshacer
+              </button>
+            </div>
           )}
 
           <PantrySoonCard />
