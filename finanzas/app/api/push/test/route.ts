@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { requireApiMember } from "@/lib/supabase/server";
 import { pushConfigured, sendPush } from "@/lib/push/server";
 
 // Notificación de prueba a los celulares de la persona con sesión (Ajustes → Notificaciones → Probar).
@@ -7,9 +7,8 @@ export const runtime = "nodejs";
 
 export async function POST() {
   if (!pushConfigured()) return NextResponse.json({ ok: false, reason: "Las notificaciones aún no están configuradas en el servidor." }, { status: 503 });
-  const sb = await createClient();
-  const { data: { user } } = await sb.auth.getUser();
-  if (!user) return NextResponse.json({ ok: false, reason: "Necesitas iniciar sesión" }, { status: 401 });
+  const { supabase: sb, user, denied } = await requireApiMember();
+  if (denied) return NextResponse.json({ ok: false, reason: denied.error }, { status: denied.status });
   const { data, error } = await sb.from("push_subscriptions").select("endpoint, p256dh, auth").eq("user_id", user.id);
   if (error) return NextResponse.json({ ok: false, reason: error.message }, { status: 500 });
   let sent = 0;

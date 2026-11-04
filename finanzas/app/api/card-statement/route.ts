@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { requireApiMember } from "@/lib/supabase/server";
 import { readCardStatement } from "@/lib/capture/cardStatementGemini";
 
 // Importar el extracto de una tarjeta de crédito: Gemini lo lee y la app muestra lo leído para revisarlo.
@@ -10,9 +10,8 @@ const TYPES = ["application/pdf", "image/jpeg", "image/png", "image/webp", "imag
 const MAX_BASE64 = 4_200_000; // ~3 MB: Vercel acepta hasta 4,5 MB por solicitud
 
 export async function POST(req: NextRequest) {
-  const sb = await createClient();
-  const { data: auth } = await sb.auth.getUser();
-  if (!auth.user) return NextResponse.json({ ok: false, error: "Inicia sesión" }, { status: 401 });
+  const { denied } = await requireApiMember();
+  if (denied) return NextResponse.json({ ok: false, error: denied.error }, { status: denied.status });
   const body = (await req.json().catch(() => null)) as { data?: unknown; mime?: unknown; today?: unknown } | null;
   const mime = typeof body?.mime === "string" ? body.mime : "";
   const data = typeof body?.data === "string" ? body.data : "";

@@ -40,3 +40,15 @@ export async function getSessionMember() {
     .maybeSingle();
   return { supabase, user, member, needsMfa: false };
 }
+
+/**
+ * Para las rutas /api que usan la sesión: exige sesión, el código de verificación (si está activado) y un hogar.
+ * Así nadie con solo la contraseña, ni una cuenta nueva sin hogar, puede gastar el cupo de Gemini.
+ */
+export async function requireApiMember() {
+  const s = await getSessionMember();
+  if (!s.user) return { ...s, denied: { error: "Inicia sesión", status: 401 } } as const;
+  if (s.needsMfa) return { ...s, denied: { error: "Escribe el código de verificación", status: 403 } } as const;
+  if (!s.member) return { ...s, denied: { error: "Primero crea o únete a un hogar", status: 403 } } as const;
+  return { ...s, user: s.user, member: s.member, denied: null } as const;
+}

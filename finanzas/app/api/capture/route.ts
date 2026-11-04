@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { requireApiMember } from "@/lib/supabase/server";
 import { captureWithGemini, type CaptureContext } from "@/lib/capture/gemini";
 import type { CaptureOption } from "@/lib/capture/phrase";
 
@@ -19,9 +19,8 @@ function options(v: unknown): CaptureOption[] {
 }
 
 export async function POST(req: NextRequest) {
-  const sb = await createClient();
-  const { data: auth } = await sb.auth.getUser();
-  if (!auth.user) return NextResponse.json({ ok: false, error: "Inicia sesión" }, { status: 401 });
+  const { denied } = await requireApiMember();
+  if (denied) return NextResponse.json({ ok: false, error: denied.error }, { status: denied.status });
   if (!process.env.GEMINI_API_KEY) return NextResponse.json({ ok: false, error: "Gemini no está configurado" }, { status: 503 });
 
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
