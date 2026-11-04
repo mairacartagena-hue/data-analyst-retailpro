@@ -94,6 +94,37 @@ describe("la misma compra por Wallet, SMS y correo no se duplica", () => {
     expect(await count()).toBe(2);
   });
 
+  // Wallet avisa otra vez la misma compra cuando agrega la ubicación al recibo, con el nombre corregido
+  const REPOST = (receivedAt: string): RawEvent => ({ ...WALLET, title: "Agro La Hacienda", receivedAt });
+
+  it("el segundo aviso de Wallet (8 min después, nombre corregido) se une a la compra", async () => {
+    await ingest(WALLET);
+    await ingest(SMS_EV);
+    expect((await ingest(REPOST("2026-10-24T17:27:30.000Z"))).result).toBe("MERGED");
+    expect(await count()).toBe(1);
+  });
+
+  it("el segundo aviso de Wallet llega 49 minutos después: se une igual", async () => {
+    await ingest(SMS_EV);
+    await ingest(WALLET);
+    expect((await ingest(REPOST("2026-10-24T18:08:00.000Z"))).result).toBe("MERGED");
+    expect(await count()).toBe(1);
+  });
+
+  it("un aviso de Wallet 3 horas después es otra compra", async () => {
+    await ingest(WALLET);
+    expect((await ingest(REPOST("2026-10-24T20:20:00.000Z"))).result).toBe("ACCEPTED");
+    expect(await count()).toBe(2);
+  });
+
+  it("dos compras iguales reales a 30 minutos siguen siendo dos, llegue primero el SMS o Wallet", async () => {
+    await ingest(WALLET);
+    await ingest(SMS_EV);
+    await ingest({ ...WALLET, receivedAt: "2026-10-24T17:49:20.000Z" });
+    await ingest({ ...SMS_EV, text: SMS.replace("las 12:19", "las 12:49"), receivedAt: "2026-10-24T17:49:25.000Z" });
+    expect(await count()).toBe(2);
+  });
+
   it("finishParsed deja la hora de Wallet vacía (se usa la de llegada)", () => {
     const p = finishParsed(WALLET, parseWithRules(WALLET).parsed!);
     expect(p.occurredAt ?? null).toBeNull();
