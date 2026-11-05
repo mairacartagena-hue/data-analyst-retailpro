@@ -1,6 +1,7 @@
 // Arma un ZIP con un CSV por sección, con las mismas columnas que las plantillas de importación.
 import JSZip from "jszip";
 import { plantillaCsv } from "@/lib/csv";
+import { separarTiendas } from "@/lib/logic";
 import type { Member, Note, Pet, PetEvent, PantryProduct, Reminder, ShoppingItem, ShoppingList, Task } from "@/lib/types";
 
 export type DatosHogar = {
@@ -73,7 +74,7 @@ export async function construirRespaldo(d: DatosHogar): Promise<Blob> {
       p.marca ?? "",
       p.tipo_comida ?? "",
       p.rota ? "Rotar" : nombrePersona(p.responsable_id),
-      p.tienda ?? "",
+      separarTiendas(p.tienda).join(", "),
     ];
   });
 
@@ -86,7 +87,7 @@ export async function construirRespaldo(d: DatosHogar): Promise<Blob> {
     i.duracion_dias ? String(i.duracion_dias) : "",
     nombreMascota(i.pet_id),
     i.pedido_juntos ? "Juntos" : nombrePersona(i.pedido_por),
-    i.tienda ?? "",
+    separarTiendas(i.tienda).join(", "),
     si(i.comprado),
   ]);
 
