@@ -10,7 +10,7 @@ import { Loading } from "@/components/Loading";
 import { getSupabase } from "@/lib/supabase/client";
 import { normalizar } from "@/lib/csv";
 import { todayStr } from "@/lib/dates";
-import { diasExtraPorCompra, formatCantidad, pantryDaysLeft, parseCantidad, sumarCantidades } from "@/lib/logic";
+import { diasExtraPorCompra, formatCantidad, pantryDaysLeft, parseCantidad, separarTiendas, sumarCantidades, tiendasUnicas } from "@/lib/logic";
 import { CATEGORIAS, CATEGORIAS_MASCOTAS, LISTAS, type Categoria, type NombreLista, type PantryProduct, type ShoppingItem, type ShoppingList, type Task } from "@/lib/types";
 
 const SIN_TIENDA = "__sin_tienda__";
@@ -65,15 +65,10 @@ export default function ComprasPage() {
   const propios = items.filter((i) => i.list_id === lista?.id);
   const productosLista = pantry.filter((p) => (activa === "Mascotas" ? p.es_mascotas : !p.es_mascotas));
   // Tiendas de esta lista (productos y despensa), para el filtro
-  const tiendasLista = [
-    ...new Map(
-      [...propios.map((i) => i.tienda), ...productosLista.map((p) => p.tienda)]
-        .map((t) => t?.trim())
-        .filter((t): t is string => !!t)
-        .map((t) => [normalizar(t), t] as const),
-    ).values(),
-  ].sort((a, b) => a.localeCompare(b, "es"));
-  const hayProductosSinTienda = propios.some((i) => !i.tienda?.trim()) || productosLista.some((p) => !p.tienda?.trim());
+  // (un producto puede tener varias: "D1, Éxito" o "D1 - Éxito" cuentan para las dos)
+  const tiendasLista = tiendasUnicas([...propios.map((i) => i.tienda), ...productosLista.map((p) => p.tienda)]);
+  const hayProductosSinTienda =
+    propios.some((i) => separarTiendas(i.tienda).length === 0) || productosLista.some((p) => separarTiendas(p.tienda).length === 0);
   // Si la tienda elegida no está en esta lista, se muestran todas
   const filtro =
     filtroTienda === SIN_TIENDA
@@ -82,7 +77,10 @@ export default function ComprasPage() {
         : ""
       : tiendasLista.find((t) => normalizar(t) === normalizar(filtroTienda)) ?? "";
   const deTienda = (t: string | null | undefined) =>
-    !filtro || (filtro === SIN_TIENDA ? !t?.trim() : normalizar(t ?? "") === normalizar(filtro));
+    !filtro ||
+    (filtro === SIN_TIENDA
+      ? separarTiendas(t).length === 0
+      : separarTiendas(t).some((x) => normalizar(x) === normalizar(filtro)));
   const pronto = prontoTodos.filter((p) => deTienda(p.tienda));
   const pendientes = propios.filter((i) => !i.comprado && deTienda(i.tienda));
   const comprados = propios.filter((i) => i.comprado && deTienda(i.tienda));
@@ -105,9 +103,7 @@ export default function ComprasPage() {
     }))
     .filter((g) => g.productos.length > 0);
   // Tiendas ya usadas, para sugerirlas al escribir
-  const tiendasUsadas = [...new Set(items.map((i) => i.tienda?.trim()).filter((t): t is string => !!t))].sort((a, b) =>
-    a.localeCompare(b, "es"),
-  );
+  const tiendasUsadas = tiendasUnicas([...items.map((i) => i.tienda), ...pantry.map((p) => p.tienda)]);
 
   async function agregar(e: React.FormEvent) {
     e.preventDefault();
@@ -682,7 +678,7 @@ function ItemRow({
       )}
       {i.tienda && (
         <span className="mt-0.5 flex items-center gap-1 text-xs font-normal text-sec no-underline">
-          <Store size={12} /> {i.tienda}
+          <Store size={12} /> {separarTiendas(i.tienda).join(" · ")}
         </span>
       )}
     </p>
@@ -731,9 +727,7 @@ function PantrySheet({
   const [duracion, setDuracion] = useState("30");
   const [ultima, setUltima] = useState(todayStr());
   const { items: itemsTiendas, pantry: pantryTiendas } = useHousehold();
-  const tiendasConocidas = [
-    ...new Set([...itemsTiendas.map((x) => x.tienda), ...pantryTiendas.map((x) => x.tienda)].map((t) => t?.trim()).filter((t): t is string => !!t)),
-  ].sort((a, b) => a.localeCompare(b, "es"));
+  const tiendasConocidas = tiendasUnicas([...itemsTiendas.map((x) => x.tienda), ...pantryTiendas.map((x) => x.tienda)]);
   const [diasExtra, setDiasExtra] = useState(0);
   const [tiendaP, setTiendaP] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -836,7 +830,7 @@ function PantrySheet({
             className="input"
             value={tiendaP}
             onChange={(e) => setTiendaP(e.target.value)}
-            placeholder="Ej: D1, Éxito, la plaza"
+            placeholder="Ej: D1, Éxito (varias con coma o guion)"
             list="tiendas-despensa"
           />
           <datalist id="tiendas-despensa">
@@ -1050,7 +1044,7 @@ function ItemSheet({
               className="input"
               value={tiendaItem}
               onChange={(e) => setTiendaItem(e.target.value)}
-              placeholder="Ej: D1, Éxito, la plaza"
+              placeholder="Ej: D1, Éxito (varias con coma o guion)"
               list="tiendas-usadas-panel"
             />
             <datalist id="tiendas-usadas-panel">
@@ -1080,7 +1074,7 @@ function PantryRow({ producto: p, onAbrir }: { producto: PantryProduct; onAbrir:
   const detalles = [
     p.marca,
     p.tipo_comida,
-    p.tienda,
+    separarTiendas(p.tienda).join(" · ") || null,
     `Dura ${p.duracion_dias} ${p.duracion_dias === 1 ? "día" : "días"}` +
       ((p.dias_extra ?? 0) > 0 ? ` (+${p.dias_extra} por compra extra)` : ""),
     p.rota ? "Responsable: rotar" : p.responsable_id ? `Responsable: ${memberById(p.responsable_id)?.nombre ?? ""}` : null,
