@@ -9,7 +9,7 @@ import { useHousehold } from "./HouseholdProvider";
 import { ErrorText, Sheet, errMsg } from "./ui";
 
 const ENC_DESPENSA = ["nombre", "lista", "categoria", "dias", "ultima_compra", "mascota", "marca", "tipo_comida", "responsable"];
-const ENC_LISTA = ["producto", "lista", "cantidad", "categoria", "dias", "mascota", "pedido_por"];
+const ENC_LISTA = ["producto", "lista", "cantidad", "categoria", "dias", "mascota", "pedido_por", "tienda"];
 
 type Op = { tabla: "pantry_products" | "shopping_items"; fila: Record<string, unknown>; idExistente?: string; nombre: string };
 type Err = { numero: number; motivo: string };
@@ -56,11 +56,11 @@ export function ImportarCompras({ open, onClose }: { open: boolean; onClose: () 
     descargar(
       "plantilla_lista_compras.csv",
       plantillaCsv(ENC_LISTA, [
-        ["Pechuga de pollo", "Mascotas", "1 kg", "Proteina", "7", p1, m1],
-        ["Zanahoria", "Mascotas", "500 g", "Frutas y verduras", "", p1, m2],
-        ["Hueso carnoso de res", "Mascotas", "2 unidades", "Hueso carnoso", "", p1, m2],
-        ["Papel higienico", "Mercado", "2 rollos", "Abarrotes", "30", "", m1],
-        ["Arroz 1 kg", "Mercado", "2", "Abarrotes", "", "", "Juntos"],
+        ["Pechuga de pollo", "Mascotas", "1 kg", "Proteina", "7", p1, m1, "Carniceria"],
+        ["Zanahoria", "Mascotas", "500 g", "Frutas y verduras", "", p1, m2, ""],
+        ["Hueso carnoso de res", "Mascotas", "2 unidades", "Hueso carnoso", "", p1, m2, ""],
+        ["Papel higienico", "Mercado", "2 rollos", "Abarrotes", "30", "", m1, "D1"],
+        ["Arroz 1 kg", "Mercado", "2", "Abarrotes", "", "", "Juntos", ""],
       ]),
     );
   }
@@ -222,6 +222,7 @@ export function ImportarCompras({ open, onClose }: { open: boolean; onClose: () 
           pet_id: petId,
           pedido_por: pedidoPor,
           pedido_juntos: pedidoJuntos,
+          ...(col(fila, "tienda") ? { tienda: col(fila, "tienda") } : {}),
           comprado: false,
         },
       });

@@ -110,6 +110,8 @@ export interface ShoppingItem {
   cantidad: string | null;
   pedido_por: string | null;
   pedido_juntos?: boolean;
+  /** Tienda donde se compra (opcional) */
+  tienda?: string | null;
   comprado: boolean;
   comprado_en: string | null;
   es_automatico: boolean;

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { Pencil, Plus, Store, Trash2 } from "lucide-react";
 import { useHousehold } from "@/components/HouseholdProvider";
 import { ImportarCompras } from "@/components/ImportarCompras";
 import { PantryCards, diasTexto, usePantrySoon } from "@/components/PantrySoon";
@@ -19,6 +19,7 @@ export default function ComprasPage() {
   const [cantidad, setCantidad] = useState("");
   const [categoria, setCategoria] = useState<Categoria>("Abarrotes");
   const [duracion, setDuracion] = useState("");
+  const [tienda, setTienda] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [producto, setProducto] = useState<PantryProduct | "nuevo" | null>(null);
   const [importar, setImportar] = useState(false);
@@ -76,6 +77,11 @@ export default function ComprasPage() {
       productos: productos.filter((p) => p.categoria === c).sort((a, b) => pantryDaysLeft(a) - pantryDaysLeft(b)),
     }))
     .filter((g) => g.productos.length > 0);
+  // Tiendas ya usadas, para sugerirlas al escribir
+  const tiendasUsadas = [...new Set(items.map((i) => i.tienda?.trim()).filter((t): t is string => !!t))].sort((a, b) =>
+    a.localeCompare(b, "es"),
+  );
+
   async function agregar(e: React.FormEvent) {
     e.preventDefault();
     if (!nombre.trim() || !lista) return;
@@ -87,6 +93,7 @@ export default function ComprasPage() {
       categoria: activa === "Droguería" || activa === "Para la casa" ? ("Otros" as Categoria) : categoria,
       pedido_por: me?.id ?? null,
       duracion_dias: duracion.trim() ? Math.max(1, parseInt(duracion, 10) || 1) : null,
+      tienda: tienda.trim() || null,
     };
     setNombre("");
     setCantidad("");
@@ -149,11 +156,11 @@ export default function ComprasPage() {
     (data as PantryProduct[] | null)?.forEach((p) => optimistic("pantry", p));
   }
 
-  /** Cambia la cantidad de un producto (pendiente o ya comprado) */
-  async function editarCantidad(i: ShoppingItem, texto: string) {
-    const cantidad = texto.trim() || null;
-    optimistic("items", { ...i, cantidad });
-    const { error } = await getSupabase().from("shopping_items").update({ cantidad }).eq("id", i.id);
+  /** Cambia la cantidad y la tienda de un producto (pendiente o ya comprado) */
+  async function editarCantidad(i: ShoppingItem, cambios: { cantidad: string; tienda: string }) {
+    const fila = { cantidad: cambios.cantidad.trim() || null, tienda: cambios.tienda.trim() || null };
+    optimistic("items", { ...i, ...fila });
+    const { error } = await getSupabase().from("shopping_items").update(fila).eq("id", i.id);
     if (error) {
       optimistic("items", { ...i });
       setError(errMsg(error));
@@ -195,6 +202,7 @@ export default function ComprasPage() {
         cantidad: compradaTxt,
         pedido_por: i.pedido_por,
         pedido_juntos: i.pedido_juntos ?? false,
+        tienda: i.tienda ?? null,
         pet_id: i.pet_id ?? null,
         comprado: true,
         comprado_en: new Date().toISOString(),
@@ -442,6 +450,19 @@ export default function ComprasPage() {
                 placeholder="Días que dura (opcional)"
                 aria-label="Días que dura"
               />
+              <input
+                className="input flex-1"
+                value={tienda}
+                onChange={(e) => setTienda(e.target.value)}
+                placeholder="Tienda (opcional)"
+                aria-label="Tienda"
+                list="tiendas-usadas"
+              />
+              <datalist id="tiendas-usadas">
+                {tiendasUsadas.map((t) => (
+                  <option key={t} value={t} />
+                ))}
+              </datalist>
             </div>
             <div className="flex gap-2">
               {activa !== "Droguería" && activa !== "Para la casa" && (
@@ -563,10 +584,11 @@ export default function ComprasPage() {
         item={parcial}
         diasBase={diasBaseDe(parcial)}
         onClose={() => setParcial(null)}
-        onCantidad={async (texto) => {
+        tiendasUsadas={tiendasUsadas}
+        onCantidad={async (cambios) => {
           const i = parcial;
           setParcial(null);
-          if (i) await editarCantidad(i, texto);
+          if (i) await editarCantidad(i, cambios);
         }}
         onComprar={async (n) => {
           const i = parcial;
@@ -603,6 +625,11 @@ function ItemRow({
       {i.nombre}
       {i.cantidad && (
         <span className="text-sec"> · {i.cantidad}</span>
+      )}
+      {i.tienda && (
+        <span className="mt-0.5 flex items-center gap-1 text-xs font-normal text-sec no-underline">
+          <Store size={12} /> {i.tienda}
+        </span>
       )}
     </p>
   );
@@ -845,20 +872,24 @@ function ItemSheet({
   onTodo,
   onCantidad,
   diasBase,
+  tiendasUsadas = [],
 }: {
   item: ShoppingItem | null;
+  tiendasUsadas?: string[];
   /** Para cuántos días alcanza la cantidad pedida (si se sabe) */
   diasBase?: number | null;
   onClose: () => void;
   onComprar: (n: number) => void;
   onTodo: () => void;
-  onCantidad: (texto: string) => void;
+  onCantidad: (cambios: { cantidad: string; tienda: string }) => void;
 }) {
   const [valor, setValor] = useState("");
   const [cantidad, setCantidad] = useState("");
+  const [tiendaItem, setTiendaItem] = useState("");
   useEffect(() => {
     setValor("");
     setCantidad(item?.cantidad ?? "");
+    setTiendaItem(item?.tienda ?? "");
   }, [item?.id, item?.cantidad]);
   const total = parseCantidad(item?.cantidad);
   const n = Number(valor.replace(",", "."));
@@ -932,12 +963,28 @@ function ItemSheet({
               onChange={(e) => setCantidad(e.target.value)}
               placeholder="Ej: 2 kilos"
             />
+            <label className="label pt-1" htmlFor="tienda-producto">
+              Tienda (opcional)
+            </label>
+            <input
+              id="tienda-producto"
+              className="input"
+              value={tiendaItem}
+              onChange={(e) => setTiendaItem(e.target.value)}
+              placeholder="Ej: D1, Éxito, la plaza"
+              list="tiendas-usadas-panel"
+            />
+            <datalist id="tiendas-usadas-panel">
+              {tiendasUsadas.map((t) => (
+                <option key={t} value={t} />
+              ))}
+            </datalist>
             <button
               className="btn btn-secondary w-full"
-              disabled={cantidad.trim() === (item.cantidad ?? "")}
-              onClick={() => onCantidad(cantidad)}
+              disabled={cantidad.trim() === (item.cantidad ?? "") && tiendaItem.trim() === (item.tienda ?? "")}
+              onClick={() => onCantidad({ cantidad, tienda: tiendaItem })}
             >
-              Guardar cantidad
+              Guardar cambios
             </button>
           </div>
         </div>
