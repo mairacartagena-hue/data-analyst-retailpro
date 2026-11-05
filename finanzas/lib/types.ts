@@ -55,6 +55,25 @@ export interface ReconcilingItem {
   occurred_on: string | null;
 }
 
+/**
+ * Cómo se resolvió un vencimiento de crédito o tarjeta pagado con un valor distinto a la cuota:
+ * PARTIAL abono (falta el resto) · LOWER la cuota era menor · EXTRA_CAPITAL abono a capital · HIGHER la cuota era mayor.
+ */
+export type DueSettlementMode = "PARTIAL" | "LOWER" | "EXTRA_CAPITAL" | "HIGHER";
+
+export interface DueSettlement {
+  id: string;
+  household_id: string;
+  account_id: string;
+  due_date: string;
+  mode: DueSettlementMode;
+  /** Cuota del vencimiento. */
+  expected: number;
+  /** Lo pagado en total para esa fecha. */
+  paid: number;
+  payer_user_id: string;
+}
+
 export interface Reconciliation {
   id: string;
   account_id: string;

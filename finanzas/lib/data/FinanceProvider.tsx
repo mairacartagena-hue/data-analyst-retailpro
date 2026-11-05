@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabase } from "@/lib/supabase/client";
 import type {
-  Account, AccountLabel, BudgetPlan, CategoryLimit, BudgetPlanCategory, Category, CategoryBudgetRow, CustomPeriodRow, Household, LedgerRow,
+  DueSettlement, Account, AccountLabel, BudgetPlan, CategoryLimit, BudgetPlanCategory, Category, CategoryBudgetRow, CustomPeriodRow, Household, LedgerRow,
   CardStatementItem, Contact, ContactEntry, ObligationDebt, ManualAsset, Member, PeriodSettingsRow, Reconciliation, SavingsContribution, SavingsGoal, ScheduledPayment, Split, Tag, Transaction,
 } from "@/lib/types";
 import { toPeriodSettings, type Snapshot } from "@/lib/finance/derive";
@@ -144,14 +144,18 @@ async function loadAll(sb: SupabaseClient, userId: string): Promise<Loaded> {
   const transactions: Transaction[] = txs.map((t) => ({ ...t, amount: Number(t.amount), installments: Number(t.installments ?? 1), interest_rate_ea: num(t.interest_rate_ea) as number | null, splits: splitsByTx.get(t.id) ?? [] }));
   const consumption = expandInstallments(transactions);
   // "*" para que as_of llegue cuando ya exista la columna (migración 0049) sin romper antes
-  const [cardItemRows, obligationRows, contactRows, contactLedgerRows] = await Promise.all([
+  const [cardItemRows, obligationRows, contactRows, contactLedgerRows, settlementRows] = await Promise.all([
     sb.from("card_statement_items").select("*"),
     sb.rpc("household_obligation_debts"),
     sb.from("contacts").select("*").order("name"),
     fetchAll<ContactEntry>((f, t) =>
       sb.from("contact_ledger").select("*").order("occurred_on", { ascending: false }).order("created_at", { ascending: false }).range(f, t))
       .catch(() => [] as ContactEntry[]),
+    sb.from("due_settlements").select("id, household_id, account_id, due_date, mode, expected, paid, payer_user_id").eq("household_id", hh),
   ]);
+  // Si la tabla aún no existe (migración 0058 pendiente) no hay vencimientos resueltos
+  const dueSettlements = settlementRows.error ? [] : ((settlementRows.data ?? []) as DueSettlement[])
+    .map((d) => ({ ...d, expected: Number(d.expected), paid: Number(d.paid) }));
   // Si las tablas aún no existen (migración 0052 pendiente) no hay contactos
   const contacts = contactRows.error ? [] : (contactRows.data ?? []) as Contact[];
   const contactLedger = contactLedgerRows.map((e) => ({ ...e, amount: Number(e.amount) }));
@@ -215,6 +219,7 @@ async function loadAll(sb: SupabaseClient, userId: string): Promise<Loaded> {
       cardPaymentPortions(((accounts.data ?? []) as Account[]).map((a) => ({ ...a, opening_balance: Number(a.opening_balance) })), transactions, cardItems)), ...sharedSpending],
     consumption,
     cardItems,
+    dueSettlements,
     obligationDebts,
     contacts,
     contactLedger,
@@ -237,7 +242,7 @@ const REALTIME_TABLES = [
   "accounts", "categories", "category_budgets", "transactions", "transaction_splits",
   "cross_ledger", "household_members", "period_settings", "manual_assets",
   "category_limits", "budget_plans", "budget_plan_categories", "scheduled_payments", "savings_goals", "savings_contributions",
-  "tags", "transaction_tags",
+  "tags", "transaction_tags", "due_settlements",
 ];
 
 export function FinanceProvider({ userId, children }: { userId: string; children: React.ReactNode }) {

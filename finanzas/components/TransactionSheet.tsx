@@ -33,6 +33,9 @@ import { installmentPlan, MAX_INSTALLMENTS, rateOf } from "@/lib/finance/install
 import { isNetworkError } from "@/lib/offline/store";
 import { newClientId, type QueuedTx } from "@/lib/offline/queue";
 import { reconciledThrough } from "@/lib/finance/reconcile";
+import { DueDifference, saveDueSettlement } from "@/components/DueDifference";
+import { dueDiffers, settlementFor } from "@/lib/finance/dueSettlements";
+import type { DueSettlementMode } from "@/lib/types";
 
 type FormKind = Exclude<TxKind, "SETTLEMENT">;
 type KindGroup = "EXPENSE" | "INCOME" | "TRANSFER" | "OTHER";
@@ -91,6 +94,9 @@ export interface TxPreset {
   /** Gasto compartido: una parte por persona (se abre ya dividido). */
   shares?: { userId: string; amount: number }[];
   scheduledFor?: string;
+  /** Pago de un vencimiento de tarjeta o crédito: fecha de pago y cuota. Si se paga otro valor, se pregunta qué pasó. */
+  dueFor?: string;
+  dueAmount?: number;
   /** Aviso de ingest_logs que se marca como registrado al guardar. */
   logId?: string;
   /** Abrir escuchando (botón del micrófono). */
@@ -153,6 +159,8 @@ export function TransactionSheet({
   const [scheduled, setScheduled] = useState<{ id: string; for: string } | null>(null);
   const [newCategory, setNewCategory] = useState<"EXPENSE" | "INCOME" | null>(null);
   const [fixedPrompt, setFixedPrompt] = useState<FixedPrompt | null>(null);
+  /** Pago de un vencimiento con otro valor: se pregunta qué pasó antes de guardar. */
+  const [duePrompt, setDuePrompt] = useState(false);
   const [remember, setRemember] = useState(true);
   const [autoApply, setAutoApply] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -163,6 +171,7 @@ export function TransactionSheet({
     if (!open) return;
     setError(null);
     setFixedPrompt(null);
+    setDuePrompt(false);
     setBusy(false);
     setTagIds(editing ? state.txTags[editing.id] ?? [] : []);
     setMore(false);
@@ -414,10 +423,16 @@ export function TransactionSheet({
     void reload();
   }
 
-  async function save(chargeExcess?: number) {
+  async function save(chargeExcess?: number, dueMode?: DueSettlementMode) {
     setError(null);
     if (total <= 0) return setError("Escribe el monto.");
     if (kind === "TRANSFER" && toPartner) return saveToPartner();
+    // Pago de un vencimiento de tarjeta o crédito con otro valor: primero se pregunta qué pasó
+    const dueTarget = !editing && kind === "TRANSFER" && preset?.dueFor && preset.dueAmount && toAccountId === preset.toAccountId ? preset : null;
+    if (dueTarget && !dueMode && dueDiffers(dueTarget.dueAmount!, total)) {
+      setDuePrompt(true);
+      return;
+    }
     if (kind !== "TRANSFER" && !accountId) return setError("Elige la cuenta.");
 
     let payloadSplits: (SplitDraft & { origin?: string })[] = [];
@@ -501,6 +516,13 @@ export function TransactionSheet({
       if (remove.length > 0) await supabase.from("transaction_tags").delete().eq("transaction_id", savedId as string).in("tag_id", remove);
       if (add.length > 0) await supabase.from("transaction_tags").insert(add.map((tag_id) => ({ transaction_id: savedId as string, tag_id, household_id: state.household.id })));
     }
+    if (!error && dueTarget && dueMode) {
+      const r = await saveDueSettlement(supabase, settlementFor(state.dueSettlements, toAccountId, dueTarget.dueFor!), {
+        householdId: state.household.id, accountId: toAccountId, due: dueTarget.dueFor!, mode: dueMode,
+        expected: dueTarget.dueAmount!, paid: total, payerId: me.user_id,
+      });
+      if (r.error) { setBusy(false); return setError(`El pago quedó guardado, pero no lo que elegiste sobre la diferencia: ${errMsg(r.error)}`); }
+    }
     if (!error && preset?.logId && savedId) {
       await supabase.from("ingest_logs").update({ result: "ACCEPTED", reason: "Registrado a mano", transaction_id: savedId }).eq("id", preset.logId);
     }
@@ -542,7 +564,7 @@ export function TransactionSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange} title={title}
-      footer={myAccounts.length === 0 && !partnerEdit ? undefined : fixedPrompt ? undefined : (
+      footer={myAccounts.length === 0 && !partnerEdit ? undefined : fixedPrompt || duePrompt ? undefined : (
         <div className="space-y-2">
           {lockedNames.length > 0 && (
             <p className="rounded-xl bg-warning-soft px-3 py-2 text-xs">
@@ -566,6 +588,12 @@ export function TransactionSheet({
         <div className="space-y-3 py-6 text-center">
           <p className="text-[15px]">Primero agrega una cuenta (ahorros, Nequi, efectivo o tarjeta) en la pestaña Cuentas.</p>
           <Button onClick={() => { onOpenChange(false); router.push("/cuentas"); }}>Ir a Cuentas</Button>
+        </div>
+      ) : duePrompt && preset?.dueFor && preset.dueAmount ? (
+        <div className="space-y-3 py-2">
+          <DueDifference expected={preset.dueAmount} paid={total} due={preset.dueFor} busy={busy}
+            onChoose={(mode) => save(undefined, mode)} onBack={() => setDuePrompt(false)} />
+          <ErrorText>{error}</ErrorText>
         </div>
       ) : fixedPrompt ? (
         <div className="space-y-4 py-2">

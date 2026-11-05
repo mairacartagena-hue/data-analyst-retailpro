@@ -4,7 +4,8 @@
 import { creditBudgetMap } from "@/lib/finance/spaces";
 import { cardBudgetMap } from "@/lib/finance/cardBudget";
 import type { Account, CardStatementItem, ScheduledPayment, Transaction } from "@/lib/types";
-import type { Reconciliation } from "@/lib/types";
+import type { DueSettlement, Reconciliation } from "@/lib/types";
+import { settledAsPaid, settlementFor } from "./dueSettlements";
 import { occurrencesIn } from "./commitments";
 import { cardDue, statementsDueIn } from "./installments";
 import { creditReserve, isCreditKind, nextCuota } from "./credit";
@@ -30,6 +31,8 @@ export interface ReminderInput {
   commitments: ScheduledPayment[];
   cardItems: CardStatementItem[];
   reconciliations: (Pick<Reconciliation, "account_id" | "month" | "status"> & Partial<Reconciliation>)[];
+  /** Vencimientos pagados con otro valor: "la cuota era menor" ya no se recuerda. */
+  dueSettlements?: DueSettlement[];
 }
 
 /** Días hacia adelante que se programan. Se recalculan cada vez que se abre la app. */
@@ -79,7 +82,7 @@ export function buildReminders(s: ReminderInput): Reminder[] {
     if (a.kind === "CREDIT_CARD" && a.due_day && owed > 0) {
       for (const { due } of statementsDueIn(a.statement_day ?? a.due_day, a.due_day, window)) {
         const amount = cardDue(a, balance, s.transactions, { start: due, end: due }, s.cardItems).due;
-        if (amount <= 0) continue;
+        if (amount <= 0 || settledAsPaid(settlementFor(s.dueSettlements, a.id, due))) continue;
         const body = `Paga ${formatCop(amount)} para no generar intereses de mora.`;
         push({ key: `tarjeta:${a.id}:${due}:-1`, send_on: addDays(due, -1), title: `Mañana vence el pago de ${a.name}`, body, url: "/cuentas" });
         push({ key: `tarjeta:${a.id}:${due}:0`, send_on: due, title: `Hoy vence el pago de ${a.name}`, body, url: "/cuentas" });
@@ -91,7 +94,7 @@ export function buildReminders(s: ReminderInput): Reminder[] {
       if (a.due_day) {
         const cuota = nextCuota(owed, a, today);
         for (const { due } of statementsDueIn(a.statement_day ?? a.due_day, a.due_day, window)) {
-          if (creditReserve(a, balance, s.transactions, { start: due, end: due }, today) <= 0) continue; // ya abonada
+          if (creditReserve(a, balance, s.transactions, { start: due, end: due }, today, s.dueSettlements) <= 0) continue; // ya abonada
           push({ key: `credito:${a.id}:${due}`, send_on: addDays(due, -1), title: `Mañana se paga la cuota de ${a.name}`, body: `Cuota estimada ${formatCop(cuota)}.`, url: "/cuentas?vista=creditos" });
         }
       }

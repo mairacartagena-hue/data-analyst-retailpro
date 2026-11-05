@@ -15,6 +15,7 @@ import { creditReserve, nextCuota } from "@/lib/finance/credit";
 import { responsibleOf } from "@/lib/finance/derive";
 import { creditBudgetMap } from "@/lib/finance/spaces";
 import { cardBudgetMap, legacySchedule } from "@/lib/finance/cardBudget";
+import { settledAsPaid, settlementFor } from "@/lib/finance/dueSettlements";
 import { obligationDues, type ObligationDue } from "@/lib/finance/obligationDues";
 import { cn } from "@/lib/utils";
 
@@ -31,6 +32,8 @@ export interface CardDue {
   paid?: boolean;
   /** Tarjeta con presupuesto: cuota de la deuda que ya traía que vence ese día (va en su presupuesto). */
   cuota?: number;
+  /** Crédito con un abono parcial: `amount` es lo que falta de la cuota. */
+  partial?: boolean;
 }
 
 /**
@@ -38,7 +41,7 @@ export interface CardDue {
  * cargo y las mías con presupuesto (su cuota está en Presupuestos aunque la pague mi pareja).
  */
 export function useUpcoming(period: Period) {
-  const { commitments, transactions, accounts, balances, me, cardItems, obligationDebts, limits, budgets } = useFinance();
+  const { commitments, transactions, accounts, balances, me, cardItems, obligationDebts, limits, budgets, dueSettlements } = useFinance();
   return useMemo(() => {
     const today = todayBogota();
     const occ = occurrencesIn(commitments, transactions, period, today, new Map([...creditBudgetMap(accounts), ...cardBudgetMap(accounts)]));
@@ -57,7 +60,10 @@ export function useUpcoming(period: Period) {
       const plan = a.budget_category_id ? legacySchedule({ ...a, opening_balance: Number(a.opening_balance) }, cardItems, payoffDates(transactions)) : [];
       for (const due of dueDatesBetween(fake, period.start, period.end)) {
         const cuota = plan.filter((c) => c.due === due).reduce((sum, c) => sum + c.amount, 0);
-        cards.push({ accountId: a.id, due, amount: d.due > 0 ? d.due : paidAmount, debt: d.debt, interest: d.due > 0 ? d.interest : 0, paid: d.due <= 0, cuota: cuota || undefined });
+        // "La cuota era menor" (o se pagó de más): el vencimiento queda pagado aunque el extracto diga otra cosa
+        const settled = settledAsPaid(settlementFor(dueSettlements, a.id, due));
+        const paid = d.due <= 0 || settled;
+        cards.push({ accountId: a.id, due, amount: !paid ? d.due : paidAmount, debt: d.debt, interest: !paid ? d.interest : 0, paid, cuota: cuota || undefined });
       }
     }
     // Cuotas de créditos con día de pago: vencen en el periodo y quedan pagadas con el abono después del corte anterior
@@ -67,15 +73,15 @@ export function useUpcoming(period: Period) {
       const cuota = nextCuota(owed, a, today);
       if (cuota <= 0) continue;
       for (const { due } of statementsDueIn(a.due_day, a.due_day, period)) {
-        // Lo que falta reservar de la cuota de ese día de pago: 0 = ya se pagó
-        const paid = creditReserve(a, balances[a.id] ?? 0, transactions, { ...period, start: due, end: due }, today) === 0;
-        cards.push({ accountId: a.id, due, amount: cuota, debt: owed, interest: 0, credit: true, paid });
+        // Lo que falta reservar de la cuota de ese día de pago: 0 = ya se pagó (un abono parcial deja el resto)
+        const left = creditReserve(a, balances[a.id] ?? 0, transactions, { ...period, start: due, end: due }, today, dueSettlements);
+        cards.push({ accountId: a.id, due, amount: left > 0 ? left : cuota, debt: owed, interest: 0, credit: true, paid: left === 0, partial: left > 0 && left < cuota });
       }
     }
     // Cuotas de presupuestos obligatorios del hogar que paga la pareja: también se ven aquí
     const obligations = obligationDues({ meId: me.user_id, debts: obligationDebts, accounts, limits, budgets, transactions }, period);
     return { occurrences: occ, cards, obligations, today };
-  }, [commitments, transactions, accounts, balances, me.user_id, period, cardItems, obligationDebts, limits, budgets]);
+  }, [commitments, transactions, accounts, balances, me.user_id, period, cardItems, obligationDebts, limits, budgets, dueSettlements]);
 }
 
 function whenLabel(due: string, today: string, paid: boolean): { text: string; tone: "ok" | "warn" | "danger" | "muted" } {
@@ -143,10 +149,10 @@ export function UpcomingList({
             icon={<Building2 size={17} className="text-muted" />}
             title={`Cuota ${accountLabel(labels, c.accountId)}`}
             when={w}
-            detail={c.paid ? ` · vencía el ${formatDay(c.due)}` : " · cuota estimada"}
+            detail={c.paid ? ` · vencía el ${formatDay(c.due)}` : c.partial ? " · falta de la cuota (abono parcial)" : " · cuota estimada"}
             amount={c.amount}
             paid={!!c.paid}
-            onPay={() => router.push(`/cuentas?vista=creditos&cuenta=${c.accountId}&cuota=1`)}
+            onPay={() => router.push(`/cuentas?vista=creditos&cuenta=${c.accountId}&cuota=1&vence=${c.due}`)}
           />
         ),
       });
@@ -163,7 +169,7 @@ export function UpcomingList({
           detail={c.paid ? ` · vencía el ${formatDay(c.due)}` : `${c.cuota ? ` · cuota del presupuesto ${formatCop(c.cuota)}` : ""}${c.amount < c.debt ? ` · de ${formatCop(c.debt)} de deuda` : " · deuda actual"}${c.interest > 0 ? ` · incluye ≈${formatCop(c.interest)} de intereses` : ""}`}
           amount={c.amount}
           paid={!!c.paid}
-          onPay={() => openPayment({ kind: "TRANSFER", toAccountId: c.accountId, amount: c.amount, description: "Pago de tarjeta", date: today })}
+          onPay={() => openPayment({ kind: "TRANSFER", toAccountId: c.accountId, amount: c.amount, description: "Pago de tarjeta", date: today, dueFor: c.due, dueAmount: c.amount })}
         />
       ),
     });
