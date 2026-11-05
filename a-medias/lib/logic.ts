@@ -132,7 +132,16 @@ export function findSuggestion(
 // Despensa
 // ---------------------------------------------------------------
 export function pantryDaysLeft(p: PantryProduct, hoy = todayStr()) {
-  return p.duracion_dias - diffDays(hoy, p.fecha_ultima_compra);
+  return p.duracion_dias + (p.dias_extra ?? 0) - diffDays(hoy, p.fecha_ultima_compra);
+}
+
+/**
+ * Comprar de más: si la cantidad pedida dura `diasBase` días, cuántos días
+ * adicionales rinde lo que se compró de más. Ej: 1 bolsa = 15 días, compré 2 → 15 días más.
+ */
+export function diasExtraPorCompra(pedida: number, comprada: number, diasBase: number): number {
+  if (!(pedida > 0) || !(diasBase > 0) || comprada <= pedida) return 0;
+  return Math.round((diasBase * (comprada - pedida)) / pedida);
 }
 
 export function pantryLow(p: PantryProduct, hoy = todayStr()) {
