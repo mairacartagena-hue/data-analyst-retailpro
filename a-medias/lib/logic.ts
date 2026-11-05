@@ -249,3 +249,24 @@ export function sumarCantidades(a: string | null | undefined, b: string | null |
   if (pa && pb && unidadBase(pa.unidad) === unidadBase(pb.unidad)) return formatCantidad(pa.n + pb.n, pa.unidad || pb.unidad);
   return `${ta} + ${tb}`;
 }
+
+// ---------------------------------------------------------------
+// Tiendas: un producto puede tener varias, separadas por coma o guion
+// ("D1, Éxito" o "D1 - Éxito")
+// ---------------------------------------------------------------
+export function separarTiendas(texto: string | null | undefined): string[] {
+  return (texto ?? "")
+    .split(/[,;/\-–—]/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+}
+
+/** Lista única de tiendas (sin repetir por tildes o mayúsculas), en orden alfabético */
+export function tiendasUnicas(textos: (string | null | undefined)[]): string[] {
+  const vistas = new Map<string, string>();
+  for (const t of textos.flatMap(separarTiendas)) {
+    const clave = t.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+    if (!vistas.has(clave)) vistas.set(clave, t);
+  }
+  return [...vistas.values()].sort((a, b) => a.localeCompare(b, "es"));
+}
