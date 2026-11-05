@@ -4,6 +4,7 @@ import Link from "next/link";
 import { SectionHeader } from "./ui";
 import { pantryDaysLeft, pantryLow } from "@/lib/logic";
 import { useHousehold } from "./HouseholdProvider";
+import type { PantryProduct } from "@/lib/types";
 
 export function usePantrySoon() {
   const { pantry } = useHousehold();
@@ -16,8 +17,9 @@ export function diasTexto(n: number) {
 }
 
 /** Tarjetas horizontales de productos que se están acabando */
-export function PantryCards() {
-  const productos = usePantrySoon();
+export function PantryCards({ productos: lista }: { productos?: PantryProduct[] } = {}) {
+  const todos = usePantrySoon();
+  const productos = lista ?? todos;
   if (!productos.length) return null;
   return (
     <div className="no-scrollbar -mx-4 flex gap-3 overflow-x-auto px-4 pb-1">
