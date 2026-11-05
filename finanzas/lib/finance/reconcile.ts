@@ -2,7 +2,8 @@
 // y estimado del 4x1000 (GMF). Replica la regla de account_balances(): un movimiento cuenta para el saldo
 // solo si ocurrió desde el momento del saldo inicial de la cuenta (opening_at).
 
-import type { Account, Reconciliation, Transaction } from "@/lib/types";
+import type { Account, Reconciliation, ReconcilingItem, Transaction } from "@/lib/types";
+export type { ReconcilingItem } from "@/lib/types";
 import { addDays } from "./periods";
 import { accountSign } from "./spaces";
 
@@ -138,6 +139,26 @@ export function balanceAt(account: Account, txs: Transaction[], atMs: number, at
   return b;
 }
 
+type RecLike = Pick<Reconciliation, "month" | "status" | "statement_balance" | "updated_at"> & {
+  cut_date?: string | null;
+  reconciled_at?: string | null;
+  reconciling_items?: ReconcilingItem[] | null;
+};
+
+const bogotaDay = (ms: number) => new Date(ms - 5 * 3_600_000).toISOString().slice(0, 10);
+
+/** Momento hasta el que vale una conciliación: el corte (o el final del mes), o el momento de conciliar si fue antes. */
+function recCutoffMs(rec: RecLike): number {
+  const end = rec.cut_date ?? monthRange(rec.month.slice(0, 7)).end;
+  return Math.min(Date.parse(rec.reconciled_at ?? rec.updated_at), Date.parse(`${end}T23:59:59.999-05:00`));
+}
+
+/** Día hasta el que está conciliada la cuenta (su conciliación más reciente), o null si no tiene. */
+export function reconciledThrough(accountId: string, recs: (RecLike & { account_id: string })[]): string | null {
+  const rec = recs.filter((r) => r.account_id === accountId && r.status === "RECONCILED").sort((x, y) => y.month.localeCompare(x.month))[0];
+  return rec ? bogotaDay(recCutoffMs(rec)) : null;
+}
+
 export interface ReconciliationDrift {
   /** Saldo de la app hoy al corte de la conciliación menos el saldo conciliado (+ la app subió, − bajó). */
   drift: number;
@@ -147,8 +168,10 @@ export interface ReconciliationDrift {
   reconciled: number;
   /** Fecha de corte (YYYY-MM-DD). */
   cutoff: string;
-  /** Movimientos de antes del corte creados o editados después de conciliar. */
+  /** Movimientos de antes del corte creados o editados después de conciliar (o de la última revisión). */
   changed: Transaction[];
+  /** Partidas conciliatorias ya aceptadas (suma de su efecto). */
+  accepted: number;
 }
 
 /**
@@ -156,27 +179,42 @@ export interface ReconciliationDrift {
  * (el último día del mes; si se concilió antes de que terminara el mes, el día en que se concilió). Si alguien
  * registró, editó o borró movimientos de antes del corte, o cambió el saldo inicial, la diferencia deja de ser 0.
  */
-export function reconciliationDrift(
-  account: Account,
-  txs: Transaction[],
-  rec: Pick<Reconciliation, "month" | "status" | "statement_balance" | "updated_at"> & { cut_date?: string | null },
-): ReconciliationDrift | null {
+export function reconciliationDrift(account: Account, txs: Transaction[], rec: RecLike): ReconciliationDrift | null {
   if (rec.status !== "RECONCILED") return null;
-  // Corte: el día del extracto (tarjetas conciliadas al corte) o el final del mes; o el momento de conciliar si fue
-  // antes (el saldo del banco era el de ese momento)
-  const end = rec.cut_date ?? monthRange(rec.month.slice(0, 7)).end;
-  const recMs = Date.parse(rec.updated_at);
-  const monthEndMs = Date.parse(`${end}T23:59:59.999-05:00`);
-  const cutoffMs = Math.min(recMs, monthEndMs);
-  const cutoff = new Date(cutoffMs - 5 * 3_600_000).toISOString().slice(0, 10); // día en Bogotá
+  // La conciliación vale hasta el corte; las partidas conciliatorias aceptadas explican la diferencia con la app
+  const cutoffMs = recCutoffMs(rec);
+  const cutoff = bogotaDay(cutoffMs);
   // Los movimientos sin hora del mismo día del corte cuentan dentro del corte
   const at = (t: Transaction) => (!t.occurred_at && t.occurred_on === cutoff ? cutoffMs : effectiveAt(t));
   const now = balanceAt(account, txs, cutoffMs, at);
-  const drift = Math.round(now - rec.statement_balance);
+  const accepted = (rec.reconciling_items ?? []).reduce((a, i) => a + i.amount, 0);
+  const drift = Math.round(now - rec.statement_balance - accepted);
   if (drift === 0) return null;
+  // Cambios desde la última revisión (conciliar o aceptar partidas)
+  const reviewedMs = Date.parse(rec.updated_at);
   const changed = txs.filter((t) => effectOn(account.id, t) !== 0 && at(t) <= cutoffMs
-    && Math.max(Date.parse(t.created_at), t.updated_at ? Date.parse(t.updated_at) : 0) > recMs);
-  return { drift, now, reconciled: rec.statement_balance, cutoff, changed };
+    && Math.max(Date.parse(t.created_at), t.updated_at ? Date.parse(t.updated_at) : 0) > reviewedMs);
+  return { drift, now, reconciled: rec.statement_balance, cutoff, changed, accepted };
+}
+
+/**
+ * Acepta como partidas conciliatorias lo que movió una cuenta conciliada: los movimientos que cambiaron (con su efecto
+ * actual, reemplazando la partida anterior del mismo movimiento) y, si queda algo, una partida por la diferencia
+ * (movimiento borrado o cambio del saldo inicial). Con ellas la conciliación vuelve a cuadrar.
+ */
+export function acceptDrift(account: Account, txs: Transaction[], rec: RecLike): ReconcilingItem[] {
+  const prev = rec.reconciling_items ?? [];
+  const d = reconciliationDrift(account, txs, rec);
+  if (!d) return prev;
+  const ids = new Set(d.changed.map((t) => t.id));
+  const kept = prev.filter((i) => !i.transaction_id || !ids.has(i.transaction_id));
+  const fresh: ReconcilingItem[] = d.changed.map((t) => ({
+    transaction_id: t.id, amount: effectOn(account.id, t), description: t.merchant || t.description || "Movimiento", occurred_on: t.occurred_on,
+  }));
+  const sum = (l: ReconcilingItem[]) => l.reduce((a, i) => a + i.amount, 0);
+  const rest = Math.round(d.now - rec.statement_balance - sum(kept) - sum(fresh));
+  return rest === 0 ? [...kept, ...fresh]
+    : [...kept, ...fresh, { transaction_id: null, amount: rest, description: "Diferencia por un movimiento borrado o editado, o por el saldo inicial", occurred_on: null }];
 }
 
 /** Cuentas propias conciliadas que se movieron después (la conciliación más reciente de cada una). */

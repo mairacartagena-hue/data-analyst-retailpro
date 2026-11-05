@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { accountStatement, closeRange, gmfEstimate, inCloseWindow, monthRange, reconciliationDrift, shiftMonth, suggestedCloseMonth } from "@/lib/finance/reconcile";
+import { acceptDrift, accountStatement, closeRange, gmfEstimate, inCloseWindow, monthRange, reconciledThrough, reconciliationDrift, shiftMonth, suggestedCloseMonth } from "@/lib/finance/reconcile";
 import type { Account, Transaction } from "@/lib/types";
 
 const acc: Account = {
@@ -128,5 +128,45 @@ describe("tarjeta: el cierre va de corte a corte", () => {
     // Una compra de antes del corte que llega tarde sí avisa
     const before = tx({ account_id: "bbva", amount: 20_000, occurred_on: "2026-10-15", created_at: "2026-11-01T15:00:00Z" });
     expect(reconciliationDrift(card, [...late, before], rec)?.drift).toBe(-20_000);
+  });
+});
+
+describe("partidas conciliatorias", () => {
+  const card: Account = { ...acc, id: "bbva", kind: "CREDIT_CARD", statement_day: 20, due_day: 5, opening_balance: -1_000_000, opening_at: "2026-09-21T05:00:00Z" };
+  const rec = {
+    account_id: "bbva", month: "2026-10-01", status: "RECONCILED" as const, statement_balance: -1_000_000,
+    updated_at: "2026-10-25T15:00:00Z", reconciled_at: "2026-10-25T15:00:00Z", cut_date: "2026-10-20",
+  };
+  const late = tx({ account_id: "bbva", amount: 50_000, occurred_on: "2026-10-15", created_at: "2026-11-01T15:00:00Z" });
+
+  it("un movimiento tardío avisa; al aceptarlo como partida la conciliación vuelve a cuadrar sin cambiar el saldo conciliado", () => {
+    expect(reconciliationDrift(card, [late], rec)?.drift).toBe(-50_000);
+    const items = acceptDrift(card, [late], rec);
+    expect(items).toEqual([{ transaction_id: late.id, amount: -50_000, description: "Movimiento", occurred_on: "2026-10-15" }]);
+    // Aceptar cambia updated_at pero no el momento de conciliar
+    const after = { ...rec, reconciling_items: items, updated_at: "2026-11-02T15:00:00Z" };
+    expect(reconciliationDrift(card, [late], after)).toBeNull();
+  });
+
+  it("si la partida aceptada se edita o aparece otra, vuelve a avisar solo por la diferencia nueva", () => {
+    const after = { ...rec, reconciling_items: acceptDrift(card, [late], rec), updated_at: "2026-11-02T15:00:00Z" };
+    const edited = { ...late, amount: 70_000, updated_at: "2026-11-03T15:00:00Z" };
+    const d = reconciliationDrift(card, [edited], after)!;
+    expect(d.drift).toBe(-20_000);
+    expect(d.changed.map((t) => t.id)).toEqual([late.id]);
+    // Al aceptar de nuevo, la partida del mismo movimiento se reemplaza
+    expect(acceptDrift(card, [edited], after)).toEqual([{ transaction_id: late.id, amount: -70_000, description: "Movimiento", occurred_on: "2026-10-15" }]);
+  });
+
+  it("un movimiento borrado deja una partida por la diferencia", () => {
+    const after = { ...rec, reconciling_items: acceptDrift(card, [late], rec), updated_at: "2026-11-02T15:00:00Z" };
+    const items = acceptDrift(card, [], after);
+    expect(items.reduce((a, i) => a + i.amount, 0)).toBe(0);
+    expect(reconciliationDrift(card, [], { ...after, reconciling_items: items })).toBeNull();
+  });
+
+  it("fecha hasta la que está conciliada la cuenta", () => {
+    expect(reconciledThrough("bbva", [rec])).toBe("2026-10-20");
+    expect(reconciledThrough("otra", [rec])).toBeNull();
   });
 });

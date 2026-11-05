@@ -45,6 +45,16 @@ export interface PeriodSettingsRow {
   uvt_value?: number;
 }
 
+/** Partida conciliatoria: movimiento que cambió el saldo de una cuenta ya conciliada y que se aceptó tal cual. */
+export interface ReconcilingItem {
+  /** Movimiento (null: diferencia de un movimiento borrado o editado, o de un cambio del saldo inicial). */
+  transaction_id: string | null;
+  /** Efecto sobre el saldo de la cuenta (+ sube, − baja). */
+  amount: number;
+  description: string;
+  occurred_on: string | null;
+}
+
 export interface Reconciliation {
   id: string;
   account_id: string;
@@ -57,6 +67,10 @@ export interface Reconciliation {
   updated_at: string;
   /** Tarjetas: día de corte del extracto con que se concilió (null: final del mes). */
   cut_date?: string | null;
+  /** Momento en que se concilió (aceptar partidas después no lo cambia). */
+  reconciled_at?: string | null;
+  /** Movimientos posteriores aceptados como partidas conciliatorias. */
+  reconciling_items?: ReconcilingItem[] | null;
 }
 
 export interface CustomPeriodRow {

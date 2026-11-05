@@ -19,7 +19,7 @@ import { creditMonthBreakdown } from "@/lib/finance/creditPayments";
 import { Segmented } from "@/components/ui/segmented";
 import type { Account } from "@/lib/types";
 import { ACCOUNT_KIND_LABEL } from "@/lib/types";
-import { accountStatement, closeRange, gmfEstimate, monthRange, reconciliationDrift, shiftMonth, suggestedCloseMonth, type GmfMode } from "@/lib/finance/reconcile";
+import { acceptDrift, accountStatement, closeRange, gmfEstimate, monthRange, reconciliationDrift, shiftMonth, suggestedCloseMonth, type GmfMode } from "@/lib/finance/reconcile";
 import { formatCop, parseCop } from "@/lib/finance/money";
 import { addDays, monthName, periodFor, todayBogota } from "@/lib/finance/periods";
 import { statusesFor } from "@/lib/finance/derive";
@@ -208,8 +208,25 @@ function AccountClose({ account, month, open, onToggle }: { account: Account; mo
     return supabase.from("account_reconciliations").upsert({
       household_id: account.household_id, account_id: account.id, owner_user_id: account.owner_user_id, month: monthKey,
       statement_balance: statement, app_balance: appBalance, status, cut_date: isCutCard ? range.end : null,
+      // Conciliar de nuevo empieza de cero: nuevo momento de conciliación y sin partidas
+      reconciled_at: new Date().toISOString(), reconciling_items: [],
     }, { onConflict: "account_id,month" });
   }
+
+  /** Deja lo que movió la cuenta como partidas conciliatorias: la conciliación sigue en el saldo del banco. */
+  async function acceptItems() {
+    if (!rec) return;
+    setBusy(true);
+    setError(null);
+    const { error } = await supabase.from("account_reconciliations")
+      .update({ reconciling_items: acceptDrift(account, transactions, rec) }).eq("id", rec.id);
+    setBusy(false);
+    if (error) return setError(errMsg(error));
+    void reload();
+  }
+
+  const items = rec?.status === "RECONCILED" ? rec.reconciling_items ?? [] : [];
+  const itemsTotal = items.reduce((a, i) => a + i.amount, 0);
 
   /** Guarda el cierre tal cual: conciliada si cuadra; si no, queda "con diferencia" sin tocar el saldo. */
   async function markReconciled() {
@@ -260,7 +277,7 @@ function AccountClose({ account, month, open, onToggle }: { account: Account; mo
         {drift ? (
           <span className="flex items-center gap-1 rounded-full bg-danger-soft px-2 py-0.5 text-xs font-semibold"><AlertCircle size={13} /> Se movió</span>
         ) : rec?.status === "RECONCILED" ? (
-          <span className="flex items-center gap-1 rounded-full bg-olive-soft px-2 py-0.5 text-xs font-semibold"><CheckCircle2 size={13} /> Conciliada</span>
+          <span className="flex items-center gap-1 rounded-full bg-olive-soft px-2 py-0.5 text-xs font-semibold"><CheckCircle2 size={13} /> Conciliada{items.length ? ` · ${items.length} partida${items.length === 1 ? "" : "s"}` : ""}</span>
         ) : rec ? (
           <span className="rounded-full bg-warning-soft px-2 py-0.5 text-xs font-semibold">Con diferencia</span>
         ) : (
@@ -296,7 +313,28 @@ function AccountClose({ account, month, open, onToggle }: { account: Account; mo
               ) : (
                 <p className="text-xs">Puede ser un movimiento borrado o un cambio en el saldo inicial de la cuenta.</p>
               )}
-              <p className="text-xs">Si fue un error, corrígelo y vuelve a cuadrar. Si está bien, concilia de nuevo con el extracto.</p>
+              <p className="text-xs">Si fue un error, corrígelo y la cuenta vuelve a cuadrar sola. Si está bien, déjalo como partida conciliatoria: la conciliación no cambia y la diferencia queda explicada.</p>
+              <Button variant="secondary" className="w-full" disabled={busy} onClick={acceptItems}>Dejar como partidas conciliatorias</Button>
+            </div>
+          )}
+          {items.length > 0 && (
+            <div className="space-y-1.5 rounded-xl bg-surface-2 px-3 py-2 text-sm">
+              <p className="font-semibold">Partidas conciliatorias</p>
+              <p className="text-xs text-muted">
+                Conciliada en <span className="num">{formatCop(isDebt ? -rec!.statement_balance : rec!.statement_balance)}</span>. Estos movimientos llegaron después y explican la diferencia con la app ({formatCop(Math.abs(itemsTotal))}).
+              </p>
+              <ul className="space-y-1">
+                {items.map((i, idx) => {
+                  const t = i.transaction_id ? transactions.find((x) => x.id === i.transaction_id) : undefined;
+                  const label = <><span className="truncate">{i.occurred_on ? `${i.occurred_on} · ` : ""}{i.description}</span><span className="num shrink-0">{(isDebt ? -i.amount : i.amount) > 0 ? "+" : "−"}{formatCop(Math.abs(i.amount))}</span></>;
+                  return (
+                    <li key={i.transaction_id ?? `x${idx}`}>
+                      {t ? <button className="flex w-full justify-between gap-2 text-left text-xs underline" onClick={() => openTransaction(t)}>{label}</button>
+                        : <span className="flex w-full justify-between gap-2 text-xs">{label}</span>}
+                    </li>
+                  );
+                })}
+              </ul>
             </div>
           )}
           <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
