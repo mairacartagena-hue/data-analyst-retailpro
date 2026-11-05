@@ -32,6 +32,7 @@ import { errMsg } from "@/lib/utils";
 import { installmentPlan, MAX_INSTALLMENTS, rateOf } from "@/lib/finance/installments";
 import { isNetworkError } from "@/lib/offline/store";
 import { newClientId, type QueuedTx } from "@/lib/offline/queue";
+import { reconciledThrough } from "@/lib/finance/reconcile";
 
 type FormKind = Exclude<TxKind, "SETTLEMENT">;
 type KindGroup = "EXPENSE" | "INCOME" | "TRANSFER" | "OTHER";
@@ -527,6 +528,13 @@ export function TransactionSheet({
     return <TransactionDetail open={open} onOpenChange={onOpenChange} tx={editing} />;
   }
 
+  // Cuentas propias ya conciliadas en esa fecha: el movimiento no cambia la conciliación, queda como partida conciliatoria
+  const lockedNames = [...new Set([accountId, toAccountId, editing?.account_id, editing?.to_account_id])]
+    .filter((id): id is string => !!id)
+    .map((id) => ({ a: accounts.find((x) => x.id === id && x.owner_user_id === me.user_id), through: reconciledThrough(id, state.reconciliations) }))
+    .filter((x) => !!x.a && !!x.through && [date, editing?.occurred_on].some((d) => !!d && d <= x.through!))
+    .map((x) => x.a!.name);
+
   const partnerName = partner?.display_name ?? "tu pareja";
   const nameOf = (id: string | null) => (id === me.user_id ? "tú" : memberById(id)?.display_name ?? "tu pareja");
   const title = isPendingReview ? "Revisar movimiento" : editing ? (partnerEdit ? "Ajustar movimiento" : "Editar movimiento")
@@ -536,6 +544,11 @@ export function TransactionSheet({
     <Sheet open={open} onOpenChange={onOpenChange} title={title}
       footer={myAccounts.length === 0 && !partnerEdit ? undefined : fixedPrompt ? undefined : (
         <div className="space-y-2">
+          {lockedNames.length > 0 && (
+            <p className="rounded-xl bg-warning-soft px-3 py-2 text-xs">
+              {lockedNames.join(" y ")} ya {lockedNames.length === 1 ? "está conciliada" : "están conciliadas"} en esa fecha. La conciliación no cambia: si esto mueve el saldo, Cierre del mes te avisará para dejarlo como partida conciliatoria.
+            </p>
+          )}
           <ErrorText>{error}</ErrorText>
           <div className="flex gap-3">
             {editing && access === "owner" && (
