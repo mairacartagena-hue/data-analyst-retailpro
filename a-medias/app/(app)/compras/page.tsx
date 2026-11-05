@@ -8,6 +8,7 @@ import { PantryCards, diasTexto, usePantrySoon } from "@/components/PantrySoon";
 import { Avatar, Checkbox, Empty, ErrorText, JUNTOS, PageHeader, Pills, SectionHeader, Sheet, errMsg } from "@/components/ui";
 import { Loading } from "@/components/Loading";
 import { getSupabase } from "@/lib/supabase/client";
+import { normalizar } from "@/lib/csv";
 import { todayStr } from "@/lib/dates";
 import { diasExtraPorCompra, formatCantidad, pantryDaysLeft, parseCantidad, sumarCantidades } from "@/lib/logic";
 import { CATEGORIAS, CATEGORIAS_MASCOTAS, LISTAS, type Categoria, type NombreLista, type PantryProduct, type ShoppingItem, type ShoppingList, type Task } from "@/lib/types";
@@ -110,7 +111,8 @@ export default function ComprasPage() {
     }
     // Al desmarcar lo comprado: si en la lista sigue pendiente una parte del mismo producto, se unen
     if (i.comprado) {
-      const mismo = (x: ShoppingItem) => x.nombre.trim().toLowerCase() === i.nombre.trim().toLowerCase();
+      // Mismo producto aunque cambien tildes, mayúsculas o espacios ("Chía" = "chia")
+      const mismo = (x: ShoppingItem) => normalizar(x.nombre) === normalizar(i.nombre);
       const pendiente = items.find((x) => x.id !== i.id && !x.comprado && x.list_id === i.list_id && mismo(x));
       if (pendiente) return unirConPendiente(i, pendiente);
     }
