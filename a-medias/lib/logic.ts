@@ -131,8 +131,14 @@ export function findSuggestion(
 // ---------------------------------------------------------------
 // Despensa
 // ---------------------------------------------------------------
+/**
+ * Días que le quedan a un producto de la despensa. El día de la compra no
+ * cuenta: la duración empieza al día siguiente (comprado el 5, dura 15 días:
+ * el 5 y el 6 quedan 15, el 20 queda 1 y el 21 se acaba).
+ */
 export function pantryDaysLeft(p: PantryProduct, hoy = todayStr()) {
-  return p.duracion_dias + (p.dias_extra ?? 0) - diffDays(hoy, p.fecha_ultima_compra);
+  const usados = Math.max(0, diffDays(hoy, p.fecha_ultima_compra) - 1);
+  return p.duracion_dias + (p.dias_extra ?? 0) - usados;
 }
 
 /**
