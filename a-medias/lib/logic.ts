@@ -188,3 +188,35 @@ export function nextPetEventDate(e: Pick<PetEvent, "fecha" | "repeticion">, hoy 
   }
   return f;
 }
+
+// ---------------------------------------------------------------
+// Cantidades de compras ("3 kg", "1,5 litros", "6"): número + unidad
+// ---------------------------------------------------------------
+export function parseCantidad(texto: string | null | undefined): { n: number; unidad: string } | null {
+  const m = (texto ?? "").trim().match(/^(\d+(?:[.,]\d+)?)\s*(.*)$/);
+  if (!m) return null;
+  const n = Number(m[1].replace(",", "."));
+  return n > 0 ? { n, unidad: m[2].trim() } : null;
+}
+
+// Unidades comunes en singular y plural ("1 kilo", "2 kilos")
+const UNIDADES: [string, string][] = [
+  ["kilo", "kilos"], ["litro", "litros"], ["libra", "libras"], ["gramo", "gramos"], ["unidad", "unidades"],
+  ["paquete", "paquetes"], ["bolsa", "bolsas"], ["caja", "cajas"], ["lata", "latas"], ["botella", "botellas"],
+  ["rollo", "rollos"], ["docena", "docenas"], ["frasco", "frascos"], ["sobre", "sobres"], ["tarro", "tarros"],
+];
+
+function concordar(unidad: string, n: number): string {
+  const [primera, ...resto] = unidad.split(" ");
+  const par = UNIDADES.find(([s, p]) => primera.toLowerCase() === s || primera.toLowerCase() === p);
+  if (!par) return unidad;
+  const palabra = n === 1 ? par[0] : par[1];
+  const conMayuscula = primera[0] === primera[0].toUpperCase() ? palabra[0].toUpperCase() + palabra.slice(1) : palabra;
+  return [conMayuscula, ...resto].join(" ");
+}
+
+export function formatCantidad(n: number, unidad: string): string {
+  const redondo = Math.round(n * 100) / 100;
+  const num = new Intl.NumberFormat("es-CO", { maximumFractionDigits: 2 }).format(redondo);
+  return unidad ? `${num} ${concordar(unidad, redondo)}` : num;
+}
