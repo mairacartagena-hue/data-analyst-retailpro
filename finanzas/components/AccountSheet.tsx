@@ -227,6 +227,210 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
     void reload();
   }
 
+  const resumenCuenta = [ACCOUNT_KIND_LABEL[kind], institution.trim(), last4 ? `···${last4}` : ""].filter(Boolean).join(" · ");
+
+  // Datos con los que se crea o edita la cuenta. Con la cuenta ya guardada van plegados en "Datos de la cuenta".
+  const campos = (
+    <>
+          {account ? (
+            <p className="text-sm text-muted">Tipo: <span className="font-medium text-text">{ACCOUNT_KIND_LABEL[kind]}</span></p>
+          ) : (
+          <Field label="Tipo">
+            <div className="grid grid-cols-2 gap-2">
+              {KINDS.map((k) => (
+                <button key={k} type="button" onClick={() => setKind(k)} aria-pressed={kind === k}
+                  className={cn("rounded-2xl border px-3 py-2.5 text-left text-sm disabled:opacity-60", kind === k ? "border-olive bg-olive-soft font-semibold" : "border-border bg-surface")}>
+                  {ACCOUNT_KIND_LABEL[k]}
+                </button>
+              ))}
+            </div>
+          </Field>
+          )}
+          <Field label="Nombre" htmlFor="acc-name">
+            <Input id="acc-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Nequi, Ahorros Bancolombia, Visa…" maxLength={60} />
+          </Field>
+          <div className="grid grid-cols-[1fr_110px] gap-3">
+            <Field label="Banco o app (opcional)" htmlFor="inst">
+              <Input id="inst" value={institution} onChange={(e) => setInstitution(e.target.value)} placeholder="Bancolombia" />
+            </Field>
+            <Field label="Últimos 4" htmlFor="last4">
+              <Input id="last4" value={last4} onChange={(e) => setLast4(e.target.value.replace(/\D/g, "").slice(0, 4))} inputMode="numeric" placeholder="1234" />
+            </Field>
+          </div>
+          <Field label="Otros números de esta cuenta (opcional)" htmlFor="aliases"
+            hint="Últimos 4 dígitos de otras tarjetas o productos que llegan en los avisos de esta cuenta, separados por comas. Ej.: la tarjeta débito de tu cuenta de ahorros.">
+            <Input id="aliases" value={aliases} onChange={(e) => setAliases(e.target.value.replace(/[^\d,\s]/g, ""))} inputMode="numeric" placeholder="7473, 1234" />
+          </Field>
+          {isCard && !account && <NewCardStatementImport onData={(d) => {
+            if (d.institution && !institution.trim()) setInstitution(d.institution);
+            if (d.last4 && !last4) setLast4(d.last4);
+            if (d.creditLimit) setLimit(String(d.creditLimit));
+            if (d.rateEa) setRate(String(d.rateEa).replace(".", ","));
+            if (d.statementDate) {
+              setStatementDay(String(Number(d.statementDate.slice(8, 10))));
+              if (d.statementDate <= todayBogota()) setCutDate(d.statementDate);
+            }
+            if (d.dueDate) setDueDay(String(Number(d.dueDate.slice(8, 10))));
+            const deferred = d.purchases.reduce((a, p) => a + p.remainingBalance, 0);
+            const statement = d.totalPayment ?? (d.totalDebt !== undefined ? Math.max(0, d.totalDebt - deferred) : undefined);
+            if (statement !== undefined) setOpening(String(statement));
+            if (d.purchases.length) setCardDrafts(d.purchases.map((p) => ({ description: p.description, amount: p.amount, installments: p.installments,
+              paid: p.paidInstallments, balance: p.remainingBalance, rate: p.rateEa ?? null, purchaseDate: p.purchaseDate })));
+          }} />}
+          <Field label={isCard ? (account ? "Deuda total con la que empezó la tarjeta" : "Saldo al corte (pago total del extracto)") : isCredit ? "Capital que falta por pagar" : kind === "LOAN" ? "Cuánto se debe hoy" : "Saldo actual"}
+            hint={isCard && !account
+              ? "Lo que pagas en la próxima fecha de pago (“Pago total”). Las compras a cuotas que siguen se agregan abajo y se suman a la deuda."
+              : isCard ? "Saldo al corte más lo que faltaba de las compras a cuotas del extracto. Los movimientos se suman aparte."
+              : account ? "Es el saldo con el que empezó la cuenta en la app; los movimientos se suman aparte." : "El saldo de hoy. Desde aquí la app suma y resta los movimientos."}>
+            <AmountInput value={opening} onChange={setOpening} />
+          </Field>
+          {isCard && !account && (
+            <Field label="Fecha de corte de ese extracto" htmlFor="cut-date"
+              hint="Las compras desde el día siguiente al corte se registran como movimientos y van en el próximo extracto. Vacío: hoy.">
+              <Input id="cut-date" type="date" value={cutDate} max={todayBogota()}
+                onChange={(e) => { setCutDate(e.target.value); if (e.target.value && !statementDay) setStatementDay(String(Number(e.target.value.slice(8, 10)))); }} />
+            </Field>
+          )}
+          {isCard && !account && (
+            <NewCardPurchases items={cardDrafts} onChange={setCardDrafts} />
+          )}
+          {account && (
+            <Field label="Fecha de ese saldo" htmlFor="opening-date"
+              hint="Los movimientos desde esta fecha suman o restan. Los de antes ya estaban incluidos en el saldo que escribiste.">
+              <Input id="opening-date" type="date" value={openingDate} onChange={(e) => setOpeningDate(e.target.value)} />
+            </Field>
+          )}
+          {(kind === "DEPOSIT" || kind === "WALLET") && (
+            <Field label="4x1000 (GMF)">
+              <Select value={gmfMode} onChange={(e) => setGmfMode(e.target.value as typeof gmfMode)}>
+                <option value="TAXED">Me cobran 4x1000</option>
+                <option value="EXEMPT_350">Exenta (hasta 350 UVT al mes)</option>
+                <option value="LOW_AMOUNT_65">Depósito de bajo monto, como Nequi (hasta 65 UVT al mes)</option>
+              </Select>
+            </Field>
+          )}
+          {isCredit && (
+            <CreditStatementImport account={account} onData={(d) => {
+              const today = todayBogota();
+              if (d.institution && !institution.trim()) setInstitution(d.institution);
+              if (d.last4 && !last4) setLast4(d.last4);
+              if (!account && d.capitalBalance) {
+                setOpening(String(Math.round(d.capitalBalance)));
+                if (d.statementDate && d.statementDate <= today) setOpeningDate(d.statementDate);
+              }
+              if (d.rateEa) setRate(String(d.rateEa).replace(".", ","));
+              if (d.termMonths) setTerm(String(d.termMonths));
+              const cur = currentInstallmentFrom(d, today);
+              if (cur) setCurrentInst(String(cur));
+              if (d.dueDate) setDueDay(String(Number(d.dueDate.slice(8, 10))));
+              if (d.statementDate) setStatementDay(String(Number(d.statementDate.slice(8, 10))));
+              if (d.monthlyCosts !== undefined) setCosts(String(Math.round(d.monthlyCosts)));
+              if (d.installmentAmount) setFixedCuota(String(Math.round(d.installmentAmount)));
+              if (d.originalAmount) setOriginal(String(Math.round(d.originalAmount)));
+            }} />
+          )}
+          {isCredit && (
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Valor inicial del crédito" hint="Lo que te prestó el banco al empezar."><AmountInput value={original} onChange={setOriginal} /></Field>
+              <Field label="Valor de la cuota" hint="Capital + intereses del extracto, sin seguros. Los intereses salen de la tasa y la diferencia va a capital. Vacío: la app la calcula."><AmountInput value={fixedCuota} onChange={setFixedCuota} /></Field>
+              <Field label="Número de cuotas" htmlFor="term" hint="Plazo total en meses."><Input id="term" inputMode="numeric" value={term} onChange={(e) => setTerm(e.target.value.replace(/\D/g, "").slice(0, 3))} /></Field>
+              <Field label="¿En qué cuota vas?" htmlFor="cur-inst" hint="La próxima que vas a pagar. Desde aquí suma una cada día de pago.">
+                <Input id="cur-inst" inputMode="numeric" value={currentInst} placeholder={term ? `1 a ${term}` : ""} onChange={(e) => setCurrentInst(e.target.value.replace(/\D/g, "").slice(0, 3))} />
+              </Field>
+              <Field label="Día de pago" htmlFor="dd2"><Input id="dd2" inputMode="numeric" value={dueDay} onChange={(e) => setDueDay(e.target.value.replace(/\D/g, "").slice(0, 2))} /></Field>
+              <Field label="Día de corte" htmlFor="sd2" hint="Fecha de facturación del extracto."><Input id="sd2" inputMode="numeric" value={statementDay} onChange={(e) => setStatementDay(e.target.value.replace(/\D/g, "").slice(0, 2))} /></Field>
+              <Field label="Seguros y otros costos al mes" hint="Seguro de vida, de inmueble, cuotas de administración del crédito."><AmountInput value={costs} onChange={setCosts} /></Field>
+            </div>
+          )}
+          {isCredit && formCuota > 0 && (
+            <p className="rounded-2xl bg-surface-2 px-3 py-2.5 text-sm">
+              Cuota estimada: <strong className="num">{formatCop(formCuota)}</strong>
+              <span className="block text-xs text-muted">{parseCop(fixedCuota) ? "Cuota del extracto" : "Calculada con el saldo, la tasa y las cuotas que faltan"}{parseCop(costs) ? ", más seguros y otros costos." : "."}</span>
+            </p>
+          )}
+          {isCredit && !account && (
+            <div className="space-y-2 rounded-2xl border border-border px-3 pb-3">
+              <SwitchRow label="Incluir la cuota en Presupuestos"
+                hint="Crea un presupuesto del hogar con la cuota. Cuando llegue solo un pago con ese valor, se marca como pago de este crédito."
+                checked={inBudget}
+                onCheckedChange={(v) => { setInBudget(v); if (v && !budgetCat) setBudgetCat(guessCategory(name, categories)); }} />
+              {inBudget && (
+                <div className="space-y-2">
+                  <Field label="Categoría del presupuesto">
+                    <Select value={budgetCat} onChange={(e) => setBudgetCat(e.target.value)}>
+                      <option value="">Nueva categoría: {name.trim() || "nombre del crédito"}</option>
+                      <CategoryOptions categories={categories.filter((c) => !c.archived && c.kind !== "INCOME")} />
+                    </Select>
+                  </Field>
+                  <Field label="Cuota por periodo" hint={`Vacío: se usa la cuota estimada (${formatCop(formCuota)}, incluye seguros). Cada pago queda con su valor real.`}>
+                    <AmountInput value={budgetAmount} onChange={setBudgetAmount} />
+                  </Field>
+                </div>
+              )}
+            </div>
+          )}
+          {isCard && (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2"><Field label="Cupo"><AmountInput value={limit} onChange={setLimit} /></Field></div>
+              <Field label="Día de corte" htmlFor="sd"><Input id="sd" inputMode="numeric" value={statementDay} onChange={(e) => setStatementDay(e.target.value.replace(/\D/g, "").slice(0, 2))} /></Field>
+              <Field label="Día de pago" htmlFor="dd"><Input id="dd" inputMode="numeric" value={dueDay} onChange={(e) => setDueDay(e.target.value.replace(/\D/g, "").slice(0, 2))} /></Field>
+            </div>
+          )}
+          {isCard && !account && newCardDebt > 0 && (
+            <p className="rounded-2xl bg-surface-2 px-3 py-2.5 text-sm">
+              Deuda total de la tarjeta: <strong className="num">{formatCop(newCardDebt)}</strong>
+              <span className="block text-xs text-muted">Saldo al corte {formatCop(parseCop(opening) ?? 0)}{deferredTotal > 0 ? ` + ${formatCop(deferredTotal)} de compras a cuotas que siguen` : ""}.</span>
+            </p>
+          )}
+          {isCard && !account && (
+            <div className="space-y-2 rounded-2xl border border-border px-3 pb-3">
+              <SwitchRow label="Incluir la cuota del mes en Presupuestos"
+                hint="Crea un presupuesto del hogar con lo que vence cada mes de la deuda que ya traía la tarjeta (saldo al corte y cuotas de las compras anteriores). Las compras nuevas cuentan en su propia categoría."
+                checked={inBudget}
+                onCheckedChange={(v) => { setInBudget(v); if (v && !budgetCat) setBudgetCat(guessCategory(name, categories)); }} />
+              {inBudget && (
+                <Field label="Categoría del presupuesto">
+                  <Select value={budgetCat} onChange={(e) => setBudgetCat(e.target.value)}>
+                    <option value="">Nueva categoría: {name.trim() || "nombre de la tarjeta"}</option>
+                    <CategoryOptions categories={categories.filter((c) => !c.archived && c.kind !== "INCOME")} />
+                  </Select>
+                </Field>
+              )}
+            </div>
+          )}
+          {(isCard || isCredit) && (
+            <Field label="Tasa de interés (% efectiva anual)" htmlFor="rate"
+              hint={isCard
+                ? "Sale en el extracto de la tarjeta. Sirve para estimar los intereses de las compras a cuotas; las de 1 cuota no pagan intereses."
+                : "Sale en el extracto del crédito (la tasa cobrada). Con ella se estiman los intereses de cada cuota."}>
+              <Input id="rate" inputMode="decimal" value={rate} placeholder="ej. 28,5" onChange={(e) => setRate(e.target.value.replace(/[^\d,.]/g, "").slice(0, 6))} />
+            </Field>
+          )}
+          {isDebt && partner && (
+            <Field label={`¿Quién paga ${isCard ? "esta tarjeta" : "este crédito"}?`}
+              hint={responsible && responsible !== me.user_id
+                ? `El Saldo Seguro de ${partner.display_name} aparta la cuota y la deuda, no el tuyo. ${partner.display_name} verá los movimientos y el saldo de esta cuenta.`
+                : "El Saldo Seguro de quien pague aparta la cuota y la deuda."}>
+              <Select value={responsible || me.user_id} onChange={(e) => setResponsible(e.target.value === me.user_id ? "" : e.target.value)} aria-label="Responsable del pago">
+                <option value={me.user_id}>Yo ({me.display_name})</option>
+                <option value={partner.user_id}>{partner.display_name}</option>
+              </Select>
+            </Field>
+          )}
+          <Field label={`¿Qué puede ver ${partner?.display_name ?? "tu pareja"}?`}
+            hint="La cuenta sigue siendo tuya. Tus movimientos personales nunca se muestran; los del hogar sí, sin importar con qué cuenta los pagues.">
+            <Select value={visibility} onChange={(e) => setVisibility(e.target.value as Visibility)}>
+              {VISIBILITIES.map((v) => <option key={v} value={v}>{VISIBILITY_LABEL[v]}</option>)}
+            </Select>
+          </Field>
+          {visibility === "PRIVATE" && (
+            <SwitchRow label="Mostrar el nombre en gastos compartidos"
+              hint="Cuando pagues algo del hogar con esta cuenta, tu pareja verá su nombre en vez de “Cuenta privada”. El saldo sigue oculto."
+              checked={reveal} onCheckedChange={setReveal} />
+          )}
+    </>
+  );
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange} title={account ? "Editar cuenta" : "Nueva cuenta"}
       footer={<div className="space-y-2"><ErrorText>{error}</ErrorText><div className="flex gap-3">
@@ -238,209 +442,17 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
             <Button className="flex-1" size="lg" onClick={save} disabled={busy}>{busy ? "Guardando..." : "Guardar"}</Button>
           </div></div>}>
       <div className="space-y-4 pb-2">
-        {account ? (
-          <p className="text-sm text-muted">Tipo: <span className="font-medium text-text">{ACCOUNT_KIND_LABEL[kind]}</span></p>
-        ) : (
-        <Field label="Tipo">
-          <div className="grid grid-cols-2 gap-2">
-            {KINDS.map((k) => (
-              <button key={k} type="button" onClick={() => setKind(k)} aria-pressed={kind === k}
-                className={cn("rounded-2xl border px-3 py-2.5 text-left text-sm disabled:opacity-60", kind === k ? "border-olive bg-olive-soft font-semibold" : "border-border bg-surface")}>
-                {ACCOUNT_KIND_LABEL[k]}
-              </button>
-            ))}
-          </div>
-        </Field>
-        )}
-        <Field label="Nombre" htmlFor="acc-name">
-          <Input id="acc-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Nequi, Ahorros Bancolombia, Visa…" maxLength={60} />
-        </Field>
-        <div className="grid grid-cols-[1fr_110px] gap-3">
-          <Field label="Banco o app (opcional)" htmlFor="inst">
-            <Input id="inst" value={institution} onChange={(e) => setInstitution(e.target.value)} placeholder="Bancolombia" />
-          </Field>
-          <Field label="Últimos 4" htmlFor="last4">
-            <Input id="last4" value={last4} onChange={(e) => setLast4(e.target.value.replace(/\D/g, "").slice(0, 4))} inputMode="numeric" placeholder="1234" />
-          </Field>
-        </div>
-        <Field label="Otros números de esta cuenta (opcional)" htmlFor="aliases"
-          hint="Últimos 4 dígitos de otras tarjetas o productos que llegan en los avisos de esta cuenta, separados por comas. Ej.: la tarjeta débito de tu cuenta de ahorros.">
-          <Input id="aliases" value={aliases} onChange={(e) => setAliases(e.target.value.replace(/[^\d,\s]/g, ""))} inputMode="numeric" placeholder="7473, 1234" />
-        </Field>
-        {isCard && !account && <NewCardStatementImport onData={(d) => {
-          if (d.institution && !institution.trim()) setInstitution(d.institution);
-          if (d.last4 && !last4) setLast4(d.last4);
-          if (d.creditLimit) setLimit(String(d.creditLimit));
-          if (d.rateEa) setRate(String(d.rateEa).replace(".", ","));
-          if (d.statementDate) {
-            setStatementDay(String(Number(d.statementDate.slice(8, 10))));
-            if (d.statementDate <= todayBogota()) setCutDate(d.statementDate);
-          }
-          if (d.dueDate) setDueDay(String(Number(d.dueDate.slice(8, 10))));
-          const deferred = d.purchases.reduce((a, p) => a + p.remainingBalance, 0);
-          const statement = d.totalPayment ?? (d.totalDebt !== undefined ? Math.max(0, d.totalDebt - deferred) : undefined);
-          if (statement !== undefined) setOpening(String(statement));
-          if (d.purchases.length) setCardDrafts(d.purchases.map((p) => ({ description: p.description, amount: p.amount, installments: p.installments,
-            paid: p.paidInstallments, balance: p.remainingBalance, rate: p.rateEa ?? null, purchaseDate: p.purchaseDate })));
-        }} />}
-        <Field label={isCard ? (account ? "Deuda total con la que empezó la tarjeta" : "Saldo al corte (pago total del extracto)") : isCredit ? "Capital que falta por pagar" : kind === "LOAN" ? "Cuánto se debe hoy" : "Saldo actual"}
-          hint={isCard && !account
-            ? "Lo que pagas en la próxima fecha de pago (“Pago total”). Las compras a cuotas que siguen se agregan abajo y se suman a la deuda."
-            : isCard ? "Saldo al corte más lo que faltaba de las compras a cuotas del extracto. Los movimientos se suman aparte."
-            : account ? "Es el saldo con el que empezó la cuenta en la app; los movimientos se suman aparte." : "El saldo de hoy. Desde aquí la app suma y resta los movimientos."}>
-          <AmountInput value={opening} onChange={setOpening} />
-        </Field>
-        {isCard && !account && (
-          <Field label="Fecha de corte de ese extracto" htmlFor="cut-date"
-            hint="Las compras desde el día siguiente al corte se registran como movimientos y van en el próximo extracto. Vacío: hoy.">
-            <Input id="cut-date" type="date" value={cutDate} max={todayBogota()}
-              onChange={(e) => { setCutDate(e.target.value); if (e.target.value && !statementDay) setStatementDay(String(Number(e.target.value.slice(8, 10)))); }} />
-          </Field>
-        )}
-        {isCard && !account && (
-          <NewCardPurchases items={cardDrafts} onChange={setCardDrafts} />
-        )}
-        {account && (
-          <Field label="Fecha de ese saldo" htmlFor="opening-date"
-            hint="Los movimientos desde esta fecha suman o restan. Los de antes ya estaban incluidos en el saldo que escribiste.">
-            <Input id="opening-date" type="date" value={openingDate} onChange={(e) => setOpeningDate(e.target.value)} />
-          </Field>
-        )}
-        {(kind === "DEPOSIT" || kind === "WALLET") && (
-          <Field label="4x1000 (GMF)">
-            <Select value={gmfMode} onChange={(e) => setGmfMode(e.target.value as typeof gmfMode)}>
-              <option value="TAXED">Me cobran 4x1000</option>
-              <option value="EXEMPT_350">Exenta (hasta 350 UVT al mes)</option>
-              <option value="LOW_AMOUNT_65">Depósito de bajo monto, como Nequi (hasta 65 UVT al mes)</option>
-            </Select>
-          </Field>
-        )}
-        {isCredit && (
-          <CreditStatementImport account={account} onData={(d) => {
-            const today = todayBogota();
-            if (d.institution && !institution.trim()) setInstitution(d.institution);
-            if (d.last4 && !last4) setLast4(d.last4);
-            if (!account && d.capitalBalance) {
-              setOpening(String(Math.round(d.capitalBalance)));
-              if (d.statementDate && d.statementDate <= today) setOpeningDate(d.statementDate);
-            }
-            if (d.rateEa) setRate(String(d.rateEa).replace(".", ","));
-            if (d.termMonths) setTerm(String(d.termMonths));
-            const cur = currentInstallmentFrom(d, today);
-            if (cur) setCurrentInst(String(cur));
-            if (d.dueDate) setDueDay(String(Number(d.dueDate.slice(8, 10))));
-            if (d.statementDate) setStatementDay(String(Number(d.statementDate.slice(8, 10))));
-            if (d.monthlyCosts !== undefined) setCosts(String(Math.round(d.monthlyCosts)));
-            if (d.installmentAmount) setFixedCuota(String(Math.round(d.installmentAmount)));
-            if (d.originalAmount) setOriginal(String(Math.round(d.originalAmount)));
-          }} />
-        )}
-        {isCredit && (
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Valor inicial del crédito" hint="Lo que te prestó el banco al empezar."><AmountInput value={original} onChange={setOriginal} /></Field>
-            <Field label="Valor de la cuota" hint="Capital + intereses del extracto, sin seguros. Los intereses salen de la tasa y la diferencia va a capital. Vacío: la app la calcula."><AmountInput value={fixedCuota} onChange={setFixedCuota} /></Field>
-            <Field label="Número de cuotas" htmlFor="term" hint="Plazo total en meses."><Input id="term" inputMode="numeric" value={term} onChange={(e) => setTerm(e.target.value.replace(/\D/g, "").slice(0, 3))} /></Field>
-            <Field label="¿En qué cuota vas?" htmlFor="cur-inst" hint="La próxima que vas a pagar. Desde aquí suma una cada día de pago.">
-              <Input id="cur-inst" inputMode="numeric" value={currentInst} placeholder={term ? `1 a ${term}` : ""} onChange={(e) => setCurrentInst(e.target.value.replace(/\D/g, "").slice(0, 3))} />
-            </Field>
-            <Field label="Día de pago" htmlFor="dd2"><Input id="dd2" inputMode="numeric" value={dueDay} onChange={(e) => setDueDay(e.target.value.replace(/\D/g, "").slice(0, 2))} /></Field>
-            <Field label="Día de corte" htmlFor="sd2" hint="Fecha de facturación del extracto."><Input id="sd2" inputMode="numeric" value={statementDay} onChange={(e) => setStatementDay(e.target.value.replace(/\D/g, "").slice(0, 2))} /></Field>
-            <Field label="Seguros y otros costos al mes" hint="Seguro de vida, de inmueble, cuotas de administración del crédito."><AmountInput value={costs} onChange={setCosts} /></Field>
-          </div>
-        )}
-        {isCredit && formCuota > 0 && (
-          <p className="rounded-2xl bg-surface-2 px-3 py-2.5 text-sm">
-            Cuota estimada: <strong className="num">{formatCop(formCuota)}</strong>
-            <span className="block text-xs text-muted">{parseCop(fixedCuota) ? "Cuota del extracto" : "Calculada con el saldo, la tasa y las cuotas que faltan"}{parseCop(costs) ? ", más seguros y otros costos." : "."}</span>
-          </p>
-        )}
-        {isCredit && account && <CreditBudget account={account} />}
-        {isCredit && !account && (
-          <div className="space-y-2 rounded-2xl border border-border px-3 pb-3">
-            <SwitchRow label="Incluir la cuota en Presupuestos"
-              hint="Crea un presupuesto del hogar con la cuota. Cuando llegue solo un pago con ese valor, se marca como pago de este crédito."
-              checked={inBudget}
-              onCheckedChange={(v) => { setInBudget(v); if (v && !budgetCat) setBudgetCat(guessCategory(name, categories)); }} />
-            {inBudget && (
-              <div className="space-y-2">
-                <Field label="Categoría del presupuesto">
-                  <Select value={budgetCat} onChange={(e) => setBudgetCat(e.target.value)}>
-                    <option value="">Nueva categoría: {name.trim() || "nombre del crédito"}</option>
-                    <CategoryOptions categories={categories.filter((c) => !c.archived && c.kind !== "INCOME")} />
-                  </Select>
-                </Field>
-                <Field label="Cuota por periodo" hint={`Vacío: se usa la cuota estimada (${formatCop(formCuota)}, incluye seguros). Cada pago queda con su valor real.`}>
-                  <AmountInput value={budgetAmount} onChange={setBudgetAmount} />
-                </Field>
-              </div>
-            )}
-          </div>
-        )}
+        {/* Cuenta guardada: primero lo que se usa (cuotas, compras, presupuesto) y los datos plegados */}
+        {isCard && account && <CardProjection account={account} />}
+        {isCard && account && <CardBudget account={account} />}
         {isCredit && account && <CreditPayments account={account} autoOpen={startCuota} />}
         {isCredit && account && <CreditPaymentAdjust account={account} />}
-        {isCard && (
-          <div className="grid grid-cols-2 gap-3">
-            <div className="col-span-2"><Field label="Cupo"><AmountInput value={limit} onChange={setLimit} /></Field></div>
-            <Field label="Día de corte" htmlFor="sd"><Input id="sd" inputMode="numeric" value={statementDay} onChange={(e) => setStatementDay(e.target.value.replace(/\D/g, "").slice(0, 2))} /></Field>
-            <Field label="Día de pago" htmlFor="dd"><Input id="dd" inputMode="numeric" value={dueDay} onChange={(e) => setDueDay(e.target.value.replace(/\D/g, "").slice(0, 2))} /></Field>
-          </div>
-        )}
-        {isCard && account && (
-          <CardProjection account={account} />
-        )}
-        {isCard && !account && newCardDebt > 0 && (
-          <p className="rounded-2xl bg-surface-2 px-3 py-2.5 text-sm">
-            Deuda total de la tarjeta: <strong className="num">{formatCop(newCardDebt)}</strong>
-            <span className="block text-xs text-muted">Saldo al corte {formatCop(parseCop(opening) ?? 0)}{deferredTotal > 0 ? ` + ${formatCop(deferredTotal)} de compras a cuotas que siguen` : ""}.</span>
-          </p>
-        )}
-        {isCard && !account && (
-          <div className="space-y-2 rounded-2xl border border-border px-3 pb-3">
-            <SwitchRow label="Incluir la cuota del mes en Presupuestos"
-              hint="Crea un presupuesto del hogar con lo que vence cada mes de la deuda que ya traía la tarjeta (saldo al corte y cuotas de las compras anteriores). Las compras nuevas cuentan en su propia categoría."
-              checked={inBudget}
-              onCheckedChange={(v) => { setInBudget(v); if (v && !budgetCat) setBudgetCat(guessCategory(name, categories)); }} />
-            {inBudget && (
-              <Field label="Categoría del presupuesto">
-                <Select value={budgetCat} onChange={(e) => setBudgetCat(e.target.value)}>
-                  <option value="">Nueva categoría: {name.trim() || "nombre de la tarjeta"}</option>
-                  <CategoryOptions categories={categories.filter((c) => !c.archived && c.kind !== "INCOME")} />
-                </Select>
-              </Field>
-            )}
-          </div>
-        )}
-        {isCard && account && <CardBudget account={account} />}
-        {(isCard || isCredit) && (
-          <Field label="Tasa de interés (% efectiva anual)" htmlFor="rate"
-            hint={isCard
-              ? "Sale en el extracto de la tarjeta. Sirve para estimar los intereses de las compras a cuotas; las de 1 cuota no pagan intereses."
-              : "Sale en el extracto del crédito (la tasa cobrada). Con ella se estiman los intereses de cada cuota."}>
-            <Input id="rate" inputMode="decimal" value={rate} placeholder="ej. 28,5" onChange={(e) => setRate(e.target.value.replace(/[^\d,.]/g, "").slice(0, 6))} />
-          </Field>
-        )}
-        {isDebt && partner && (
-          <Field label={`¿Quién paga ${isCard ? "esta tarjeta" : "este crédito"}?`}
-            hint={responsible && responsible !== me.user_id
-              ? `El Saldo Seguro de ${partner.display_name} aparta la cuota y la deuda, no el tuyo. ${partner.display_name} verá los movimientos y el saldo de esta cuenta.`
-              : "El Saldo Seguro de quien pague aparta la cuota y la deuda."}>
-            <Select value={responsible || me.user_id} onChange={(e) => setResponsible(e.target.value === me.user_id ? "" : e.target.value)} aria-label="Responsable del pago">
-              <option value={me.user_id}>Yo ({me.display_name})</option>
-              <option value={partner.user_id}>{partner.display_name}</option>
-            </Select>
-          </Field>
-        )}
-        <Field label={`¿Qué puede ver ${partner?.display_name ?? "tu pareja"}?`}
-          hint="La cuenta sigue siendo tuya. Tus movimientos personales nunca se muestran; los del hogar sí, sin importar con qué cuenta los pagues.">
-          <Select value={visibility} onChange={(e) => setVisibility(e.target.value as Visibility)}>
-            {VISIBILITIES.map((v) => <option key={v} value={v}>{VISIBILITY_LABEL[v]}</option>)}
-          </Select>
-        </Field>
-        {visibility === "PRIVATE" && (
-          <SwitchRow label="Mostrar el nombre en gastos compartidos"
-            hint="Cuando pagues algo del hogar con esta cuenta, tu pareja verá su nombre en vez de “Cuenta privada”. El saldo sigue oculto."
-            checked={reveal} onCheckedChange={setReveal} />
-        )}
+        {isCredit && account && <CreditBudget account={account} />}
+        {account ? (
+          <Collapsible title="Datos de la cuenta" summary={resumenCuenta}>
+            {campos}
+          </Collapsible>
+        ) : campos}
       </div>
     </Sheet>
   );
@@ -576,10 +588,7 @@ function NewCardPurchases({ items, onChange }: { items: CardDraft[]; onChange: (
 /** Cuotas que faltan por pagar en la tarjeta, mes a mes: compras registradas en la app y compras del extracto. */
 function CardProjection({ account }: { account: Account }) {
   const cardId = account.id;
-  const { transactions, cardItems, balances, supabase, reload, me } = useFinance();
-  const [adding, setAdding] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const [draft, setDraft] = useState({ description: "", amount: "", installments: "12", paid: "1", balance: "", rate: "" });
+  const { transactions, cardItems, balances } = useFinance();
   const [openMonth, setOpenMonth] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
   const mine = cardItems.filter((i) => i.account_id === cardId);
@@ -593,34 +602,6 @@ function CardProjection({ account }: { account: Account }) {
   const debtNow = Math.max(0, -(balances[cardId] ?? 0));
   const debtAfter = new Map<string, number>();
   allRows.reduce((left, r) => { const v = Math.max(0, left - r.capital); debtAfter.set(r.month, v); return v; }, debtNow);
-
-  async function addItem() {
-    setErr(null);
-    const amount = parseCop(draft.amount) ?? 0;
-    const n = Number.parseInt(draft.installments, 10) || 0;
-    const paid = Number.parseInt(draft.paid, 10) || 0;
-    const balance = parseCop(draft.balance) ?? amount;
-    const rateValue = draft.rate.trim() ? Number(draft.rate.replace(",", ".")) : null;
-    if (!draft.description.trim()) return setErr("Escribe la descripción de la compra.");
-    if (amount <= 0 || n < 1 || n > 48 || paid < 0 || paid >= n) return setErr("Revisa el valor, las cuotas y la cuota actual.");
-    if (balance < 0 || balance > amount) return setErr("El saldo pendiente no puede ser mayor que el valor de la compra.");
-    const { error } = await supabase.from("card_statement_items").insert({
-      account_id: cardId, description: draft.description.trim(), purchase_date: todayBogota(), amount, installments: n,
-      paid_installments: paid, remaining_balance: balance, rate_ea: rateValue,
-      household_id: me.household_id,
-      owner_user_id: me.user_id,
-    });
-    if (error) return setErr(errMsg(error));
-    setDraft({ description: "", amount: "", installments: "12", paid: "1", balance: "", rate: "" });
-    setAdding(false);
-    void reload();
-  }
-
-  async function removeItem(id: string) {
-    if (!confirm("¿Quitar esta compra de la proyección? No borra ningún movimiento.")) return;
-    await supabase.from("card_statement_items").delete().eq("id", id);
-    void reload();
-  }
 
   return (
     <div className="space-y-3">
@@ -668,55 +649,17 @@ function CardProjection({ account }: { account: Account }) {
       )}
       </Collapsible>
 
-      <CardPayoffs account={account} rows={allRows} />
-
-      <Collapsible title="Compras del extracto que no registraste" summary={mine.length ? String(mine.length) : undefined}>
-        <CardStatementPdf account={account} />
-        <p className="text-xs text-muted">Suman a la proyección y, si la tarjeta está en Presupuestos, a su cuota del mes (toca Recalcular). No aparecen en Movimientos ni informes. Su saldo debe estar incluido en la deuda de la tarjeta (en Cierre del mes se ajusta con el extracto).</p>
-        {mine.length > 0 && (
-          <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface">
-            {mine.map((i) => (
-              <div key={i.id} className="flex items-center gap-2 px-3.5 py-2.5 text-sm">
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate">{i.description}</span>
-                  <span className="text-xs text-muted">Cuota {i.paid_installments} de {i.installments} · debe {formatCop(i.remaining_balance)}</span>
-                </span>
-                <button className="text-xs text-danger underline" onClick={() => void removeItem(i.id)}>Quitar</button>
-              </div>
-            ))}
-          </div>
-        )}
-        {adding ? (
-          <div className="space-y-2 rounded-2xl border border-border p-3">
-            <Input value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} placeholder="Descripción (comercio)" aria-label="Descripción" />
-            <div className="grid grid-cols-2 gap-2">
-              <AmountInput value={draft.amount} onChange={(v) => setDraft({ ...draft, amount: v })} />
-              <Input inputMode="numeric" value={draft.installments} onChange={(e) => setDraft({ ...draft, installments: e.target.value.replace(/\D/g, "").slice(0, 2) })} placeholder="Cuotas" aria-label="Cuotas" />
-              <Input inputMode="numeric" value={draft.paid} onChange={(e) => setDraft({ ...draft, paid: e.target.value.replace(/\D/g, "").slice(0, 2) })} placeholder="Cuota actual pagada" aria-label="Cuotas pagadas" />
-              <AmountInput value={draft.balance} onChange={(v) => setDraft({ ...draft, balance: v })} />
-            </div>
-            <p className="text-xs text-muted">Valor de la compra, cuotas, cuotas ya cobradas y saldo que falta (“Saldo diferido” del extracto).</p>
-            <Input inputMode="decimal" value={draft.rate} onChange={(e) => setDraft({ ...draft, rate: e.target.value.replace(/[^\d,.]/g, "").slice(0, 6) })} placeholder={`Tasa E.A. (vacío = ${account.interest_rate_ea ?? "la de la tarjeta"})`} aria-label="Tasa" />
-            <ErrorText>{err}</ErrorText>
-            <div className="flex gap-2">
-              <Button size="sm" onClick={() => void addItem()}>Agregar</Button>
-              <Button size="sm" variant="ghost" onClick={() => setAdding(false)}>Cancelar</Button>
-            </div>
-          </div>
-        ) : (
-          <Button size="sm" variant="outline" onClick={() => setAdding(true)}>+ Agregar compra del extracto</Button>
-        )}
-      </Collapsible>
+      <CardPurchases account={account} rows={allRows} />
     </div>
   );
 }
 
 /**
- * Compras a cuotas de la tarjeta (registradas en la app o del extracto) con lo que les falta, para pagarlas en su
- * totalidad antes de tiempo. El pago es una transferencia a la tarjeta que queda marcada como pago total de esa compra
- * (mark_card_payoff, migración 0058): desde ese día la compra no tiene cuotas pendientes.
+ * Compras a cuotas de la tarjeta, en una sola sección: las registradas en la app y las del extracto que no son
+ * movimientos (que se agregan aquí, a mano o desde el PDF). Cada una con lo que le falta y "Pagar el total": una
+ * transferencia a la tarjeta marcada como pago total de esa compra (mark_card_payoff, migración 0058).
  */
-function CardPayoffs({ account, rows }: { account: Account; rows: ReturnType<typeof projectCard> }) {
+function CardPurchases({ account, rows }: { account: Account; rows: ReturnType<typeof projectCard> }) {
   const { accounts, transactions, cardItems, supabase, reload, me } = useFinance();
   const [openId, setOpenId] = useState<string | null>(null);
   const [payFrom, setPayFrom] = useState("");
@@ -724,6 +667,10 @@ function CardPayoffs({ account, rows }: { account: Account; rows: ReturnType<typ
   const [date, setDate] = useState(todayBogota());
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [addErr, setAddErr] = useState<string | null>(null);
+  const [draft, setDraft] = useState({ description: "", amount: "", installments: "12", paid: "1", balance: "", rate: "" });
+  const mine = cardItems.filter((i) => i.account_id === account.id);
   const payAccounts = accounts.filter((a) => a.owner_user_id === me.user_id && !a.archived && ["DEPOSIT", "WALLET", "CASH"].includes(a.kind));
   const canPay = account.owner_user_id === me.user_id || account.responsible_user_id === me.user_id;
 
@@ -741,8 +688,43 @@ function CardPayoffs({ account, rows }: { account: Account; rows: ReturnType<typ
       pending.set(id, p);
     }
   }
-  // Solo las que todavía tienen más de una cuota por pagar (una sola cuota se paga con el extracto)
-  const purchases = [...pending.values()].filter((p) => p.left > 1).sort((a, b) => b.capital - a.capital);
+  const paidOffIds = new Set(transactions.filter((t) => t.kind === "TRANSFER" && t.to_account_id === account.id && t.pays_off_id && t.status !== "PENDING_REVIEW").map((t) => t.pays_off_id as string));
+  // Las de la app con una sola cuota se pagan con el extracto: solo se listan las que tienen más de una;
+  // las del extracto se listan siempre (se pueden quitar), también si ya no les queda saldo
+  const purchases = [
+    ...[...pending.values()].filter((p) => p.left > 1 || p.source === "EXTRACT"),
+    ...mine.filter((i) => !pending.has(i.id) && !paidOffIds.has(i.id))
+      .map((i) => ({ id: i.id, label: i.description, source: "EXTRACT", left: 0, of: i.installments, next: i.installments, capital: 0, interest: 0 })),
+  ].sort((a, b) => b.capital - a.capital);
+  const isItem = (id: string) => mine.some((i) => i.id === id);
+
+  async function addItem() {
+    setAddErr(null);
+    const amount = parseCop(draft.amount) ?? 0;
+    const n = Number.parseInt(draft.installments, 10) || 0;
+    const paid = Number.parseInt(draft.paid, 10) || 0;
+    const balance = parseCop(draft.balance) ?? amount;
+    const rateValue = draft.rate.trim() ? Number(draft.rate.replace(",", ".")) : null;
+    if (!draft.description.trim()) return setAddErr("Escribe la descripción de la compra.");
+    if (amount <= 0 || n < 1 || n > 48 || paid < 0 || paid >= n) return setAddErr("Revisa el valor, las cuotas y la cuota actual.");
+    if (balance < 0 || balance > amount) return setAddErr("El saldo pendiente no puede ser mayor que el valor de la compra.");
+    const { error } = await supabase.from("card_statement_items").insert({
+      account_id: account.id, description: draft.description.trim(), purchase_date: todayBogota(), amount, installments: n,
+      paid_installments: paid, remaining_balance: balance, rate_ea: rateValue,
+      household_id: me.household_id,
+      owner_user_id: me.user_id,
+    });
+    if (error) return setAddErr(errMsg(error));
+    setDraft({ description: "", amount: "", installments: "12", paid: "1", balance: "", rate: "" });
+    setAdding(false);
+    void reload();
+  }
+
+  async function removeItem(id: string) {
+    if (!confirm("¿Quitar esta compra del extracto? No borra ningún movimiento.")) return;
+    await supabase.from("card_statement_items").delete().eq("id", id);
+    void reload();
+  }
 
   // Las que ya se pagaron en su totalidad
   const paidOff = transactions
@@ -753,8 +735,6 @@ function CardPayoffs({ account, rows }: { account: Account; rows: ReturnType<typ
       return { id: t.id, label: compra ? compra.merchant || compra.description || "Compra" : item?.description ?? "Compra", date: t.occurred_on, amount: t.amount };
     })
     .sort((a, b) => b.date.localeCompare(a.date));
-
-  if (purchases.length === 0 && paidOff.length === 0) return null;
 
   function open(p: { id: string; capital: number }) {
     setOpenId(p.id);
@@ -787,8 +767,11 @@ function CardPayoffs({ account, rows }: { account: Account; rows: ReturnType<typ
   }
 
   return (
-    <Collapsible title="Compras a cuotas" summary={purchases.length ? `${purchases.length} por pagar` : undefined}>
-      <p className="text-xs text-muted">Si quieres terminar de pagar una compra antes de tiempo, toca “Pagar el total”: se registra el pago a la tarjeta y la compra ya no tiene cuotas pendientes.</p>
+    <Collapsible title="Compras a cuotas" summary={purchases.length ? String(purchases.length) : undefined}>
+      <p className="text-xs text-muted">
+        Las compras a cuotas de la tarjeta: las que registraste en la app y las del extracto que no son movimientos.
+        Para terminar de pagar una antes de tiempo, toca “Pagar el total”.
+      </p>
       {purchases.length > 0 && (
         <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface">
           {purchases.map((p) => (
@@ -797,12 +780,17 @@ function CardPayoffs({ account, rows }: { account: Account; rows: ReturnType<typ
                 <span className="min-w-0 flex-1">
                   <span className="block truncate">{p.label}</span>
                   <span className="text-xs text-muted">
-                    Faltan {p.left} cuota{p.left === 1 ? "" : "s"}{p.of ? ` (de la ${p.next} a la ${p.of})` : ""} · capital {formatCop(p.capital)}
-                    {p.interest > 0 ? ` · intereses estimados ${formatCop(p.interest)}` : ""}
+                    {p.left > 0
+                      ? <>Faltan {p.left} cuota{p.left === 1 ? "" : "s"}{p.of ? ` (de la ${p.next} a la ${p.of})` : ""} · capital {formatCop(p.capital)}{p.interest > 0 ? ` · intereses estimados ${formatCop(p.interest)}` : ""}</>
+                      : "Sin saldo pendiente"}
+                    {p.source === "EXTRACT" ? " · del extracto" : ""}
                   </span>
                 </span>
-                {canPay && openId !== p.id && (
+                {canPay && openId !== p.id && p.left > 0 && (
                   <Button size="sm" variant="outline" onClick={() => open(p)} disabled={payAccounts.length === 0}>Pagar el total</Button>
+                )}
+                {isItem(p.id) && openId !== p.id && (
+                  <button className="text-xs text-danger underline" onClick={() => void removeItem(p.id)}>Quitar</button>
                 )}
               </div>
               {openId === p.id && (
@@ -844,6 +832,30 @@ function CardPayoffs({ account, rows }: { account: Account; rows: ReturnType<typ
           <p className="text-xs text-muted">Para deshacerlo, borra ese pago en Movimientos: la compra vuelve a sus cuotas.</p>
         </div>
       )}
+      <div className="space-y-2 border-t border-border pt-3">
+        <p className="text-xs text-muted">¿El extracto trae compras a cuotas que no registraste en la app? Agrégalas aquí (desde el PDF o a mano): suman a la proyección y, si la tarjeta está en Presupuestos, a su cuota del mes (toca Recalcular). No aparecen en Movimientos ni informes.</p>
+        <CardStatementPdf account={account} />
+        {adding ? (
+          <div className="space-y-2 rounded-2xl border border-border p-3">
+            <Input value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} placeholder="Descripción (comercio)" aria-label="Descripción" />
+            <div className="grid grid-cols-2 gap-2">
+              <AmountInput value={draft.amount} onChange={(v) => setDraft({ ...draft, amount: v })} />
+              <Input inputMode="numeric" value={draft.installments} onChange={(e) => setDraft({ ...draft, installments: e.target.value.replace(/\D/g, "").slice(0, 2) })} placeholder="Cuotas" aria-label="Cuotas" />
+              <Input inputMode="numeric" value={draft.paid} onChange={(e) => setDraft({ ...draft, paid: e.target.value.replace(/\D/g, "").slice(0, 2) })} placeholder="Cuota actual pagada" aria-label="Cuotas pagadas" />
+              <AmountInput value={draft.balance} onChange={(v) => setDraft({ ...draft, balance: v })} />
+            </div>
+            <p className="text-xs text-muted">Valor de la compra, cuotas, cuotas ya cobradas y saldo que falta (“Saldo diferido” del extracto).</p>
+            <Input inputMode="decimal" value={draft.rate} onChange={(e) => setDraft({ ...draft, rate: e.target.value.replace(/[^\d,.]/g, "").slice(0, 6) })} placeholder={`Tasa E.A. (vacío = ${account.interest_rate_ea ?? "la de la tarjeta"})`} aria-label="Tasa" />
+            <ErrorText>{addErr}</ErrorText>
+            <div className="flex gap-2">
+              <Button size="sm" onClick={() => void addItem()}>Agregar</Button>
+              <Button size="sm" variant="ghost" onClick={() => setAdding(false)}>Cancelar</Button>
+            </div>
+          </div>
+        ) : (
+          <Button size="sm" variant="outline" onClick={() => setAdding(true)}>+ Agregar compra del extracto</Button>
+        )}
+      </div>
     </Collapsible>
   );
 }
