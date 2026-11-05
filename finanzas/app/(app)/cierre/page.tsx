@@ -20,7 +20,7 @@ import { Segmented } from "@/components/ui/segmented";
 import { Collapsible } from "@/components/ui/collapsible";
 import type { Account } from "@/lib/types";
 import { ACCOUNT_KIND_LABEL } from "@/lib/types";
-import { acceptDrift, accountStatement, effectOn, gmfEstimate, monthRange, reconciliationDrift, shiftMonth, suggestedCloseMonth, type GmfMode } from "@/lib/finance/reconcile";
+import { acceptDrift, accountStatement, effectOn, gmfEstimate, monthRange, reconciliationDrift, shiftMonth, type GmfMode } from "@/lib/finance/reconcile";
 import { formatCop, parseCop } from "@/lib/finance/money";
 import { addDays, monthName, periodFor, todayBogota } from "@/lib/finance/periods";
 import { statusesFor } from "@/lib/finance/derive";
@@ -60,7 +60,8 @@ export default function CierrePage() {
   // Una cuenta abierta a la vez: al entrar, la primera sin conciliar
   const [openId, setOpenId] = useState<string | null>(null);
   const { accounts, me, transactions, reconciliations, categories, period } = state;
-  const [month, setMonth] = useState(() => suggestedCloseMonth(todayBogota()));
+  // Abre en el mes actual; los avisos y recordatorios llevan el mes que toca en ?mes=
+  const [month, setMonth] = useState(() => todayBogota().slice(0, 7));
   useEffect(() => {
     const q = new URLSearchParams(window.location.search).get("mes");
     if (q && /^\d{4}-\d{2}$/.test(q)) setMonth(q);
