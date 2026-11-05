@@ -233,7 +233,7 @@ export default function ComprasPage() {
     const { data: prod, error: errProd } = existente
       ? await sb
           .from("pantry_products")
-          .update({ duracion_dias: i.duracion_dias, fecha_ultima_compra: hoy })
+          .update({ duracion_dias: i.duracion_dias, fecha_ultima_compra: hoy, ...(i.tienda ? { tienda: i.tienda } : {}) })
           .eq("id", existente.id)
           .select()
           .single()
@@ -247,6 +247,7 @@ export default function ComprasPage() {
             fecha_ultima_compra: hoy,
             es_mascotas: esMascotas,
             pet_id: i.pet_id ?? null,
+            tienda: i.tienda ?? null,
           })
           .select()
           .single();
@@ -678,7 +679,12 @@ function PantrySheet({
   const [responsable, setResponsable] = useState("rotar");
   const [duracion, setDuracion] = useState("30");
   const [ultima, setUltima] = useState(todayStr());
+  const { items: itemsTiendas, pantry: pantryTiendas } = useHousehold();
+  const tiendasConocidas = [
+    ...new Set([...itemsTiendas.map((x) => x.tienda), ...pantryTiendas.map((x) => x.tienda)].map((t) => t?.trim()).filter((t): t is string => !!t)),
+  ].sort((a, b) => a.localeCompare(b, "es"));
   const [diasExtra, setDiasExtra] = useState(0);
+  const [tiendaP, setTiendaP] = useState("");
   const [error, setError] = useState<string | null>(null);
   const editando = producto && producto !== "nuevo" ? producto : null;
   const esMascota = paraMascotas || !!petId || !!editando?.es_mascotas;
@@ -695,6 +701,7 @@ function PantrySheet({
     setDuracion(String(editando?.duracion_dias ?? 30));
     setUltima(editando?.fecha_ultima_compra ?? todayStr());
     setDiasExtra(editando?.dias_extra ?? 0);
+    setTiendaP(editando?.tienda ?? "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [producto]);
 
@@ -717,6 +724,7 @@ function PantrySheet({
       es_mascotas: mascota ? true : editando ? !!editando.es_mascotas : paraMascotas,
       marca: esMascota && marca.trim() ? marca.trim() : null,
       tipo_comida: esMascota && tipoComida.trim() ? tipoComida.trim() : null,
+      tienda: tiendaP.trim() || null,
     };
     const sb = getSupabase();
     const { data, error } = editando
@@ -767,6 +775,24 @@ function PantrySheet({
               </option>
             ))}
           </select>
+        </div>
+        <div>
+          <label className="label" htmlFor="p-tienda">
+            Tienda (opcional)
+          </label>
+          <input
+            id="p-tienda"
+            className="input"
+            value={tiendaP}
+            onChange={(e) => setTiendaP(e.target.value)}
+            placeholder="Ej: D1, Éxito, la plaza"
+            list="tiendas-despensa"
+          />
+          <datalist id="tiendas-despensa">
+            {tiendasConocidas.map((t) => (
+              <option key={t} value={t} />
+            ))}
+          </datalist>
         </div>
         {esMascota && (
           <>
@@ -1003,6 +1029,7 @@ function PantryRow({ producto: p, onAbrir }: { producto: PantryProduct; onAbrir:
   const detalles = [
     p.marca,
     p.tipo_comida,
+    p.tienda,
     `Dura ${p.duracion_dias} ${p.duracion_dias === 1 ? "día" : "días"}` +
       ((p.dias_extra ?? 0) > 0 ? ` (+${p.dias_extra} por compra extra)` : ""),
     p.rota ? "Responsable: rotar" : p.responsable_id ? `Responsable: ${memberById(p.responsable_id)?.nombre ?? ""}` : null,
