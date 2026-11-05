@@ -13,6 +13,8 @@ import { todayStr } from "@/lib/dates";
 import { diasExtraPorCompra, formatCantidad, pantryDaysLeft, parseCantidad, sumarCantidades } from "@/lib/logic";
 import { CATEGORIAS, CATEGORIAS_MASCOTAS, LISTAS, type Categoria, type NombreLista, type PantryProduct, type ShoppingItem, type ShoppingList, type Task } from "@/lib/types";
 
+const SIN_TIENDA = "__sin_tienda__";
+
 export default function ComprasPage() {
   const { ready, household, lists, items, me, members, memberById, optimistic, optimisticRemove, pantry, pets, tasks } = useHousehold();
   const [activa, setActiva] = useState<NombreLista>("Mercado");
@@ -48,7 +50,10 @@ export default function ComprasPage() {
     onPlegar: () => plegar(seccion),
     cantidad,
   });
-  const pronto = usePantrySoon();
+  const prontoTodos = usePantrySoon();
+  // Filtro por tienda: "" = todas, SIN_TIENDA = productos sin tienda
+  const [filtroTienda, setFiltroTienda] = useState("");
+
   const categoriasActivas = activa === "Mascotas" ? CATEGORIAS_MASCOTAS : CATEGORIAS;
 
   // Al cambiar de lista, la categoría del formulario debe ser una de esa lista
@@ -58,9 +63,30 @@ export default function ComprasPage() {
 
   const lista = lists.find((l) => l.nombre === activa);
   const propios = items.filter((i) => i.list_id === lista?.id);
-  const pendientes = propios.filter((i) => !i.comprado);
-  const comprados = propios.filter((i) => i.comprado);
-  const productos = pantry.filter((p) => (activa === "Mascotas" ? p.es_mascotas : !p.es_mascotas));
+  const productosLista = pantry.filter((p) => (activa === "Mascotas" ? p.es_mascotas : !p.es_mascotas));
+  // Tiendas de esta lista (productos y despensa), para el filtro
+  const tiendasLista = [
+    ...new Map(
+      [...propios.map((i) => i.tienda), ...productosLista.map((p) => p.tienda)]
+        .map((t) => t?.trim())
+        .filter((t): t is string => !!t)
+        .map((t) => [normalizar(t), t] as const),
+    ).values(),
+  ].sort((a, b) => a.localeCompare(b, "es"));
+  const hayProductosSinTienda = propios.some((i) => !i.tienda?.trim()) || productosLista.some((p) => !p.tienda?.trim());
+  // Si la tienda elegida no está en esta lista, se muestran todas
+  const filtro =
+    filtroTienda === SIN_TIENDA
+      ? hayProductosSinTienda
+        ? SIN_TIENDA
+        : ""
+      : tiendasLista.find((t) => normalizar(t) === normalizar(filtroTienda)) ?? "";
+  const deTienda = (t: string | null | undefined) =>
+    !filtro || (filtro === SIN_TIENDA ? !t?.trim() : normalizar(t ?? "") === normalizar(filtro));
+  const pronto = prontoTodos.filter((p) => deTienda(p.tienda));
+  const pendientes = propios.filter((i) => !i.comprado && deTienda(i.tienda));
+  const comprados = propios.filter((i) => i.comprado && deTienda(i.tienda));
+  const productos = productosLista.filter((p) => deTienda(p.tienda));
   // Despensa de mascotas agrupada por mascota; lo que es para todas va al final
   const gruposMascotas = [
     ...[...pets]
@@ -385,10 +411,31 @@ export default function ComprasPage() {
             </div>
           )}
 
+          {tiendasLista.length > 0 && (
+            <div className="mt-4">
+              <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-sec">
+                <Store size={13} /> Filtrar por tienda
+              </p>
+              <Pills
+                options={[
+                  { value: "", label: "Todas" },
+                  ...tiendasLista.map((t) => ({ value: t, label: t })),
+                  ...(hayProductosSinTienda ? [{ value: SIN_TIENDA, label: "Sin tienda" }] : []),
+                ]}
+                value={filtro}
+                onChange={(v) => {
+                  setFiltroTienda(v);
+                  // Lo que se agregue mientras se filtra queda en esa tienda
+                  if (v && v !== SIN_TIENDA) setTienda(v);
+                }}
+              />
+            </div>
+          )}
+
           {activa === "Mercado" && pronto.length > 0 && (
             <section>
               <SectionHeader title="Se termina pronto" {...plegable("pronto", pronto.length)} />
-              {!plegada("pronto") && <PantryCards />}
+              {!plegada("pronto") && <PantryCards productos={pronto} />}
             </section>
           )}
 
@@ -457,7 +504,7 @@ export default function ComprasPage() {
                 className="input flex-1"
                 value={tienda}
                 onChange={(e) => setTienda(e.target.value)}
-                placeholder="Tienda (opcional)"
+                placeholder="Tienda"
                 aria-label="Tienda"
                 list="tiendas-usadas"
               />
@@ -484,7 +531,11 @@ export default function ComprasPage() {
 
           {pendientes.length === 0 && comprados.length === 0 && (
             <div className="mt-5">
-              <Empty>La lista está vacía.</Empty>
+              <Empty>
+                {filtro
+                  ? `No hay productos ${filtro === SIN_TIENDA ? "sin tienda" : `de ${filtro}`} en esta lista.`
+                  : "La lista está vacía."}
+              </Empty>
             </div>
           )}
 
