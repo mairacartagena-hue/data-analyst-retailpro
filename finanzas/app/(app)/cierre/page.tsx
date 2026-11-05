@@ -37,6 +37,11 @@ const FEES = [
 
 type FeeKey = (typeof FEES)[number]["key"] | "unknown";
 
+/** Día (Bogotá) en que pasó el movimiento: su hora real si la tiene (un aviso puede llegar días después). */
+function effectiveDay(t: { occurred_at?: string | null; occurred_on: string }): string {
+  return t.occurred_at ? new Date(Date.parse(t.occurred_at) - 5 * 3_600_000).toISOString().slice(0, 10) : t.occurred_on;
+}
+
 function monthLabel(month: string): string {
   const [y, m] = month.split("-").map(Number);
   return `${monthName(m - 1, true)} ${y}`;
@@ -201,7 +206,7 @@ function AccountClose({ account, month, open, onToggle }: { account: Account; mo
   const cutDate = isCard && account.statement_day
     ? `${month}-${String(Math.min(account.statement_day, Number(range.end.slice(8)))).padStart(2, "0")}` : null;
   const savedIds = (rec?.reconciling_items ?? []).flatMap((i) => (i.transaction_id ? [i.transaction_id] : []));
-  const defaultPicked = (rec?.reconciling_items?.length ? savedIds : cutDate ? st.items.filter((t) => t.occurred_on > cutDate).map((t) => t.id) : []).join(",");
+  const defaultPicked = (rec?.reconciling_items?.length ? savedIds : cutDate ? st.items.filter((t) => effectiveDay(t) > cutDate).map((t) => t.id) : []).join(",");
   const [picked, setPicked] = useState<Set<string>>(new Set());
   useEffect(() => setPicked(new Set(defaultPicked ? defaultPicked.split(",") : [])), [defaultPicked]);
   const pickedTxs = st.items.filter((t) => picked.has(t.id));
