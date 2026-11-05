@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, FileUp, HelpCircle, Landmark, PlusCircle, Trash2 } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { useShell } from "@/components/AppShell";
@@ -28,7 +28,7 @@ const KIND_LABEL: Record<LineKind, string> = {
 const signed = (n: number) => `${n < 0 ? "−" : "+"}${formatCop(Math.abs(n))}`;
 
 /** Importa el extracto del banco (CSV) y lo cruza con la app: faltantes, duplicados, 4x1000, intereses y gastos bancarios. */
-export function StatementImport({ account, month, onBalance }: { account: Account; month: string; onBalance: (v: number) => void }) {
+export function StatementImport({ account, month, onBalance, onStatus }: { account: Account; month: string; onBalance: (v: number) => void; onStatus?: (s: string | null) => void }) {
   const state = useFinance();
   const { transactions, supabase, reload, uvt, me } = state;
   const { openPayment } = useShell();
@@ -57,6 +57,11 @@ export function StatementImport({ account, month, onBalance }: { account: Accoun
   const duplicateIds = new Set((rec?.duplicates ?? []).map((d) => d.entry.tx.id));
   const onlyInApp = (rec?.extra ?? []).filter((e) => !duplicateIds.has(e.tx.id));
   const bankMissing = (rec?.missing ?? []).filter(isBankLine);
+
+  const status = !rec ? null
+    : rec.missing.length + rec.duplicates.length === 0 ? "Revisado: no falta ni sobra ningún movimiento"
+    : `Revisado: ${[rec.missing.length && `${rec.missing.length} falta${rec.missing.length === 1 ? "" : "n"} en la app`, rec.duplicates.length && `${rec.duplicates.length} repetido${rec.duplicates.length === 1 ? "" : "s"}`].filter(Boolean).join(" · ")}`;
+  useEffect(() => { onStatus?.(status); }, [status]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function pickFile(file: File | undefined) {
     if (!file) return;
@@ -139,10 +144,10 @@ export function StatementImport({ account, month, onBalance }: { account: Accoun
   return (
     <>
       <Button variant="outline" size="sm" className="w-full" onClick={() => setOpen(true)}>
-        <FileUp size={16} /> Importar extracto (Excel o CSV) y conciliar
+        <FileUp size={16} /> Subir Excel o CSV de movimientos
       </Button>
 
-      <Sheet open={open} onOpenChange={setOpen} title="Importar extracto" description={`${account.name}${account.last4 ? ` ··${account.last4}` : ""} · ${month}`}>
+      <Sheet open={open} onOpenChange={setOpen} title="Revisar los movimientos" description={`${account.name}${account.last4 ? ` ··${account.last4}` : ""} · ${month}`}>
         <div className="space-y-4 pb-2">
           <div className="space-y-2">
             <label className="flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-border bg-surface px-4 py-5 text-sm font-medium hover:bg-surface-2">

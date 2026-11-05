@@ -22,7 +22,7 @@ import { cn, errMsg } from "@/lib/utils";
  * Las compras que ya están (como compra del extracto o registradas en la app con las mismas cuotas) no se repiten.
  */
 /** `crossCheck`: en el Cierre del mes muestra los valores del extracto y su cruce; en la tarjeta solo las compras a cuotas. */
-export function CardStatementPdf({ account, onBalance, crossCheck = false }: { account: Account; onBalance?: (v: number) => void; crossCheck?: boolean }) {
+export function CardStatementPdf({ account, onBalance, onStatus, crossCheck = false }: { account: Account; onBalance?: (v: number) => void; onStatus?: (s: string | null) => void; crossCheck?: boolean }) {
   const { cardItems, transactions, supabase, reload, me } = useFinance();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -59,6 +59,7 @@ export function CardStatementPdf({ account, onBalance, crossCheck = false }: { a
       const s = (v?: number) => (v === undefined ? "" : String(v));
       setDraft({ cut: r.statementDate ?? "", due: r.dueDate ?? "", minimum: s(r.minimumPayment), total: s(r.totalPayment), debt: s(r.totalDebt) });
       if (r.totalDebt !== undefined) onBalance?.(r.totalDebt);
+      onStatus?.("Extracto leído: revisa el cruce de la deuda abajo");
     } catch (e) {
       setErr(errMsg(e));
     } finally {
@@ -86,15 +87,17 @@ export function CardStatementPdf({ account, onBalance, crossCheck = false }: { a
   }
 
   return (
-    <div className="space-y-2 rounded-2xl border border-dashed border-border p-3">
-      <label className={cn("flex cursor-pointer items-center gap-2 text-sm font-medium text-olive", busy && "pointer-events-none opacity-60")}>
-        <FileUp size={18} />
-        {busy ? "Leyendo el extracto…" : "Cargar el PDF o foto del extracto de la tarjeta"}
+    <div className={cn("space-y-2", !crossCheck && "rounded-2xl border border-dashed border-border p-3")}>
+      <label className={cn("flex cursor-pointer items-center gap-2 text-sm font-medium",
+        crossCheck ? "w-full justify-center rounded-full border border-border px-4 py-2 hover:bg-surface-2" : "text-olive",
+        busy && "pointer-events-none opacity-60")}>
+        <FileUp size={crossCheck ? 16 : 18} />
+        {busy ? "Leyendo el extracto…" : crossCheck ? "Subir PDF o foto del extracto" : "Cargar el PDF o foto del extracto de la tarjeta"}
         <input type="file" accept="application/pdf,image/*" className="hidden" disabled={busy}
           onChange={(e) => { void pick(e.target.files?.[0]); e.target.value = ""; }} />
       </label>
       {!read && !err && !notice && <p className="text-xs text-muted">{crossCheck
-        ? "La IA lee el pago mínimo, el total, la deuda y cada compra a cuotas, y los cruza con la app. Nada del extracto se guarda."
+        ? "La IA lo lee y lo cruza con la app. Nada del extracto se guarda."
         : "La IA lee cada compra a cuotas del extracto para agregarla a la proyección. El archivo no se guarda."}</p>}
       {read && (
         <div className="space-y-3 text-xs">
