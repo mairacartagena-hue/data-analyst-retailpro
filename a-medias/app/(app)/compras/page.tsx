@@ -22,6 +22,29 @@ export default function ComprasPage() {
   const [error, setError] = useState<string | null>(null);
   const [producto, setProducto] = useState<PantryProduct | "nuevo" | null>(null);
   const [importar, setImportar] = useState(false);
+  // Secciones plegadas (por lista). Se recuerda en este celular.
+  const [plegadas, setPlegadas] = useState<string[]>([]);
+  useEffect(() => {
+    try {
+      const g = JSON.parse(localStorage.getItem("compras-plegadas") ?? "[]");
+      if (Array.isArray(g)) setPlegadas(g);
+    } catch {}
+  }, []);
+  const clave = (seccion: string) => `${activa}:${seccion}`;
+  const plegada = (seccion: string) => plegadas.includes(clave(seccion));
+  const plegar = (seccion: string) => {
+    const k = clave(seccion);
+    const nuevas = plegadas.includes(k) ? plegadas.filter((x) => x !== k) : [...plegadas, k];
+    setPlegadas(nuevas);
+    try {
+      localStorage.setItem("compras-plegadas", JSON.stringify(nuevas));
+    } catch {}
+  };
+  const plegable = (seccion: string, cantidad: number) => ({
+    plegada: plegada(seccion),
+    onPlegar: () => plegar(seccion),
+    cantidad,
+  });
   const pronto = usePantrySoon();
   const categoriasActivas = activa === "Mascotas" ? CATEGORIAS_MASCOTAS : CATEGORIAS;
 
@@ -228,8 +251,8 @@ export default function ComprasPage() {
 
           {activa === "Mercado" && pronto.length > 0 && (
             <section>
-              <SectionHeader title="Se termina pronto" />
-              <PantryCards />
+              <SectionHeader title="Se termina pronto" {...plegable("pronto", pronto.length)} />
+              {!plegada("pronto") && <PantryCards />}
             </section>
           )}
 
@@ -237,54 +260,59 @@ export default function ComprasPage() {
             <section>
               <SectionHeader
                 title="Despensa de mascotas"
+                {...plegable("despensa", productos.length)}
                 action={
                   <button className="btn btn-secondary btn-sm" onClick={() => setProducto("nuevo")}>
                     <Plus size={14} /> Producto
                   </button>
                 }
               />
-              <p className="-mt-1 mb-3 text-xs text-sec">
-                Cuando a un producto le queda el 20% o menos, se agrega solo a Mascotas con la etiqueta AUTO.
-              </p>
-              {productos.length === 0 ? (
-                <Empty>Agrega lo que siempre compran (café, arroz, jabón) y cuántos días les dura.</Empty>
-              ) : (
-                <ul className="card p-0!">
-                  {[...productos]
-                    .sort((a, b) => pantryDaysLeft(a) - pantryDaysLeft(b))
-                    .map((p) => {
-                      const d = pantryDaysLeft(p);
-                      const pct = Math.max(0, Math.min(100, (d / p.duracion_dias) * 100));
-                      return (
-                        <li key={p.id} className="border-b-2 border-rosa-claro last:border-b-0">
-                          <button className="flex w-full items-center gap-3 px-4 py-3 text-left" onClick={() => setProducto(p)}>
-                            <div className="min-w-0 flex-1">
-                              <p className="text-[15px] font-semibold">{pets.find((x) => x.id === p.pet_id)?.nombre ?? p.nombre}</p>
-                              {(p.pet_id || p.marca || p.tipo_comida || p.rota || p.responsable_id) && (
-                                <p className="text-xs text-sec">
-                                  {[
-                                    p.pet_id ? p.nombre : null,
-                                    p.marca,
-                                    p.tipo_comida,
-                                    p.rota ? "Responsable: rotar" : p.responsable_id ? `Responsable: ${memberById(p.responsable_id)?.nombre ?? ""}` : null,
-                                  ]
-                                    .filter(Boolean)
-                                    .join(" · ")}
-                                </p>
-                              )}
-                              <div className="mt-1.5 h-2.5 overflow-hidden rounded-full border-2 border-vino">
-                                <div className={`h-full ${pct <= 20 ? "bg-accion" : "bg-rosa"}`} style={{ width: `${pct}%` }} />
+              {!plegada("despensa") && (
+                <>
+                <p className="-mt-1 mb-3 text-xs text-sec">
+                  Cuando a un producto le queda el 20% o menos, se agrega solo a Mascotas con la etiqueta AUTO.
+                </p>
+                {productos.length === 0 ? (
+                  <Empty>Agrega lo que siempre compran (café, arroz, jabón) y cuántos días les dura.</Empty>
+                ) : (
+                  <ul className="card p-0!">
+                    {[...productos]
+                      .sort((a, b) => pantryDaysLeft(a) - pantryDaysLeft(b))
+                      .map((p) => {
+                        const d = pantryDaysLeft(p);
+                        const pct = Math.max(0, Math.min(100, (d / p.duracion_dias) * 100));
+                        return (
+                          <li key={p.id} className="border-b-2 border-rosa-claro last:border-b-0">
+                            <button className="flex w-full items-center gap-3 px-4 py-3 text-left" onClick={() => setProducto(p)}>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-[15px] font-semibold">{pets.find((x) => x.id === p.pet_id)?.nombre ?? p.nombre}</p>
+                                {(p.pet_id || p.marca || p.tipo_comida || p.rota || p.responsable_id) && (
+                                  <p className="text-xs text-sec">
+                                    {[
+                                      p.pet_id ? p.nombre : null,
+                                      p.marca,
+                                      p.tipo_comida,
+                                      p.rota ? "Responsable: rotar" : p.responsable_id ? `Responsable: ${memberById(p.responsable_id)?.nombre ?? ""}` : null,
+                                    ]
+                                      .filter(Boolean)
+                                      .join(" · ")}
+                                  </p>
+                                )}
+                                <div className="mt-1.5 h-2.5 overflow-hidden rounded-full border-2 border-vino">
+                                  <div className={`h-full ${pct <= 20 ? "bg-accion" : "bg-rosa"}`} style={{ width: `${pct}%` }} />
+                                </div>
                               </div>
-                            </div>
-                            <span className={`w-24 text-right text-xs font-semibold ${pct <= 20 ? "text-accion" : "text-sec"}`}>
-                              {diasTexto(d)}
-                            </span>
-                            <Pencil size={14} className="text-sec" />
-                          </button>
-                        </li>
-                      );
-                    })}
-                </ul>
+                              <span className={`w-24 text-right text-xs font-semibold ${pct <= 20 ? "text-accion" : "text-sec"}`}>
+                                {diasTexto(d)}
+                              </span>
+                              <Pencil size={14} className="text-sec" />
+                            </button>
+                          </li>
+                        );
+                      })}
+                  </ul>
+                )}
+                </>
               )}
             </section>
           )}
@@ -335,14 +363,16 @@ export default function ComprasPage() {
 
           {categorias.map((c) => (
             <section key={c}>
-              <SectionHeader title={c} small />
-              <ul className="card p-0!">
-                {pendientes
-                  .filter((i) => i.categoria === c)
-                  .map((i) => (
-                    <ItemRow key={i.id} item={i} onToggle={() => toggle(i)} onDelete={() => borrar(i)} pedidoPor={memberById(i.pedido_por)} />
-                  ))}
-              </ul>
+              <SectionHeader title={c} small {...plegable(c, pendientes.filter((i) => i.categoria === c).length)} />
+              {!plegada(c) && (
+                <ul className="card p-0!">
+                  {pendientes
+                    .filter((i) => i.categoria === c)
+                    .map((i) => (
+                      <ItemRow key={i.id} item={i} onToggle={() => toggle(i)} onDelete={() => borrar(i)} pedidoPor={memberById(i.pedido_por)} />
+                    ))}
+                </ul>
+              )}
             </section>
           ))}
 
@@ -351,17 +381,20 @@ export default function ComprasPage() {
               <SectionHeader
                 title="Comprado"
                 small
+                {...plegable("comprado", comprados.length)}
                 action={
                   <button className="text-sm font-semibold text-accion" onClick={borrarComprados}>
                     Limpiar
                   </button>
                 }
               />
-              <ul className="card p-0!">
-                {comprados.map((i) => (
-                  <ItemRow key={i.id} item={i} onToggle={() => toggle(i)} onDelete={() => borrar(i)} pedidoPor={memberById(i.pedido_por)} />
-                ))}
-              </ul>
+              {!plegada("comprado") && (
+                <ul className="card p-0!">
+                  {comprados.map((i) => (
+                    <ItemRow key={i.id} item={i} onToggle={() => toggle(i)} onDelete={() => borrar(i)} pedidoPor={memberById(i.pedido_por)} />
+                  ))}
+                </ul>
+              )}
             </section>
           )}
 
@@ -369,54 +402,59 @@ export default function ComprasPage() {
             <section>
               <SectionHeader
                 title="Despensa"
+                {...plegable("despensa", productos.length)}
                 action={
                   <button className="btn btn-secondary btn-sm" onClick={() => setProducto("nuevo")}>
                     <Plus size={14} /> Producto
                   </button>
                 }
               />
-              <p className="-mt-1 mb-3 text-xs text-sec">
-                Cuando a un producto le queda el 20% o menos, se agrega solo a Mercado con la etiqueta AUTO.
-              </p>
-              {productos.length === 0 ? (
-                <Empty>Agrega lo que siempre compran (café, arroz, jabón) y cuántos días les dura.</Empty>
-              ) : (
-                <ul className="card p-0!">
-                  {[...productos]
-                    .sort((a, b) => pantryDaysLeft(a) - pantryDaysLeft(b))
-                    .map((p) => {
-                      const d = pantryDaysLeft(p);
-                      const pct = Math.max(0, Math.min(100, (d / p.duracion_dias) * 100));
-                      return (
-                        <li key={p.id} className="border-b-2 border-rosa-claro last:border-b-0">
-                          <button className="flex w-full items-center gap-3 px-4 py-3 text-left" onClick={() => setProducto(p)}>
-                            <div className="min-w-0 flex-1">
-                              <p className="text-[15px] font-semibold">{pets.find((x) => x.id === p.pet_id)?.nombre ?? p.nombre}</p>
-                              {(p.pet_id || p.marca || p.tipo_comida || p.rota || p.responsable_id) && (
-                                <p className="text-xs text-sec">
-                                  {[
-                                    p.pet_id ? p.nombre : null,
-                                    p.marca,
-                                    p.tipo_comida,
-                                    p.rota ? "Responsable: rotar" : p.responsable_id ? `Responsable: ${memberById(p.responsable_id)?.nombre ?? ""}` : null,
-                                  ]
-                                    .filter(Boolean)
-                                    .join(" · ")}
-                                </p>
-                              )}
-                              <div className="mt-1.5 h-2.5 overflow-hidden rounded-full border-2 border-vino">
-                                <div className={`h-full ${pct <= 20 ? "bg-accion" : "bg-rosa"}`} style={{ width: `${pct}%` }} />
+              {!plegada("despensa") && (
+                <>
+                <p className="-mt-1 mb-3 text-xs text-sec">
+                  Cuando a un producto le queda el 20% o menos, se agrega solo a Mercado con la etiqueta AUTO.
+                </p>
+                {productos.length === 0 ? (
+                  <Empty>Agrega lo que siempre compran (café, arroz, jabón) y cuántos días les dura.</Empty>
+                ) : (
+                  <ul className="card p-0!">
+                    {[...productos]
+                      .sort((a, b) => pantryDaysLeft(a) - pantryDaysLeft(b))
+                      .map((p) => {
+                        const d = pantryDaysLeft(p);
+                        const pct = Math.max(0, Math.min(100, (d / p.duracion_dias) * 100));
+                        return (
+                          <li key={p.id} className="border-b-2 border-rosa-claro last:border-b-0">
+                            <button className="flex w-full items-center gap-3 px-4 py-3 text-left" onClick={() => setProducto(p)}>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-[15px] font-semibold">{pets.find((x) => x.id === p.pet_id)?.nombre ?? p.nombre}</p>
+                                {(p.pet_id || p.marca || p.tipo_comida || p.rota || p.responsable_id) && (
+                                  <p className="text-xs text-sec">
+                                    {[
+                                      p.pet_id ? p.nombre : null,
+                                      p.marca,
+                                      p.tipo_comida,
+                                      p.rota ? "Responsable: rotar" : p.responsable_id ? `Responsable: ${memberById(p.responsable_id)?.nombre ?? ""}` : null,
+                                    ]
+                                      .filter(Boolean)
+                                      .join(" · ")}
+                                  </p>
+                                )}
+                                <div className="mt-1.5 h-2.5 overflow-hidden rounded-full border-2 border-vino">
+                                  <div className={`h-full ${pct <= 20 ? "bg-accion" : "bg-rosa"}`} style={{ width: `${pct}%` }} />
+                                </div>
                               </div>
-                            </div>
-                            <span className={`w-24 text-right text-xs font-semibold ${pct <= 20 ? "text-accion" : "text-sec"}`}>
-                              {diasTexto(d)}
-                            </span>
-                            <Pencil size={14} className="text-sec" />
-                          </button>
-                        </li>
-                      );
-                    })}
-                </ul>
+                              <span className={`w-24 text-right text-xs font-semibold ${pct <= 20 ? "text-accion" : "text-sec"}`}>
+                                {diasTexto(d)}
+                              </span>
+                              <Pencil size={14} className="text-sec" />
+                            </button>
+                          </li>
+                        );
+                      })}
+                  </ul>
+                )}
+                </>
               )}
             </section>
           )}

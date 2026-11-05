@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { Check, Plus, X } from "lucide-react";
+import { Check, ChevronDown, Plus, X } from "lucide-react";
 import type { Member } from "@/lib/types";
 import { useHouseholdOptional } from "./HouseholdProvider";
 
@@ -31,10 +31,37 @@ export function quienOptions(members: Member[], { rotar = false }: { rotar?: boo
 }
 
 /** Título de sección con una acción opcional a la derecha (mismo formato en todas las hojas) */
-export function SectionHeader({ title, action, small = false }: { title: React.ReactNode; action?: React.ReactNode; small?: boolean }) {
+export function SectionHeader({
+  title,
+  action,
+  small = false,
+  plegada,
+  onPlegar,
+  cantidad,
+}: {
+  title: React.ReactNode;
+  action?: React.ReactNode;
+  small?: boolean;
+  /** Si se pasa onPlegar, el título pliega y despliega la sección */
+  plegada?: boolean;
+  onPlegar?: () => void;
+  /** Cuántos elementos tiene (se muestra cuando está plegada) */
+  cantidad?: number;
+}) {
+  const texto = <span className={`titulo ${small ? "text-[17px]" : "text-[20px]"}`}>{title}</span>;
   return (
     <div className="mb-2.5 mt-6 flex min-h-9 items-center justify-between gap-3">
-      <h2 className={`titulo min-w-0 ${small ? "text-[17px]" : "text-[20px]"}`}>{title}</h2>
+      {onPlegar ? (
+        <button className="flex min-w-0 items-center gap-1.5 text-left" onClick={onPlegar} aria-expanded={!plegada}>
+          <ChevronDown size={small ? 18 : 20} strokeWidth={2.5} className={`shrink-0 transition-transform ${plegada ? "-rotate-90" : ""}`} />
+          <h2 className="min-w-0">{texto}</h2>
+          {plegada && cantidad !== undefined && (
+            <span className="ml-1 rounded-full bg-rosa-claro px-2 py-0.5 text-xs font-semibold text-vino">{cantidad}</span>
+          )}
+        </button>
+      ) : (
+        <h2 className="min-w-0">{texto}</h2>
+      )}
       {action && <div className="flex shrink-0 items-center gap-2">{action}</div>}
     </div>
   );
