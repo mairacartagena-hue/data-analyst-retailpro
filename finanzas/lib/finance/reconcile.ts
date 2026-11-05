@@ -25,22 +25,6 @@ export function monthRange(month: string): MonthRange {
   return { month, start, end: addDays(next, -1) };
 }
 
-/**
- * Periodo que cierra una cuenta en el mes. Las tarjetas con día de corte se concilian con el extracto: van del día
- * siguiente al corte del mes anterior hasta el corte de este mes, así las compras posteriores al corte (que el banco
- * factura en el próximo extracto) no descuadran el cierre. Las demás cuentas usan el mes calendario.
- */
-export function closeRange(account: Pick<Account, "kind" | "statement_day">, month: string): MonthRange {
-  const cal = monthRange(month);
-  const day = account.kind === "CREDIT_CARD" ? account.statement_day : null;
-  if (!day) return cal;
-  const cutIn = (m: string) => {
-    const last = Number(monthRange(m).end.slice(8));
-    return `${m}-${String(Math.min(day, last)).padStart(2, "0")}`;
-  };
-  return { month, start: addDays(cutIn(shiftMonth(month, -1)), 1), end: cutIn(month) };
-}
-
 export function shiftMonth(month: string, n: number): string {
   const [y, m] = month.split("-").map(Number);
   return new Date(Date.UTC(y, m - 1 + n, 1)).toISOString().slice(0, 7);
@@ -140,16 +124,15 @@ export function balanceAt(account: Account, txs: Transaction[], atMs: number, at
 }
 
 type RecLike = Pick<Reconciliation, "month" | "status" | "statement_balance" | "updated_at"> & {
-  cut_date?: string | null;
   reconciled_at?: string | null;
   reconciling_items?: ReconcilingItem[] | null;
 };
 
 const bogotaDay = (ms: number) => new Date(ms - 5 * 3_600_000).toISOString().slice(0, 10);
 
-/** Momento hasta el que vale una conciliación: el corte (o el final del mes), o el momento de conciliar si fue antes. */
+/** Momento hasta el que vale una conciliación: el final del mes, o el momento de conciliar si fue antes. */
 function recCutoffMs(rec: RecLike): number {
-  const end = rec.cut_date ?? monthRange(rec.month.slice(0, 7)).end;
+  const end = monthRange(rec.month.slice(0, 7)).end;
   return Math.min(Date.parse(rec.reconciled_at ?? rec.updated_at), Date.parse(`${end}T23:59:59.999-05:00`));
 }
 
@@ -181,7 +164,7 @@ export interface ReconciliationDrift {
  */
 export function reconciliationDrift(account: Account, txs: Transaction[], rec: RecLike): ReconciliationDrift | null {
   if (rec.status !== "RECONCILED") return null;
-  // La conciliación vale hasta el corte; las partidas conciliatorias aceptadas explican la diferencia con la app
+  // La conciliación vale hasta el final del mes; las partidas conciliatorias aceptadas explican la diferencia con la app
   const cutoffMs = recCutoffMs(rec);
   const cutoff = bogotaDay(cutoffMs);
   // Los movimientos sin hora del mismo día del corte cuentan dentro del corte

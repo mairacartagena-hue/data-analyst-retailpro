@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { acceptDrift, accountStatement, closeRange, gmfEstimate, inCloseWindow, monthRange, reconciledThrough, reconciliationDrift, shiftMonth, suggestedCloseMonth } from "@/lib/finance/reconcile";
+import { acceptDrift, accountStatement, gmfEstimate, inCloseWindow, monthRange, reconciledThrough, reconciliationDrift, shiftMonth, suggestedCloseMonth } from "@/lib/finance/reconcile";
 import type { Account, Transaction } from "@/lib/types";
 
 const acc: Account = {
@@ -97,37 +97,28 @@ describe("cuenta conciliada que se mueve después", () => {
   });
 });
 
-describe("tarjeta: el cierre va de corte a corte", () => {
-  const card: Account = { ...acc, id: "bbva", kind: "CREDIT_CARD", statement_day: 20, due_day: 5, opening_balance: -8_153_194, opening_at: "2026-09-21T05:00:00Z" };
+describe("tarjeta conciliada al final del mes con partidas conciliatorias", () => {
+  const card: Account = { ...acc, id: "bbva", kind: "CREDIT_CARD", statement_day: 20, due_day: 5, opening_balance: -8_153_194, opening_at: "2026-10-20T05:00:00Z" };
+  const after = [
+    tx({ account_id: "bbva", amount: 138_000, occurred_on: "2026-10-29", created_at: "2026-10-29T15:00:00Z" }),
+    tx({ account_id: "bbva", amount: 161_600, occurred_on: "2026-10-31", created_at: "2026-10-31T15:00:00Z" }),
+  ];
+  // Extracto (corte el 20) + compras posteriores al corte = deuda de la app al 31
+  const rec = {
+    month: "2026-10-01", status: "RECONCILED" as const, statement_balance: -8_153_194, updated_at: "2026-11-05T15:00:00Z", reconciled_at: "2026-11-05T15:00:00Z",
+    reconciling_items: after.map((t) => ({ transaction_id: t.id, amount: -t.amount, description: "Compra", occurred_on: t.occurred_on })),
+  };
 
-  it("rango del extracto: del día siguiente al corte anterior hasta el corte del mes", () => {
-    expect(closeRange(card, "2026-10")).toEqual({ month: "2026-10", start: "2026-09-21", end: "2026-10-20" });
-    // Corte el 31: en meses cortos se toma el último día
-    expect(closeRange({ kind: "CREDIT_CARD", statement_day: 31 }, "2026-03")).toEqual({ month: "2026-03", start: "2026-03-01", end: "2026-03-31" });
-    expect(closeRange({ kind: "CREDIT_CARD", statement_day: 30 }, "2026-03")).toEqual({ month: "2026-03", start: "2026-03-01", end: "2026-03-30" });
-    // Sin día de corte, o cuentas que no son tarjeta: el mes calendario
-    expect(closeRange({ kind: "CREDIT_CARD", statement_day: null }, "2026-10")).toEqual(monthRange("2026-10"));
-    expect(closeRange(acc, "2026-10")).toEqual(monthRange("2026-10"));
+  it("el extracto más las partidas cuadra con la app: no hay aviso", () => {
+    expect(-accountStatement(card, after, monthRange("2026-10")).closing).toBe(8_452_794);
+    expect(reconciliationDrift(card, after, rec)).toBeNull();
   });
 
-  it("las compras después del corte no entran en la deuda del extracto", () => {
-    const txs = [
-      tx({ account_id: "bbva", amount: 50_000, occurred_on: "2026-10-10" }),
-      tx({ account_id: "bbva", amount: 138_000, occurred_on: "2026-10-29" }),
-    ];
-    expect(-accountStatement(card, txs, closeRange(card, "2026-10")).closing).toBe(8_203_194);
-  });
-
-  it("conciliada al corte: compras posteriores al corte registradas después no la descuadran", () => {
-    const rec = { month: "2026-10-01", status: "RECONCILED" as const, statement_balance: -8_153_194, updated_at: "2026-10-31T05:00:00Z", cut_date: "2026-10-20" };
-    const late = [
-      tx({ account_id: "bbva", amount: 138_000, occurred_on: "2026-10-29", created_at: "2026-11-01T15:00:00Z" }),
-      tx({ account_id: "bbva", amount: 161_600, occurred_on: "2026-10-31", created_at: "2026-11-01T15:00:00Z" }),
-    ];
-    expect(reconciliationDrift(card, late, rec)).toBeNull();
-    // Una compra de antes del corte que llega tarde sí avisa
-    const before = tx({ account_id: "bbva", amount: 20_000, occurred_on: "2026-10-15", created_at: "2026-11-01T15:00:00Z" });
-    expect(reconciliationDrift(card, [...late, before], rec)?.drift).toBe(-20_000);
+  it("una compra de octubre que llega después avisa; las de noviembre no", () => {
+    const nov = tx({ account_id: "bbva", amount: 39_870, occurred_on: "2026-11-04", created_at: "2026-11-06T15:00:00Z" });
+    expect(reconciliationDrift(card, [...after, nov], rec)).toBeNull();
+    const late = tx({ account_id: "bbva", amount: 20_000, occurred_on: "2026-10-25", created_at: "2026-11-06T15:00:00Z" });
+    expect(reconciliationDrift(card, [...after, late], rec)?.drift).toBe(-20_000);
   });
 });
 
@@ -135,7 +126,7 @@ describe("partidas conciliatorias", () => {
   const card: Account = { ...acc, id: "bbva", kind: "CREDIT_CARD", statement_day: 20, due_day: 5, opening_balance: -1_000_000, opening_at: "2026-09-21T05:00:00Z" };
   const rec = {
     account_id: "bbva", month: "2026-10-01", status: "RECONCILED" as const, statement_balance: -1_000_000,
-    updated_at: "2026-10-25T15:00:00Z", reconciled_at: "2026-10-25T15:00:00Z", cut_date: "2026-10-20",
+    updated_at: "2026-10-25T15:00:00Z", reconciled_at: "2026-10-25T15:00:00Z",
   };
   const late = tx({ account_id: "bbva", amount: 50_000, occurred_on: "2026-10-15", created_at: "2026-11-01T15:00:00Z" });
 
@@ -166,7 +157,7 @@ describe("partidas conciliatorias", () => {
   });
 
   it("fecha hasta la que está conciliada la cuenta", () => {
-    expect(reconciledThrough("bbva", [rec])).toBe("2026-10-20");
+    expect(reconciledThrough("bbva", [rec])).toBe("2026-10-25"); // se concilió el 25, antes de terminar el mes
     expect(reconciledThrough("otra", [rec])).toBeNull();
   });
 });
