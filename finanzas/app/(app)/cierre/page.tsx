@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { AlertCircle, ArrowLeft, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Landmark, Receipt } from "lucide-react";
+import { AlertCircle, ArrowLeft, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, FileText, Landmark, ListChecks, Receipt } from "lucide-react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { useFinance, type FinanceState } from "@/lib/data/FinanceProvider";
 import { useShell } from "@/components/AppShell";
@@ -14,6 +14,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { StatementImport } from "@/components/StatementImport";
 import { CardStatementPdf } from "@/components/CardStatementPdf";
 import { ManualCrossCheck } from "@/components/CardStatements";
+import { ReconcileStep } from "@/components/ReconcileStep";
 import { CreditPaymentAdjust } from "@/components/CreditPaymentAdjust";
 import { creditMonthBreakdown } from "@/lib/finance/creditPayments";
 import { Segmented } from "@/components/ui/segmented";
@@ -182,6 +183,9 @@ function AccountClose({ account, month, open, onToggle }: { account: Account; mo
   const isCredit = isCreditKind(account.kind);
   const isDebt = isCard || isCredit;
   const [bank, setBank] = useState("");
+  const [movesStatus, setMovesStatus] = useState<string | null>(null);
+  const [pdfStatus, setPdfStatus] = useState<string | null>(null);
+  useEffect(() => { setMovesStatus(null); setPdfStatus(null); }, [month]);
   const [fee, setFee] = useState<FeeKey | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -337,9 +341,20 @@ function AccountClose({ account, month, open, onToggle }: { account: Account; mo
           </dl>
           {st.pending > 0 && <p className="text-xs text-warning">{st.pending} movimiento{st.pending === 1 ? "" : "s"} de esta cuenta siguen por revisar.</p>}
 
-          {!isCredit && <StatementImport account={account} month={month} onBalance={(v) => setBank(String(v))} />}
-          {isCard && <CardStatementPdf account={account} onBalance={(v) => setBank(String(v))} crossCheck />}
-          {isCard && <ManualCrossCheck key={month} account={account} month={month} />}
+          {isCard && <p className="text-xs text-muted">Puedes revisar la tarjeta contra el banco de dos formas. Son independientes: haz solo la que necesites, las dos, o en el orden que quieras. No hace falta el paso 1 para hacer el paso 2.</p>}
+          {!isCredit && (
+            <ReconcileStep step={isCard ? 1 : undefined} icon={<ListChecks size={15} />} title="Revisar los movimientos" done={movesStatus}
+              question={`¿Están todas tus ${isCard ? "compras y pagos" : "entradas y salidas"}? Sube el Excel o CSV de movimientos del banco y te digo cuáles faltan en la app o están repetidos.`}>
+              <StatementImport key={month} account={account} month={month} onBalance={(v) => setBank(String(v))} onStatus={setMovesStatus} />
+            </ReconcileStep>
+          )}
+          {isCard && (
+            <ReconcileStep step={2} icon={<FileText size={15} />} title="Revisar la deuda y las cuotas" done={pdfStatus}
+              question="¿Coincide la deuda con la del banco? Sube el PDF o una foto del extracto mensual y leo la deuda, el pago mínimo y las compras a cuotas. No necesitas haber hecho el paso 1.">
+              <CardStatementPdf key={month} account={account} onBalance={(v) => setBank(String(v))} onStatus={setPdfStatus} crossCheck />
+              <ManualCrossCheck key={month} account={account} month={month} />
+            </ReconcileStep>
+          )}
 
           <Field label={isCredit ? `Saldo de capital según el extracto al ${Number(range.end.slice(8))} de ${monthName(Number(month.slice(5)) - 1, true)}` : isCard ? `Deuda total según tu extracto${cutDate ? ` (corte del ${Number(cutDate.slice(8))})` : ""}` : `Saldo según tu banco al ${Number(range.end.slice(8))} de ${monthName(Number(month.slice(5)) - 1, true)}`}>
             <AmountInput value={bank} onChange={setBank} />

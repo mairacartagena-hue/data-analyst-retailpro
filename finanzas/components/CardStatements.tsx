@@ -113,7 +113,6 @@ export function ManualCrossCheck({ account, month }: { account: Account; month: 
   const [draft, setDraft] = useState<StatementDraft>(() => ({ ...emptyDraft, ...cutAndDue(account, month) }));
   return (
     <div className="space-y-2">
-      <p className="text-sm font-medium text-muted">Cruce con el extracto</p>
       {open ? (
         <div className="space-y-2 rounded-2xl border border-border p-3">
           <StatementFields value={draft} onChange={setDraft} />
@@ -123,7 +122,7 @@ export function ManualCrossCheck({ account, month }: { account: Account; month: 
         </div>
       ) : (
         <>
-          <p className="text-xs text-muted">Carga el PDF arriba, o escribe el pago mínimo y la deuda del extracto para compararlos con la cuota y la deuda de la app.</p>
+          <p className="text-xs text-muted">¿No tienes el PDF? Escribe el pago mínimo y la deuda que dice el extracto para compararlos con la cuota y la deuda de la app.</p>
           <Button size="sm" variant="outline" onClick={() => setOpen(true)}>Escribir los valores a mano</Button>
         </>
       )}
