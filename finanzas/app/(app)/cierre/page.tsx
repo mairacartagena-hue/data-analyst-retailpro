@@ -236,7 +236,6 @@ function AccountClose({ account, month, open, onToggle }: { account: Account; mo
   }
 
   const items = rec?.status === "RECONCILED" ? rec.reconciling_items ?? [] : [];
-  const itemsTotal = items.reduce((a, i) => a + i.amount, 0);
 
   /** Guarda el cierre tal cual: conciliada si cuadra; si no, queda "con diferencia" sin tocar el saldo. */
   async function markReconciled() {
@@ -326,26 +325,6 @@ function AccountClose({ account, month, open, onToggle }: { account: Account; mo
               )}
               <p className="text-xs">Si fue un error, corrígelo y la cuenta vuelve a cuadrar sola. Si está bien, déjalo como partida conciliatoria: la conciliación no cambia y la diferencia queda explicada.</p>
               <Button variant="secondary" className="w-full" disabled={busy} onClick={acceptItems}>Dejar como partidas conciliatorias</Button>
-            </div>
-          )}
-          {items.length > 0 && (
-            <div className="space-y-1.5 rounded-xl bg-surface-2 px-3 py-2 text-sm">
-              <p className="font-semibold">Partidas conciliatorias</p>
-              <p className="text-xs text-muted">
-                Conciliada en <span className="num">{formatCop(isDebt ? -rec!.statement_balance : rec!.statement_balance)}</span>. Estos movimientos llegaron después y explican la diferencia con la app ({formatCop(Math.abs(itemsTotal))}).
-              </p>
-              <ul className="space-y-1">
-                {items.map((i, idx) => {
-                  const t = i.transaction_id ? transactions.find((x) => x.id === i.transaction_id) : undefined;
-                  const label = <><span className="truncate">{i.occurred_on ? `${i.occurred_on} · ` : ""}{i.description}</span><span className="num shrink-0">{(isDebt ? -i.amount : i.amount) > 0 ? "+" : "−"}{formatCop(Math.abs(i.amount))}</span></>;
-                  return (
-                    <li key={i.transaction_id ?? `x${idx}`}>
-                      {t ? <button className="flex w-full justify-between gap-2 text-left text-xs underline" onClick={() => openTransaction(t)}>{label}</button>
-                        : <span className="flex w-full justify-between gap-2 text-xs">{label}</span>}
-                    </li>
-                  );
-                })}
-              </ul>
             </div>
           )}
           <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
