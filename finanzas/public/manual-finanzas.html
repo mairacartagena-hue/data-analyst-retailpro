@@ -1,0 +1,546 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Manual de uso · Finanzas en Pareja</title>
+<meta name="color-scheme" content="light dark">
+<style>
+:root{
+  --bg:#f7f4ee;--surface:#fffdf8;--surface2:#efeadf;--text:#26261f;--muted:#6a675c;--border:#ddd6c6;
+  --accent:#6b7a3a;--accent-soft:#e3e8cf;--on-accent:#fff;--warn:#a0703f;--warn-soft:#f3e3cd;--danger:#a8442f;--danger-soft:#f5d9d1;--ok:#4a6a2a;
+}
+@media (prefers-color-scheme:dark){
+  :root{--bg:#16170f;--surface:#1f2015;--surface2:#2a2b1e;--text:#ecead9;--muted:#a3a08e;--border:#3a3b2b;
+  --accent:#a9bb63;--accent-soft:#2f3720;--on-accent:#16170f;--warn:#d9a26a;--warn-soft:#3b2d1a;--danger:#e58a76;--danger-soft:#40231c;--ok:#a9bb63}
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:150px}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow-wrap:anywhere}
+.wrap{max-width:820px;margin:0 auto;padding:0 16px 48px}
+header.top{padding:28px 0 8px}
+header.top h1{font:700 clamp(26px,7vw,38px)/1.15 Georgia,"Times New Roman",serif;margin:0 0 6px}
+header.top p{margin:0;color:var(--muted)}
+.bar{position:sticky;top:0;z-index:20;background:var(--bg);padding:10px 0 8px;border-bottom:1px solid var(--border)}
+.search{width:100%;padding:11px 14px;border-radius:14px;border:1px solid var(--border);background:var(--surface);color:var(--text);font:inherit}
+.toc{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 0;padding:0;list-style:none}
+.toc a{display:block;padding:5px 10px;border-radius:999px;background:var(--surface2);color:var(--text);text-decoration:none;font-size:13px}
+.toc a:hover,.toc a:focus-visible{background:var(--accent);color:var(--on-accent)}
+.toc.collapsed li:nth-child(n+5){display:none}
+.toggle-toc{background:none;border:0;color:var(--accent);font:inherit;font-size:13px;padding:6px 0 0;cursor:pointer;text-decoration:underline}
+@media(min-width:700px){.toc.collapsed li:nth-child(n+5){display:list-item}.toggle-toc{display:none}}
+details.sec{background:var(--surface);border:1px solid var(--border);border-radius:20px;margin:14px 0;overflow:hidden}
+details.sec>summary{cursor:pointer;list-style:none;padding:16px 18px;font:700 20px/1.25 Georgia,serif;display:flex;gap:10px;align-items:center}
+details.sec>summary::-webkit-details-marker{display:none}
+details.sec>summary::after{content:"+";margin-left:auto;color:var(--muted);font:400 24px/1 system-ui}
+details.sec[open]>summary::after{content:"−"}
+.num-badge{flex:none;width:30px;height:30px;border-radius:50%;background:var(--accent);color:var(--on-accent);display:grid;place-items:center;font:700 14px system-ui}
+.body{padding:2px 18px 18px}
+.body h3{font-size:17px;margin:22px 0 6px}
+.where{background:var(--accent-soft);border-radius:12px;padding:8px 12px;font-size:14px;margin:8px 0}
+.where b{color:var(--accent)}
+ol.steps{padding-left:0;list-style:none;counter-reset:s;margin:8px 0}
+ol.steps li{counter-increment:s;position:relative;padding:4px 0 4px 38px;margin:4px 0}
+ol.steps li::before{content:counter(s);position:absolute;left:0;top:3px;width:26px;height:26px;border-radius:50%;background:var(--surface2);border:1px solid var(--border);display:grid;place-items:center;font-size:13px;font-weight:700}
+.demo{border:2px dashed var(--border);border-radius:16px;padding:14px;margin:14px 0;background:var(--bg)}
+.demo>.tag{display:inline-block;font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;background:var(--warn-soft);color:var(--warn);padding:2px 9px;border-radius:999px;margin-bottom:8px}
+.demo label{display:block;font-size:14px;margin:10px 0 2px;color:var(--muted)}
+.demo input[type=range]{width:100%;accent-color:var(--accent)}
+.demo select,.demo input[type=text],.demo textarea{width:100%;padding:9px 10px;border-radius:10px;border:1px solid var(--border);background:var(--surface);color:var(--text);font:inherit}
+.demo textarea{min-height:76px;resize:vertical}
+.row{display:flex;justify-content:space-between;gap:12px;padding:4px 0}
+.row .v,.big{font-variant-numeric:tabular-nums}
+.big{font:700 28px/1.2 Georgia,serif}
+.result{margin-top:10px;padding:10px 12px;border-radius:12px;background:var(--surface2)}
+.result.ok{background:var(--accent-soft)}.result.warn{background:var(--warn-soft)}.result.bad{background:var(--danger-soft)}
+.meter{height:16px;border-radius:999px;background:var(--surface2);overflow:hidden;margin:8px 0}
+.meter i{display:block;height:100%;width:0;background:var(--accent);transition:width .2s,background .2s}
+.meter.warn i{background:var(--warn)}.meter.bad i{background:var(--danger)}
+button.btn{font:inherit;font-weight:600;padding:9px 14px;border-radius:12px;border:1px solid var(--accent);background:var(--accent);color:var(--on-accent);cursor:pointer;margin:8px 8px 0 0}
+button.btn.alt{background:transparent;color:var(--accent)}
+.chk{display:flex;gap:8px;align-items:flex-start;padding:6px 0;font-size:14px;color:var(--text)!important;margin:0!important}
+.faq details{border-top:1px solid var(--border);padding:10px 0}
+.faq summary{cursor:pointer;font-weight:600}
+dl.gl dt{font-weight:700;margin-top:10px}dl.gl dd{margin:2px 0 0;color:var(--muted)}
+.note{font-size:14px;color:var(--muted)}
+.empty{display:none;text-align:center;color:var(--muted);padding:30px 0}
+footer{margin-top:30px;text-align:center;color:var(--muted);font-size:13px}
+mark{background:var(--warn-soft);color:inherit;border-radius:3px}
+@media print{.bar,.demo button{display:none}details.sec>*{display:block}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="top">
+  <h1>Manual de uso · Finanzas en Pareja</h1>
+  <p>Aprende la app paso a paso, con ejemplos que puedes probar aquí mismo. Todos los nombres y montos de este manual son inventados.</p>
+</header>
+
+<div class="bar">
+  <input id="q" class="search" type="search" placeholder="Buscar en el manual (ej. cuota, cruce, huella)" aria-label="Buscar en el manual" autocomplete="off">
+  <ul class="toc collapsed" id="toc">
+    <li><a href="#s1">1 · Empezar</a></li>
+    <li><a href="#s2">2 · Movimientos</a></li>
+    <li><a href="#s3">3 · Cuentas y créditos</a></li>
+    <li><a href="#s4">4 · Cruce</a></li>
+    <li><a href="#s5">5 · Presupuestos y metas</a></li>
+    <li><a href="#s6">6 · Informes e IA</a></li>
+    <li><a href="#s7">7 · Captura automática</a></li>
+    <li><a href="#s8">8 · Cierre del mes</a></li>
+    <li><a href="#s9">9 · Seguridad</a></li>
+    <li><a href="#s10">10 · Preguntas y glosario</a></li>
+  </ul>
+  <button class="toggle-toc" id="tt" type="button">Ver todas las secciones</button>
+</div>
+
+<p class="empty" id="empty">No encontré nada con esa palabra. Prueba con otra.</p>
+
+<!-- 1 -->
+<details class="sec" id="s1" open>
+  <summary><span class="num-badge">1</span>Empezar</summary>
+  <div class="body">
+    <h3>Instalar la app</h3>
+    <div class="where"><b>Dónde lo encuentro:</b> Más → Ajustes → Instalar (solo aparece si aún no la instalaste).</div>
+    <ol class="steps">
+      <li>En Chrome (Android o computador), abre el menú ⋮ y elige “Instalar app” o “Agregar a pantalla principal”. También puedes tocar el botón “Instalar app” de Ajustes.</li>
+      <li>En iPhone, primero toca Compartir y elige “Agregar a inicio”; después abre la app desde el ícono.</li>
+    </ol>
+    <h3>Entrar y crear el hogar</h3>
+    <ol class="steps">
+      <li>Entra con tu correo: con contraseña, o pide un enlace al correo (también puedes escribir el código que trae el correo).</li>
+      <li>La primera vez, la app te saluda: escribe cómo quieres que te vean y el nombre del hogar.</li>
+      <li>Tu pareja entra con el código de invitación o con el enlace que le compartas.</li>
+    </ol>
+    <h3>Invitar a tu pareja</h3>
+    <div class="where"><b>Dónde lo encuentro:</b> Más → Ajustes → Hogar.</div>
+    <p>Mientras tu pareja no se haya unido, verás un código. Toca “Compartir enlace” para mandárselo, o “Nuevo código” si quieres que el anterior deje de servir. Cuando se una, ahí aparece su nombre.</p>
+    <h3>Ajustes que conviene revisar</h3>
+    <ul>
+      <li><b>Mi perfil:</b> nombre, color y un emoji de avatar. El color también es el color de toda la app.</li>
+      <li><b>Periodos:</b> mensual (con el día en que empieza el mes, por ejemplo el 25 si les pagan ese día) o quincenal (primer y segundo corte). Aplica a los dos.</li>
+      <li><b>Apariencia:</b> Automático, Claro u Oscuro.</li>
+      <li><b>Notificaciones:</b> “Activar en este celular”. Llega un aviso al día, a las 8 a. m., con lo que vence. Cada persona lo activa en su celular.</li>
+      <li>Cuando cambies algo, abajo aparece “Tienes cambios sin guardar” con un solo botón Guardar.</li>
+    </ul>
+    <h3>Las pestañas de abajo</h3>
+    <p><b>Inicio · Movimientos · Presupuesto · Informes · Más</b>, y en el centro el botón <b>+</b> para registrar. En Inicio puedes cambiar entre <b>Mis finanzas</b>, <b>Hogar</b> y <b>Vista global</b>.</p>
+  </div>
+</details>
+
+<!-- 2 -->
+<details class="sec" id="s2">
+  <summary><span class="num-badge">2</span>Registrar movimientos</summary>
+  <div class="body">
+    <div class="where"><b>Dónde lo encuentro:</b> botón + en la barra de abajo (Registrar movimiento). El micrófono de la izquierda sirve para dictar.</div>
+    <ol class="steps">
+      <li>Toca <b>+</b> y elige el tipo: <b>Gasto</b>, <b>Ingreso</b>, <b>Transferir</b> u <b>Otro</b> (pago de deuda, reembolso, ajuste).</li>
+      <li>Escribe el monto, la descripción y la fecha, y elige la cuenta.</li>
+      <li>En un gasto, elige la <b>Categoría</b> y <b>¿A quién le corresponde?</b>. No tiene que ser quien pagó: si le corresponde a tu pareja, nace un cruce.</li>
+      <li>Elige <b>¿De qué espacio es?</b> Hogar o Personal. Si lo necesitas, agrega etiquetas.</li>
+      <li>Toca Guardar.</li>
+    </ol>
+    <h3>Más formas de registrar</h3>
+    <ul>
+      <li><b>Dictar:</b> di “gasté 45 mil en el Éxito con Nequi” y la app llena el formulario. Si el celular no deja dictar, escribe la frase.</li>
+      <li><b>Foto del recibo:</b> la app lee el total, el comercio y la fecha. Siempre revisas antes de guardar; la foto no se guarda.</li>
+      <li><b>Sin conexión:</b> lo que guardas queda “por enviar” y sale solo cuando vuelve internet. Editar, revisar avisos y leer fotos sí necesitan internet.</li>
+      <li><b>Compras a cuotas:</b> en un gasto pagado con tarjeta de crédito aparece “Cuotas” (de 1 a 48).</li>
+      <li><b>Comentarios:</b> en un movimiento puedes dejarle un comentario a tu pareja.</li>
+    </ul>
+    <h3>Ver y filtrar</h3>
+    <div class="where"><b>Dónde lo encuentro:</b> pestaña Movimientos → filtros Todos · Pagué yo · Cruces · Pendientes.</div>
+
+    <div class="demo" id="d-cruce">
+      <span class="tag">Ejemplo para probar</span>
+      <strong>Un gasto compartido y su cruce</strong>
+      <p class="note">Ana y Luis (nombres inventados). Mueve los valores y mira cómo se reparte.</p>
+      <label for="cr-total">Mercado del mes: <b id="cr-total-v"></b></label>
+      <input id="cr-total" type="range" min="50000" max="800000" step="10000" value="320000">
+      <label for="cr-who">¿Quién pagó?</label>
+      <select id="cr-who"><option value="Ana">Ana</option><option value="Luis">Luis</option></select>
+      <label for="cr-part">Parte que le corresponde a Luis: <b id="cr-part-v"></b></label>
+      <input id="cr-part" type="range" min="0" max="100" step="5" value="50">
+      <div class="row"><span>Parte de Ana</span><span class="v" id="cr-a"></span></div>
+      <div class="row"><span>Parte de Luis</span><span class="v" id="cr-l"></span></div>
+      <div class="result" id="cr-out"></div>
+    </div>
+  </div>
+</details>
+
+<!-- 3 -->
+<details class="sec" id="s3">
+  <summary><span class="num-badge">3</span>Cuentas, tarjetas y créditos</summary>
+  <div class="body">
+    <div class="where"><b>Dónde lo encuentro:</b> Más → Cuentas y cruce. Arriba hay tres pestañas: <b>Cuentas · Créditos · Cruce</b>.</div>
+    <h3>Cuentas</h3>
+    <ol class="steps">
+      <li>En la pestaña Cuentas toca <b>Agregar cuenta</b> (o “Nueva”).</li>
+      <li>Elige el tipo: depósito, billetera, efectivo o tarjeta de crédito.</li>
+      <li>Escribe el saldo con el que empieza en la app.</li>
+      <li>Elige quién puede ver la cuenta: todo, solo el saldo, o nada (privada).</li>
+    </ol>
+    <p>Al final de la pantalla, “Otros activos y pasivos” sirve para deudas sin cuotas y cosas que tienes (cuentan en el patrimonio).</p>
+    <h3>Tarjetas de crédito</h3>
+    <ul>
+      <li>En la tarjeta indicas el <b>día de corte</b>, el <b>día de pago</b> y la <b>tasa de interés</b> (efectiva anual). Así la app calcula qué extracto vence en cada periodo.</li>
+      <li>Si la tarjeta es nueva en la app, escribes el <b>saldo al corte</b> y la <b>fecha de corte</b>; también puedes importar el PDF o la foto del extracto.</li>
+      <li>En la tarjeta, la sección <b>Compras a cuotas</b> muestra lo que falta de cada compra y el botón <b>Pagar el total</b>: paga de una vez lo que resta de esa compra y deja de generar cuotas.</li>
+      <li>En “¿Quién paga…?” eliges quién se encarga de la tarjeta; esa persona aparta la deuda en su Saldo Seguro.</li>
+    </ul>
+    <h3>Créditos (hipoteca, libre inversión)</h3>
+    <div class="where"><b>Dónde lo encuentro:</b> Cuentas → pestaña Créditos → Agregar crédito.</div>
+    <ol class="steps">
+      <li>Escribe el saldo de capital, la tasa, el número de cuotas y <b>en qué cuota vas</b> (la próxima a pagar).</li>
+      <li>Agrega el valor inicial (lo que prestó el banco) y el valor de la cuota del extracto. Con eso la app muestra “Cuota 38 de 240” y “Pagado X %”.</li>
+      <li>O sube el PDF o la foto del extracto y la IA llena los datos; tú los revisas antes de guardar.</li>
+      <li>Cada pago se registra una sola vez y se divide en capital (baja la deuda), intereses y seguros (estos sí son gasto).</li>
+    </ol>
+
+    <div class="demo" id="d-credito">
+      <span class="tag">Ejemplo para probar</span>
+      <strong>Crédito a cuotas y compra a cuotas</strong>
+      <p class="note">Hipoteca inventada de 240 cuotas.</p>
+      <label for="cd-paid">Cuotas pagadas: <b id="cd-paid-v"></b></label>
+      <input id="cd-paid" type="range" min="0" max="240" value="37">
+      <div class="row"><span>Cómo se ve en Créditos</span><b id="cd-label"></b></div>
+      <label for="cd-owed">Saldo de capital según el extracto: <b id="cd-owed-v"></b></label>
+      <input id="cd-owed" type="range" min="0" max="180000000" step="1000000" value="148000000">
+      <div class="row"><span>Valor inicial</span><span class="v">$ 180.000.000</span></div>
+      <div class="meter" id="cd-meter"><i></i></div>
+      <div class="result ok" id="cd-pct"></div>
+      <hr style="border:0;border-top:1px solid var(--border);margin:16px 0">
+      <strong>Compra a cuotas con tarjeta</strong>
+      <p class="note">Televisor de $ 2.400.000 a 12 cuotas (sin intereses, para simplificar).</p>
+      <label for="cp-n">Cuotas ya facturadas: <b id="cp-n-v"></b> de 12</label>
+      <input id="cp-n" type="range" min="0" max="11" value="3">
+      <div class="result" id="cp-out"></div>
+      <button class="btn" id="cp-btn" type="button">Pagar el total</button>
+      <button class="btn alt" id="cp-reset" type="button">Reiniciar</button>
+    </div>
+  </div>
+</details>
+
+<!-- 4 -->
+<details class="sec" id="s4">
+  <summary><span class="num-badge">4</span>Cruce entre los dos</summary>
+  <div class="body">
+    <p>El cruce es la cuenta de “quién le debe a quién”. Se arma solo: si uno paga algo que le corresponde al otro, queda a favor del que pagó.</p>
+    <div class="where"><b>Dónde lo encuentro:</b> Más → Cuentas y cruce → pestaña Cruce. También en Inicio, en el Saldo Seguro, “Lo que le debes a tu pareja”.</div>
+    <h3>Los tres casos</h3>
+    <ul>
+      <li><b>Normal:</b> quien paga es a quien le corresponde. No pasa nada.</li>
+      <li><b>Pago cruzado:</b> pagaste algo que es 100 % de tu pareja. Te lo debe completo.</li>
+      <li><b>Desglose:</b> repartes un gasto en partes (por ejemplo, el mercado en dos categorías y dos responsables). Cada parte de la otra persona queda a tu favor.</li>
+    </ul>
+    <h3>Pagar lo que se debe</h3>
+    <ol class="steps">
+      <li>Abre la pestaña Cruce y revisa las deudas abiertas.</li>
+      <li>Toca para saldar: puedes <b>Pagar todo</b> o <b>Abonar</b> una parte; la app te dice cuánto queda pendiente.</li>
+      <li>Con “paz y salvo” el cruce queda en cero.</li>
+    </ol>
+    <p class="note">Lo que tu pareja te debe no se suma a tu Saldo Seguro; lo que tú le debes sí se resta.</p>
+    <p>Para probar un cruce, usa el ejemplo de la sección 2.</p>
+  </div>
+</details>
+
+<!-- 5 -->
+<details class="sec" id="s5">
+  <summary><span class="num-badge">5</span>Presupuestos y metas</summary>
+  <div class="body">
+    <h3>Presupuestos</h3>
+    <div class="where"><b>Dónde lo encuentro:</b> pestaña Presupuesto → Crear presupuesto.</div>
+    <ol class="steps">
+      <li>Elige una categoría (si no existe, créala en Más → Categorías).</li>
+      <li>Define el monto del periodo y de quién es: de uno, del otro, de montos fijos para cada uno, o privado.</li>
+      <li>Se repite en cada periodo. Si quieres, activa que lo que sobra pase al siguiente.</li>
+    </ol>
+    <p>Cada barra muestra cuánto lleva cada uno. En Inicio, la sección <b>Presupuestos en alerta</b> muestra los que ya van desde el 80 %.</p>
+    <div class="demo" id="d-presu">
+      <span class="tag">Ejemplo para probar</span>
+      <strong>Presupuesto de Mercado: $ 800.000</strong>
+      <label for="pr-spent">Gastado: <b id="pr-spent-v"></b></label>
+      <input id="pr-spent" type="range" min="0" max="1000000" step="10000" value="500000">
+      <div class="meter" id="pr-meter"><i></i></div>
+      <div class="result" id="pr-out"></div>
+    </div>
+    <h3>Metas de ahorro</h3>
+    <div class="where"><b>Dónde lo encuentro:</b> Más → Metas de ahorro.</div>
+    <ol class="steps">
+      <li>Crea una meta (fondo de emergencia, un viaje, cuota inicial…) y elige si es del Hogar o Personal.</li>
+      <li>Registra cada <b>Aporte</b> o <b>Retiro</b>.</li>
+      <li>Los aportes pendientes del periodo se descuentan de tu Saldo Seguro.</li>
+    </ol>
+    <h3>Saldo Seguro para Gastar</h3>
+    <div class="where"><b>Dónde lo encuentro:</b> Inicio, tarjeta verde. Toca “¿De dónde sale?” para ver el desglose.</div>
+    <p>Es lo que de verdad puedes gastar hoy sin dejar de cumplir lo que viene.</p>
+    <div class="demo" id="d-saldo">
+      <span class="tag">Ejemplo para probar</span>
+      <strong>Saldo Seguro para Gastar</strong>
+      <label for="ss-1">Cuentas, billeteras y efectivo: <b id="ss-1-v"></b></label>
+      <input id="ss-1" type="range" min="0" max="8000000" step="50000" value="3200000">
+      <label for="ss-2">Obligaciones del hogar que faltan: <b id="ss-2-v"></b></label>
+      <input id="ss-2" type="range" min="0" max="4000000" step="50000" value="1400000">
+      <label for="ss-3">Ahorros programados que faltan: <b id="ss-3-v"></b></label>
+      <input id="ss-3" type="range" min="0" max="2000000" step="50000" value="300000">
+      <label for="ss-4">Tarjetas y créditos que vencen este periodo: <b id="ss-4-v"></b></label>
+      <input id="ss-4" type="range" min="0" max="4000000" step="50000" value="650000">
+      <label for="ss-5">Lo que le debes a tu pareja: <b id="ss-5-v"></b></label>
+      <input id="ss-5" type="range" min="0" max="1000000" step="10000" value="120000">
+      <div class="result ok"><div>Saldo Seguro para Gastar</div><div class="big" id="ss-out"></div></div>
+    </div>
+  </div>
+</details>
+
+<!-- 6 -->
+<details class="sec" id="s6">
+  <summary><span class="num-badge">6</span>Informes y asistente con IA</summary>
+  <div class="body">
+    <h3>Informes</h3>
+    <div class="where"><b>Dónde lo encuentro:</b> pestaña Informes. Arriba eliges Hogar, Personal o Todo.</div>
+    <ul>
+      <li>Gastos por categoría, o por subcategoría si prefieres el detalle.</li>
+      <li>Ingresos y gastos, y la tendencia por periodos.</li>
+      <li>Presupuesto contra lo real, y gastos fijos y variables.</li>
+      <li>Descarga en CSV y un resumen para la renta.</li>
+    </ul>
+    <h3>Asistente con IA</h3>
+    <div class="where"><b>Dónde lo encuentro:</b> Más → Asistente con IA.</div>
+    <ol class="steps">
+      <li>Escribe una pregunta normal: “¿cuánto gastamos en mercado en los últimos 3 meses?”, “hazme un resumen del mes”, “¿qué podría recortar?”.</li>
+      <li>Lee la respuesta. Solo usa lo que tú puedes ver; lo privado de tu pareja no se envía.</li>
+    </ol>
+    <p class="note">La conversación vive solo en la pestaña abierta: al cerrar la app se borra.</p>
+  </div>
+</details>
+
+<!-- 7 -->
+<details class="sec" id="s7">
+  <summary><span class="num-badge">7</span>Captura automática</summary>
+  <div class="body">
+    <p>Tus notificaciones, SMS y correos del banco llegan solos a la app. Lo que no se puede cuadrar solo queda en <b>Por revisar</b>, en el inicio.</p>
+    <div class="where"><b>Dónde lo encuentro:</b> Más → Captura automática.</div>
+    <ol class="steps">
+      <li><b>Tu token:</b> toca “Generar token” y cópialo en ese momento (no se vuelve a mostrar).</li>
+      <li><b>Conectar:</b> en Android, con MacroDroid (notificaciones y SMS); en Gmail, con un pequeño script para los correos del banco. Cada persona lo hace una vez, en lo suyo. La pantalla trae cada paso.</li>
+      <li>Cuando llegue el primer aviso verás “Conectada” con la hora del último aviso.</li>
+      <li>Para traer los avisos de antes: Ajustes → Periodos → “Primer barrido”.</li>
+    </ol>
+    <h3>Por revisar</h3>
+    <ul>
+      <li><b>Confirmar:</b> la app ya sugiere categoría y cuenta; un toque y listo.</li>
+      <li><b>Cambiar / Revisar:</b> abres el formulario para ajustarlo.</li>
+      <li><b>Aplicar siempre sin preguntar:</b> la app recuerda el comercio y la próxima vez lo guarda sola.</li>
+      <li>Los avisos que no entendió quedan en “Avisos sin reconocer”, con “Registrar a mano” o “No es un movimiento”.</li>
+    </ul>
+    <div class="demo" id="d-captura">
+      <span class="tag">Ejemplo para probar</span>
+      <strong>De aviso del banco a movimiento “por revisar”</strong>
+      <p class="note">Aviso inventado. Puedes cambiar el texto.</p>
+      <label for="cap-txt">Aviso del banco</label>
+      <textarea id="cap-txt">Banco Ejemplo: Compraste $45.000 en TIENDA EL BARRIO con tu T.Deb *1234 el 03/11/2026 a las 14:20.</textarea>
+      <button class="btn" id="cap-btn" type="button">Recibir aviso</button>
+      <div id="cap-out"></div>
+    </div>
+  </div>
+</details>
+
+<!-- 8 -->
+<details class="sec" id="s8">
+  <summary><span class="num-badge">8</span>Cierre del mes</summary>
+  <div class="body">
+    <p>Una vez al mes comparas lo que dice la app con lo que dice tu banco. Se concilia al final del mes (los últimos 3 días o los primeros 5 del siguiente salen como recordatorio).</p>
+    <div class="where"><b>Dónde lo encuentro:</b> Más → Cierre del mes. Arriba cambias de mes con las flechas.</div>
+    <ol class="steps">
+      <li>Lee “¿Qué hace falta?”: movimientos por revisar, avisos sin reconocer y cuentas sin conciliar.</li>
+      <li>En <b>Conciliar</b>, abre una cuenta (de a una).</li>
+      <li>Escribe el saldo según tu banco al final del mes. Puedes importar el extracto (CSV o Excel) para llenarlo.</li>
+      <li>Si hay diferencia, marca las <b>partidas conciliatorias</b>: movimientos que ya están en la app pero que el banco todavía no refleja.</li>
+      <li>Cuando “Igual a la app” cuadra, toca <b>Marcar como conciliada</b>. Si no cuadra, puedes ajustar el saldo o guardar el cierre con la diferencia.</li>
+    </ol>
+    <p>En tarjetas se compara la deuda con el extracto; en créditos, el saldo de capital. Si después de conciliar alguien cambia algo de antes, la cuenta muestra “Se movió”.</p>
+    <div class="demo" id="d-cierre">
+      <span class="tag">Ejemplo para probar</span>
+      <strong>Conciliar una cuenta de ahorros</strong>
+      <div class="row"><span>Saldo según la app</span><span class="v">$ 1.350.000</span></div>
+      <label for="ci-bank">Saldo según tu banco: <b id="ci-bank-v"></b></label>
+      <input id="ci-bank" type="range" min="1200000" max="1500000" step="5000" value="1420000">
+      <p class="note">Marca los movimientos que están en la app pero todavía no en el banco:</p>
+      <label class="chk"><input type="checkbox" data-e="-45000"> 02 nov · Mercado TIENDA EL BARRIO · −$ 45.000</label>
+      <label class="chk"><input type="checkbox" data-e="-25000"> 03 nov · Taxi · −$ 25.000</label>
+      <label class="chk"><input type="checkbox" data-e="30000"> 01 nov · Transferencia de Luis · +$ 30.000</label>
+      <div class="row"><span>Banco</span><span class="v" id="ci-b"></span></div>
+      <div class="row"><span>Partidas conciliatorias</span><span class="v" id="ci-p"></span></div>
+      <div class="row"><b>Igual a la app</b><b class="v" id="ci-eq"></b></div>
+      <div class="result" id="ci-out"></div>
+      <p class="note">Pista: con el banco en $ 1.420.000, marca el mercado y el taxi.</p>
+    </div>
+  </div>
+</details>
+
+<!-- 9 -->
+<details class="sec" id="s9">
+  <summary><span class="num-badge">9</span>Seguridad</summary>
+  <div class="body">
+    <div class="where"><b>Dónde lo encuentro:</b> Más → Ajustes, más abajo de Notificaciones.</div>
+    <h3>Bloquear con huella</h3>
+    <ol class="steps">
+      <li>Activa el interruptor “Bloquear con huella”.</li>
+      <li>Sigue lo que pide el celular para registrar la huella (o el bloqueo de pantalla).</li>
+      <li>Desde ahí, la app lo pide al abrirla y al volver después de unos minutos. Es solo para ese celular.</li>
+    </ol>
+    <h3>Verificación en dos pasos</h3>
+    <ol class="steps">
+      <li>Toca activar la verificación en dos pasos.</li>
+      <li>Escanea el código con una app de autenticación.</li>
+      <li>Escribe el código de 6 dígitos para confirmar. Queda “Activa”; puedes apagarla cuando quieras.</li>
+    </ol>
+    <h3>Privacidad</h3>
+    <ul>
+      <li>Las cuentas privadas no las ve tu pareja. Las de “solo saldo” muestran únicamente el total.</li>
+      <li>El asistente y la lectura de recibos usan IA, pero solo con lo que tú puedes ver, y las fotos y extractos no se guardan.</li>
+      <li>Al cerrar sesión se borra la copia que la app guarda en el celular. Si hay movimientos sin enviar, te avisa antes.</li>
+    </ul>
+  </div>
+</details>
+
+<!-- 10 -->
+<details class="sec" id="s10">
+  <summary><span class="num-badge">10</span>Preguntas frecuentes y glosario</summary>
+  <div class="body">
+    <h3>Preguntas frecuentes</h3>
+    <div class="faq">
+      <details><summary>¿Por qué mi Saldo Seguro es menor que lo que tengo en el banco?</summary><p>Porque ya le restó lo que viene: obligaciones del hogar, ahorros programados, tarjetas y créditos que vencen y lo que le debes a tu pareja. Toca “¿De dónde sale?” para ver cada parte.</p></details>
+      <details><summary>¿Qué es “Por revisar”?</summary><p>Son movimientos que llegaron solos desde el banco y la app no pudo cuadrar del todo. Confírmalos o ajústalos en el inicio.</p></details>
+      <details><summary>Registré algo sin internet, ¿se pierde?</summary><p>No. Queda “por enviar” y se manda solo al volver la conexión, sin duplicarse. No cierres sesión antes: se pierde lo que no se envió.</p></details>
+      <details><summary>Mi pareja no ve una de mis cuentas.</summary><p>Esa cuenta es privada o de “solo saldo”. Puedes cambiarlo en la cuenta.</p></details>
+      <details><summary>Pagué algo de mi pareja y no aparece el cruce.</summary><p>Revisa que en “¿A quién le corresponde?” haya quedado el nombre de tu pareja. Si le corresponde a quien pagó, no hay cruce.</p></details>
+      <details><summary>No me llegan las notificaciones.</summary><p>En Ajustes → Notificaciones toca “Enviar prueba”. Si dice que están bloqueadas, permítelas en el navegador (candado junto a la dirección). En iPhone, instala la app primero.</p></details>
+      <details><summary>¿Se puede abrir este manual sin internet?</summary><p>Sí. Es un solo archivo: descárgalo desde Ajustes y ábrelo cuando quieras.</p></details>
+    </div>
+    <h3>Glosario</h3>
+    <dl class="gl">
+      <dt>Hogar</dt><dd>Lo que comparten los dos. Cada gasto o presupuesto es del Hogar o Personal.</dd>
+      <dt>Cruce</dt><dd>La cuenta de quién le debe a quién entre los dos.</dd>
+      <dt>Saldo Seguro para Gastar</dt><dd>Lo que tienes menos lo que ya está comprometido en el periodo.</dd>
+      <dt>Obligación del hogar</dt><dd>Un gasto fijo que hay que cumplir (arriendo, servicios, cuota de crédito).</dd>
+      <dt>Partida conciliatoria</dt><dd>Un movimiento que está en la app pero aún no en el banco (o al revés) y explica la diferencia del cierre.</dd>
+      <dt>Conciliar</dt><dd>Comprobar que el saldo de la app coincide con el del banco.</dd>
+      <dt>Por revisar</dt><dd>Movimiento automático que espera tu confirmación.</dd>
+      <dt>Capital</dt><dd>La parte de una cuota que baja la deuda. Lo demás son intereses y seguros.</dd>
+      <dt>Día de corte</dt><dd>El día en que la tarjeta cierra su extracto.</dd>
+      <dt>UVT</dt><dd>Unidad que se usa para el tope exento del 4x1000. Se actualiza cada enero en Ajustes → Periodos.</dd>
+      <dt>Token</dt><dd>La llave personal con la que tu celular o Gmail envían los avisos a la app.</dd>
+    </dl>
+  </div>
+</details>
+
+<footer>Manual de uso · Finanzas en Pareja · Versión 1.0 · Actualizado el 5 de noviembre de 2026<br>Todos los ejemplos usan datos inventados.</footer>
+</div>
+
+<script>
+(function(){
+var $=function(id){return document.getElementById(id)};
+function cop(n){var s=Math.abs(Math.round(n)).toString().replace(/\B(?=(\d{3})+(?!\d))/g,".");return (n<0?"-":"")+"$ "+s}
+function bind(ids,fn){ids.forEach(function(i){$(i).addEventListener("input",fn)});fn()}
+
+/* Índice y búsqueda */
+$("tt").addEventListener("click",function(){var t=$("toc");var c=t.classList.toggle("collapsed");this.textContent=c?"Ver todas las secciones":"Ocultar secciones"});
+document.querySelectorAll(".toc a").forEach(function(a){a.addEventListener("click",function(){var d=document.querySelector(a.getAttribute("href"));if(d){d.hidden=false;d.open=true}})});
+var secs=[].slice.call(document.querySelectorAll("details.sec"));
+function norm(s){return s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"")}
+$("q").addEventListener("input",function(){
+  var q=norm(this.value.trim());var shown=0;
+  secs.forEach(function(s){
+    if(!q){s.hidden=false;return}
+    var ok=norm(s.textContent).indexOf(q)>-1;s.hidden=!ok;if(ok){s.open=true;shown++}
+  });
+  $("empty").style.display=q&&!shown?"block":"none";
+});
+
+/* 1. Cruce */
+bind(["cr-total","cr-who","cr-part"],function(){
+  var t=+$("cr-total").value,who=$("cr-who").value,p=+$("cr-part").value;
+  var l=Math.round(t*p/100/1000)*1000,a=t-l;
+  $("cr-total-v").textContent=cop(t);$("cr-part-v").textContent=p+" %";
+  $("cr-a").textContent=cop(a);$("cr-l").textContent=cop(l);
+  var o=$("cr-out");
+  if(who==="Ana"){ if(l>0){o.className="result warn";o.innerHTML="Ana pagó todo. Luis le debe <b>"+cop(l)+"</b> a Ana."}else{o.className="result ok";o.textContent="Pagó Ana y todo era de Ana: no hay cruce."}}
+  else{ if(a>0){o.className="result warn";o.innerHTML="Luis pagó todo. Ana le debe <b>"+cop(a)+"</b> a Luis."}else{o.className="result ok";o.textContent="Pagó Luis y todo era de Luis: no hay cruce."}}
+});
+
+/* 3. Crédito */
+bind(["cd-paid","cd-owed"],function(){
+  var p=+$("cd-paid").value,o=+$("cd-owed").value,orig=180000000;
+  $("cd-paid-v").textContent=p;$("cd-owed-v").textContent=cop(o);
+  $("cd-label").textContent=p>=240?"240 de 240 cuotas pagadas":"Cuota "+(p+1)+" de 240";
+  var r=Math.min(1,Math.max(0,(orig-o)/orig)),pct=Math.round(r*100);
+  var m=$("cd-meter");m.firstElementChild.style.width=pct+"%";
+  $("cd-pct").textContent="Pagado "+pct+" % del capital · Debes "+cop(o);
+});
+var paidOff=false;
+function cp(){
+  var n=+$("cp-n").value,left=12-n,cap=left*200000;
+  $("cp-n-v").textContent=n;
+  if(paidOff){$("cp-out").className="result ok";$("cp-out").textContent="Compra pagada en su totalidad. Ya no genera más cuotas.";$("cp-btn").disabled=true;return}
+  $("cp-btn").disabled=false;
+  $("cp-out").className="result";
+  $("cp-out").innerHTML="Cuota "+(n+1)+" de 12 · Faltan "+left+" cuotas de $ 200.000 = <b>"+cop(cap)+"</b> de capital.";
+}
+$("cp-n").addEventListener("input",cp);
+$("cp-btn").addEventListener("click",function(){paidOff=true;cp()});
+$("cp-reset").addEventListener("click",function(){paidOff=false;cp()});
+cp();
+
+/* 5. Presupuesto */
+bind(["pr-spent"],function(){
+  var s=+$("pr-spent").value,b=800000,r=s/b,m=$("pr-meter");
+  $("pr-spent-v").textContent=cop(s);
+  m.firstElementChild.style.width=Math.min(100,r*100)+"%";
+  var o=$("pr-out"),pct=Math.round(r*100);
+  m.className="meter";
+  if(r>=1){m.classList.add("bad");o.className="result bad";o.innerHTML="Llevas el "+pct+" %. Te pasaste por <b>"+cop(s-b)+"</b>."}
+  else if(r>=0.85){m.classList.add("warn");o.className="result warn";o.innerHTML="Llevas el "+pct+" %. La barra está en <b>alerta</b>: te quedan "+cop(b-s)+"."}
+  else if(r>=0.8){o.className="result";o.innerHTML="Llevas el "+pct+" %. Ya aparece en “Presupuestos en alerta” del Inicio. Te quedan "+cop(b-s)+"."}
+  else{o.className="result ok";o.innerHTML="Llevas el "+pct+" %. Todo bien: te quedan "+cop(b-s)+"."}
+});
+
+/* Saldo seguro */
+bind(["ss-1","ss-2","ss-3","ss-4","ss-5"],function(){
+  var v=[1,2,3,4,5].map(function(i){var x=+$("ss-"+i).value;$("ss-"+i+"-v").textContent=cop(x);return x});
+  var t=v[0]-v[1]-v[2]-v[3]-v[4];
+  $("ss-out").textContent=cop(t);
+});
+
+/* 7. Captura */
+$("cap-btn").addEventListener("click",function(){
+  var txt=$("cap-txt").value,out=$("cap-out");
+  var am=txt.match(/\$\s?([\d.]+(?:,\d+)?)/);
+  if(!am){out.innerHTML='<div class="result bad">No reconocí este aviso. En la app quedaría en “Avisos sin reconocer”, con las opciones “Registrar a mano” y “No es un movimiento”.</div>';return}
+  var amount=parseInt(am[1].replace(/\./g,"").split(",")[0],10);
+  var m=txt.match(/en\s+(.+?)\s+con\b/i);var shop=m?m[1]:"Comercio";
+  var c=txt.match(/\*(\d{4})/);
+  out.innerHTML='<div class="result warn"><b>Por revisar (1)</b><div class="row"><span>'+shop.replace(/</g,"&lt;")+'</span><span class="v">'+cop(amount)+'</span></div><div class="note">Gasto'+(c?' · cuenta ··'+c[1]:"")+' · hoy</div><button class="btn" type="button" id="cap-ok">Confirmar</button><button class="btn alt" type="button">Cambiar</button></div>';
+  $("cap-ok").addEventListener("click",function(){out.innerHTML='<div class="result ok">Listo: el movimiento quedó guardado y salió de “Por revisar”.</div>'});
+});
+
+/* 8. Cierre */
+var chks=[].slice.call(document.querySelectorAll("#d-cierre input[type=checkbox]"));
+function ci(){
+  var bank=+$("ci-bank").value,app=1350000,pe=0;
+  chks.forEach(function(c){if(c.checked)pe+=+c.dataset.e});
+  $("ci-bank-v").textContent=cop(bank);
+  $("ci-b").textContent=cop(bank);
+  $("ci-p").textContent=(pe<0?"−":"+")+cop(Math.abs(pe));
+  var eq=bank+pe;$("ci-eq").textContent=cop(eq)+(eq===app?" ✓":"");
+  var o=$("ci-out");
+  if(eq===app){o.className="result ok";o.textContent="Cuadra. Puedes tocar “Marcar como conciliada”."}
+  else{o.className="result warn";o.textContent="Todavía hay "+cop(Math.abs(eq-app))+" sin explicar. Revisa las partidas o ajusta el saldo."}
+}
+$("ci-bank").addEventListener("input",ci);chks.forEach(function(c){c.addEventListener("change",ci)});ci();
+
+/* Abrir la sección del ancla al cargar */
+if(location.hash){var h=document.querySelector(location.hash);if(h&&h.tagName==="DETAILS")h.open=true}
+})();
+</script>
+</body>
+</html>
