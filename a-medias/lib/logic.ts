@@ -220,3 +220,23 @@ export function formatCantidad(n: number, unidad: string): string {
   const num = new Intl.NumberFormat("es-CO", { maximumFractionDigits: 2 }).format(redondo);
   return unidad ? `${num} ${concordar(unidad, redondo)}` : num;
 }
+
+/** Unidad en una forma comparable: "Kilos" y "kilo" son la misma */
+function unidadBase(unidad: string): string {
+  return concordar(unidad, 1).toLowerCase().trim();
+}
+
+/**
+ * Junta dos cantidades del mismo producto: "1 kilo" + "2 kilos" = "3 kilos".
+ * Si no se pueden sumar (unidades distintas o sin número) las deja juntas: "1 bolsa + 500 g".
+ */
+export function sumarCantidades(a: string | null | undefined, b: string | null | undefined): string | null {
+  const ta = (a ?? "").trim();
+  const tb = (b ?? "").trim();
+  if (!ta) return tb || null;
+  if (!tb) return ta;
+  const pa = parseCantidad(ta);
+  const pb = parseCantidad(tb);
+  if (pa && pb && unidadBase(pa.unidad) === unidadBase(pb.unidad)) return formatCantidad(pa.n + pb.n, pa.unidad || pb.unidad);
+  return `${ta} + ${tb}`;
+}

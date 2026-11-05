@@ -9,7 +9,7 @@ import { Avatar, Checkbox, Empty, ErrorText, JUNTOS, PageHeader, Pills, SectionH
 import { Loading } from "@/components/Loading";
 import { getSupabase } from "@/lib/supabase/client";
 import { todayStr } from "@/lib/dates";
-import { formatCantidad, pantryDaysLeft, parseCantidad } from "@/lib/logic";
+import { formatCantidad, pantryDaysLeft, parseCantidad, sumarCantidades } from "@/lib/logic";
 import { CATEGORIAS, CATEGORIAS_MASCOTAS, LISTAS, type Categoria, type NombreLista, type PantryProduct, type ShoppingItem, type ShoppingList, type Task } from "@/lib/types";
 
 export default function ComprasPage() {
@@ -101,9 +101,31 @@ export default function ComprasPage() {
     if (!i.comprado && i.duracion_dias && !i.pantry_product_id) {
       return comprarADespensa(i);
     }
+    // Al desmarcar lo comprado: si en la lista sigue pendiente una parte del mismo producto, se unen
+    if (i.comprado) {
+      const mismo = (x: ShoppingItem) => x.nombre.trim().toLowerCase() === i.nombre.trim().toLowerCase();
+      const pendiente = items.find((x) => x.id !== i.id && !x.comprado && x.list_id === i.list_id && mismo(x));
+      if (pendiente) return unirConPendiente(i, pendiente);
+    }
     optimistic("items", { ...i, comprado: !i.comprado });
     const { error } = await getSupabase().from("shopping_items").update({ comprado: !i.comprado }).eq("id", i.id);
     if (error) optimistic("items", { ...i });
+  }
+
+  /** Devuelve a la lista algo que estaba comprado sumándolo a la parte que seguía pendiente */
+  async function unirConPendiente(comprado: ShoppingItem, pendiente: ShoppingItem) {
+    const cantidad = sumarCantidades(pendiente.cantidad, comprado.cantidad);
+    const sb = getSupabase();
+    optimistic("items", { ...pendiente, cantidad });
+    optimisticRemove("items", comprado.id);
+    const { error } = await sb.from("shopping_items").update({ cantidad }).eq("id", pendiente.id);
+    if (error) {
+      optimistic("items", { ...pendiente });
+      optimistic("items", { ...comprado });
+      return setError(errMsg(error));
+    }
+    const { error: errBorrar } = await sb.from("shopping_items").delete().eq("id", comprado.id);
+    if (errBorrar) setError(errMsg(errBorrar));
   }
 
   /** Cambia la cantidad de un producto (pendiente o ya comprado) */
