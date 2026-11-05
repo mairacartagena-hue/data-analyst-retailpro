@@ -19,7 +19,7 @@ import { creditMonthBreakdown } from "@/lib/finance/creditPayments";
 import { Segmented } from "@/components/ui/segmented";
 import type { Account } from "@/lib/types";
 import { ACCOUNT_KIND_LABEL } from "@/lib/types";
-import { accountStatement, gmfEstimate, monthRange, reconciliationDrift, shiftMonth, suggestedCloseMonth, type GmfMode } from "@/lib/finance/reconcile";
+import { accountStatement, closeRange, gmfEstimate, monthRange, reconciliationDrift, shiftMonth, suggestedCloseMonth, type GmfMode } from "@/lib/finance/reconcile";
 import { formatCop, parseCop } from "@/lib/finance/money";
 import { addDays, monthName, periodFor, todayBogota } from "@/lib/finance/periods";
 import { statusesFor } from "@/lib/finance/derive";
@@ -168,11 +168,14 @@ function AccountClose({ account, month, open, onToggle }: { account: Account; mo
   const state = useFinance();
   const { transactions, reconciliations, supabase, reload, uvt } = state;
   const { openTransaction } = useShell();
-  const range = monthRange(month);
+  const monthKey = monthRange(month).start;
+  // Tarjetas: del corte anterior al corte de este mes (lo que trae el extracto); las demás, el mes calendario
+  const range = useMemo(() => closeRange(account, month), [account, month]);
+  const isCutCard = account.kind === "CREDIT_CARD" && !!account.statement_day;
   const st = useMemo(() => accountStatement(account, transactions, range), [account, transactions, range]);
   // Créditos: lo que bajó el capital, sin los intereses y seguros de las cuotas cargados al crédito
   const cb = useMemo(() => creditMonthBreakdown(account, transactions, range, st.inflow, st.outflow), [account, transactions, range, st]);
-  const rec = reconciliations.find((r) => r.account_id === account.id && r.month === range.start);
+  const rec = reconciliations.find((r) => r.account_id === account.id && r.month === monthKey);
   const drift = useMemo(() => (rec ? reconciliationDrift(account, transactions, rec) : null), [account, transactions, rec]);
   const isCard = account.kind === "CREDIT_CARD";
   const isCredit = isCreditKind(account.kind);
@@ -192,12 +195,19 @@ function AccountClose({ account, month, open, onToggle }: { account: Account; mo
   const diff = bankValue === null ? null : isDebt ? appValue - bankValue : bankValue - appValue; // + sobra plata en el banco, − falta
   const gmfMode = (account.gmf_mode ?? "TAXED") as GmfMode;
   const gmf = !isDebt && account.kind !== "CASH" ? Math.max(0, gmfEstimate(st.gmfBase, gmfMode, uvt) - st.gmfRecorded) : 0;
+  // Tarjetas: lo que pasó después del corte va en el próximo extracto; se muestra aparte, no cuenta en este cierre
+  const today = todayBogota();
+  const afterCut = useMemo(
+    () => (isCutCard && range.end < today ? accountStatement(account, transactions, { month, start: addDays(range.end, 1), end: today }) : null),
+    [isCutCard, range.end, today, account, transactions, month],
+  );
+  const cutLabel = `${Number(range.end.slice(8))} de ${monthName(Number(range.end.slice(5, 7)) - 1, true)}`;
 
   async function saveClose(status: "RECONCILED" | "DIFFERENCE", appBalance: number) {
     const statement = isDebt ? -bankValue! : bankValue!;
     return supabase.from("account_reconciliations").upsert({
-      household_id: account.household_id, account_id: account.id, owner_user_id: account.owner_user_id, month: range.start,
-      statement_balance: statement, app_balance: appBalance, status,
+      household_id: account.household_id, account_id: account.id, owner_user_id: account.owner_user_id, month: monthKey,
+      statement_balance: statement, app_balance: appBalance, status, cut_date: isCutCard ? range.end : null,
     }, { onConflict: "account_id,month" });
   }
 
@@ -294,15 +304,23 @@ function AccountClose({ account, month, open, onToggle }: { account: Account; mo
             <dt className="text-muted">{isCredit ? "Abonos a capital" : isCard ? "Pagos y abonos" : "Entró"}</dt><dd className="num text-right text-olive">+{formatCop(isCredit ? cb.capital : st.inflow)}</dd>
             {isCredit && cb.charges > 0 && (<><dt className="text-muted">Intereses y seguros pagados</dt><dd className="num text-right text-muted">{formatCop(cb.charges)}</dd></>)}
             {(!isCredit || cb.other > 0) && (<><dt className="text-muted">{isCredit ? "Desembolsos y ajustes" : isCard ? "Compras" : "Salió"}</dt><dd className="num text-right">−{formatCop(isCredit ? cb.other : st.outflow)}</dd></>)}
-            <dt className="font-semibold">{isDebt ? "Deuda según la app" : "Saldo según la app"}</dt><dd className="num text-right font-semibold">{formatCop(appValue)}</dd>
+            <dt className="font-semibold">{isCutCard ? `Deuda al corte (${cutLabel})` : isDebt ? "Deuda según la app" : "Saldo según la app"}</dt><dd className="num text-right font-semibold">{formatCop(appValue)}</dd>
           </dl>
+          {isCutCard && <p className="text-xs text-muted">Del {Number(range.start.slice(8))} de {monthName(Number(range.start.slice(5, 7)) - 1, true)} al {cutLabel}: lo mismo que trae el extracto.</p>}
+          {afterCut && afterCut.items.length > 0 && (
+            <p className="rounded-xl bg-surface-2 px-3 py-2 text-xs">
+              Después del corte hay {afterCut.items.length} movimiento{afterCut.items.length === 1 ? "" : "s"}
+              {afterCut.outflow > 0 ? ` · compras ${formatCop(afterCut.outflow)}` : ""}{afterCut.inflow > 0 ? ` · pagos ${formatCop(afterCut.inflow)}` : ""}.
+              {" "}Van en el próximo extracto y no cuentan en este cierre. Deuda hoy: <strong className="num">{formatCop(-afterCut.closing)}</strong>.
+            </p>
+          )}
           {st.pending > 0 && <p className="text-xs text-warning">{st.pending} movimiento{st.pending === 1 ? "" : "s"} de esta cuenta siguen por revisar.</p>}
 
           {!isCredit && <StatementImport account={account} month={month} onBalance={(v) => setBank(String(v))} />}
           {isCard && <CardStatementPdf account={account} onBalance={(v) => setBank(String(v))} crossCheck />}
           {isCard && <ManualCrossCheck key={month} account={account} month={month} />}
 
-          <Field label={isCredit ? `Saldo de capital según el extracto al ${Number(range.end.slice(8))} de ${monthName(Number(month.slice(5)) - 1, true)}` : isCard ? `Deuda según tu extracto al ${Number(range.end.slice(8))} de ${monthName(Number(month.slice(5)) - 1, true)}` : `Saldo según tu banco al ${Number(range.end.slice(8))} de ${monthName(Number(month.slice(5)) - 1, true)}`}>
+          <Field label={isCredit ? `Saldo de capital según el extracto al ${Number(range.end.slice(8))} de ${monthName(Number(month.slice(5)) - 1, true)}` : isCard ? `Deuda total según tu extracto${isCutCard ? " con corte" : ""} al ${cutLabel}` : `Saldo según tu banco al ${Number(range.end.slice(8))} de ${monthName(Number(month.slice(5)) - 1, true)}`}>
             <AmountInput value={bank} onChange={setBank} />
           </Field>
 
@@ -371,19 +389,20 @@ function AccountClose({ account, month, open, onToggle }: { account: Account; mo
         </div>
       )}
 
-      <FeeSheet account={account} feeKey={fee} onClose={() => setFee(null)} month={month}
+      <FeeSheet account={account} feeKey={fee} onClose={() => setFee(null)} month={month} end={range.end}
         suggested={fee === "gmf" ? gmf : fee === "unknown" && diff !== null ? Math.abs(diff) : 0}
         unknownIsIncome={fee === "unknown" && diff !== null && diff > 0} />
     </Card>
   );
 }
 
-function FeeSheet({ account, feeKey, onClose, month, suggested, unknownIsIncome }: {
-  account: Account; feeKey: FeeKey | null; onClose: () => void; month: string; suggested: number; unknownIsIncome: boolean;
+function FeeSheet({ account, feeKey, onClose, month, end, suggested, unknownIsIncome }: {
+  account: Account; feeKey: FeeKey | null; onClose: () => void; month: string; end: string; suggested: number; unknownIsIncome: boolean;
 }) {
   const state = useFinance();
   const { supabase, reload } = state;
-  const range = monthRange(month);
+  // Fecha del cobro: el corte del extracto en tarjetas, el final del mes en las demás cuentas
+  const range = { ...monthRange(month), end };
   const today = todayBogota();
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState(range.end);
