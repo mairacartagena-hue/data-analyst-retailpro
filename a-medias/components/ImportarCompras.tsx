@@ -4,6 +4,7 @@ import { useState } from "react";
 import { getSupabase } from "@/lib/supabase/client";
 import { esJuntos, fechaDesdeTexto, normalizar, parseCsv, plantillaCsv } from "@/lib/csv";
 import { todayStr } from "@/lib/dates";
+import { separarTiendas } from "@/lib/logic";
 import { CATEGORIAS, CATEGORIAS_MASCOTAS, LISTAS, type Categoria, type NombreLista } from "@/lib/types";
 import { useHousehold } from "./HouseholdProvider";
 import { ErrorText, Sheet, errMsg } from "./ui";
@@ -44,7 +45,7 @@ export function ImportarCompras({ open, onClose }: { open: boolean; onClose: () 
     descargar(
       "plantilla_despensa.csv",
       plantillaCsv(ENC_DESPENSA, [
-        ["Cafe molido 500g", "Mercado", "Abarrotes", "30", "20/10/2026", "", "", "", "", "D1"],
+        ["Cafe molido 500g", "Mercado", "Abarrotes", "30", "20/10/2026", "", "", "", "", "D1, Exito"],
         ["Detergente liquido", "Mercado", "Aseo", "45", "01/10/2026", "", "", "", "", ""],
         ["Arena para gato", "Mascotas", "", "30", "15/10/2026", "Todas", "Catsan", "", "Rotar", "Tienda de mascotas"],
         ["Comida", "Mascotas", "", "30", "10/10/2026", p1, "Royal Canin", "Concentrado seco", m1, ""],
@@ -59,7 +60,7 @@ export function ImportarCompras({ open, onClose }: { open: boolean; onClose: () 
         ["Pechuga de pollo", "Mascotas", "1 kg", "Proteina", "7", p1, m1, "Carniceria"],
         ["Zanahoria", "Mascotas", "500 g", "Frutas y verduras", "", p1, m2, ""],
         ["Hueso carnoso de res", "Mascotas", "2 unidades", "Hueso carnoso", "", p1, m2, ""],
-        ["Papel higienico", "Mercado", "2 rollos", "Abarrotes", "30", "", m1, "D1"],
+        ["Papel higienico", "Mercado", "2 rollos", "Abarrotes", "30", "", m1, "D1 - Ara"],
         ["Arroz 1 kg", "Mercado", "2", "Abarrotes", "", "", "Juntos", ""],
       ]),
     );
@@ -75,6 +76,8 @@ export function ImportarCompras({ open, onClose }: { open: boolean; onClose: () 
       const i = encabezados.indexOf(nombre);
       return i >= 0 ? (fila[i] ?? "").trim() : "";
     };
+    // Una o varias tiendas separadas por coma o guion: se guardan como "D1, Éxito"
+    const tiendaDe = (fila: string[]) => separarTiendas(col(fila, "tienda")).join(", ");
 
     const nuevas: Op[] = [];
     const malas: Err[] = [];
@@ -154,7 +157,7 @@ export function ImportarCompras({ open, onClose }: { open: boolean; onClose: () 
             responsable_id: responsableId,
             rota,
             // Sin la columna tienda en el archivo, no se borra la que ya tenía
-            ...(col(fila, "tienda") ? { tienda: col(fila, "tienda") } : {}),
+            ...(tiendaDe(fila) ? { tienda: tiendaDe(fila) } : {}),
           },
         });
         return;
@@ -224,7 +227,7 @@ export function ImportarCompras({ open, onClose }: { open: boolean; onClose: () 
           pet_id: petId,
           pedido_por: pedidoPor,
           pedido_juntos: pedidoJuntos,
-          ...(col(fila, "tienda") ? { tienda: col(fila, "tienda") } : {}),
+          ...(tiendaDe(fila) ? { tienda: tiendaDe(fila) } : {}),
           comprado: false,
         },
       });
@@ -286,6 +289,10 @@ export function ImportarCompras({ open, onClose }: { open: boolean; onClose: () 
           </div>
           <p className="text-xs text-sec">
             En Google Sheets: <b>Archivo → Descargar → Valores separados por comas (.csv)</b>.
+          </p>
+          <p className="text-xs text-sec">
+            Columna <b>tienda</b> (opcional): puedes poner varias separadas por coma o guion, por ejemplo{" "}
+            <b>D1, Éxito</b> o <b>D1 - Ara</b>. El filtro de tiendas las toma por separado.
           </p>
           <p className="text-sm">
             <b>2.</b> Carga el archivo. La app reconoce si es de despensa o de lista.
