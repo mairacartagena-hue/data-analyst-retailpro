@@ -65,8 +65,6 @@ export interface Reconciliation {
   status: "RECONCILED" | "DIFFERENCE";
   note: string | null;
   updated_at: string;
-  /** Tarjetas: día de corte del extracto con que se concilió (null: final del mes). */
-  cut_date?: string | null;
   /** Momento en que se concilió (aceptar partidas después no lo cambia). */
   reconciled_at?: string | null;
   /** Movimientos posteriores aceptados como partidas conciliatorias. */

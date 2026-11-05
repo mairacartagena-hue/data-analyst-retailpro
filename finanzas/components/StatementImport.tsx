@@ -12,7 +12,7 @@ import type { Account } from "@/lib/types";
 import { CHANNEL_LABEL } from "@/lib/types";
 import { formatCop } from "@/lib/finance/money";
 import { formatDay } from "@/lib/finance/periods";
-import { closeRange } from "@/lib/finance/reconcile";
+import { monthRange } from "@/lib/finance/reconcile";
 import { ensureCategory } from "@/lib/finance/ensureCategory";
 import { readStatementFile } from "@/lib/finance/statementFile";
 import {
@@ -32,7 +32,7 @@ export function StatementImport({ account, month, onBalance }: { account: Accoun
   const state = useFinance();
   const { transactions, supabase, reload, uvt, me } = state;
   const { openPayment } = useShell();
-  const range = closeRange(account, month);
+  const range = monthRange(month);
   const isCard = account.kind === "CREDIT_CARD";
 
   const [open, setOpen] = useState(false);

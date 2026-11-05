@@ -109,7 +109,7 @@ async function loadAll(sb: SupabaseClient, userId: string): Promise<Loaded> {
         sb.from("cross_ledger").select("*").eq("household_id", hh).order("occurred_on", { ascending: false }).order("created_at", { ascending: false }).range(f, t),
       ),
       sb.from("manual_assets").select("*").eq("household_id", hh).order("created_at"),
-      sb.from("account_reconciliations").select("id, account_id, month, statement_balance, app_balance, difference, status, note, updated_at, cut_date, reconciled_at, reconciling_items")
+      sb.from("account_reconciliations").select("id, account_id, month, statement_balance, app_balance, difference, status, note, updated_at, reconciled_at, reconciling_items")
         .eq("owner_user_id", userId).order("month", { ascending: false }),
       sb.from("budget_plans").select("*").eq("household_id", hh).order("name"),
       sb.from("budget_plan_categories").select("plan_id, category_id, amount").eq("household_id", hh),
