@@ -223,6 +223,8 @@ export interface Transaction {
   installments?: number;
   /** Tasa efectiva anual (%) de esta compra a cuotas; si no hay, la de la tarjeta. */
   interest_rate_ea?: number | null;
+  /** Transferencia a la tarjeta que paga el total de una compra a cuotas: id de esa compra (movimiento o compra del extracto). */
+  pays_off_id?: string | null;
   /** Solo en las copias por cuota que usan presupuestos e informes: número de la cuota y el movimiento original. */
   installment_no?: number;
   installment_of?: Transaction;

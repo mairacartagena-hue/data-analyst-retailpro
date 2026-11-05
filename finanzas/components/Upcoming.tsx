@@ -10,7 +10,7 @@ import { dueDatesBetween, occurrencesIn, type Occurrence } from "@/lib/finance/c
 import { formatCop } from "@/lib/finance/money";
 import { formatDay, todayBogota, type Period } from "@/lib/finance/periods";
 import { accountLabel } from "@/lib/finance/labels";
-import { cardDue, statementsDueIn } from "@/lib/finance/installments";
+import { cardDue, payoffDates, statementsDueIn } from "@/lib/finance/installments";
 import { creditReserve, nextCuota } from "@/lib/finance/credit";
 import { responsibleOf } from "@/lib/finance/derive";
 import { creditBudgetMap } from "@/lib/finance/spaces";
@@ -54,7 +54,7 @@ export function useUpcoming(period: Period) {
         : 0;
       if (d.due <= 0 && paidAmount <= 0) continue;
       const fake = { frequency: "MONTHLY", day_of_month: a.due_day, start_date: period.start, end_date: null, due_date: null } as ScheduledPayment;
-      const plan = a.budget_category_id ? legacySchedule({ ...a, opening_balance: Number(a.opening_balance) }, cardItems) : [];
+      const plan = a.budget_category_id ? legacySchedule({ ...a, opening_balance: Number(a.opening_balance) }, cardItems, payoffDates(transactions)) : [];
       for (const due of dueDatesBetween(fake, period.start, period.end)) {
         const cuota = plan.filter((c) => c.due === due).reduce((sum, c) => sum + c.amount, 0);
         cards.push({ accountId: a.id, due, amount: d.due > 0 ? d.due : paidAmount, debt: d.debt, interest: d.due > 0 ? d.interest : 0, paid: d.due <= 0, cuota: cuota || undefined });

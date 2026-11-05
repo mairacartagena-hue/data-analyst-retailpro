@@ -15,6 +15,23 @@ export function installmentsOf(t: Pick<Transaction, "kind" | "installments">): n
   return t.kind === "EXPENSE" && n > 1 ? Math.min(n, MAX_INSTALLMENTS) : 1;
 }
 
+/**
+ * Compras a cuotas pagadas en su totalidad antes de tiempo: id de la compra (movimiento o compra del extracto) →
+ * fecha del pago. El pago es una transferencia a la tarjeta con `pays_off_id`; si se borra, la compra vuelve a sus cuotas.
+ */
+export function payoffDates(txs: Transaction[]): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const t of txs) {
+    if (t.kind !== "TRANSFER" || !t.pays_off_id || t.status === "PENDING_REVIEW") continue;
+    const prev = out.get(t.pays_off_id);
+    if (!prev || t.occurred_on < prev) out.set(t.pays_off_id, t.occurred_on);
+  }
+  return out;
+}
+
+/** ¿El movimiento es el pago total de una compra a cuotas? (no cuenta como pago del extracto) */
+export const isPayoff = (t: Pick<Transaction, "pays_off_id">) => !!t.pays_off_id;
+
 /** Misma fecha k meses después (si el mes es más corto, el último día). */
 export function addMonthsIso(iso: string, k: number): string {
   const [y, m, d] = iso.split("-").map(Number);
@@ -64,6 +81,7 @@ export function installmentPlan(amount: number, n: number, date: string, eaPerce
  */
 export function expandInstallments(txs: Transaction[]): Transaction[] {
   const out: Transaction[] = [];
+  const payoffs = payoffDates(txs);
   for (const t of txs) {
     const n = installmentsOf(t);
     if (n === 1) {
@@ -72,14 +90,30 @@ export function expandInstallments(txs: Transaction[]): Transaction[] {
     }
     const amounts = splitEven(t.amount, n);
     const splitParts = t.splits.map((s) => splitEven(s.amount, n));
-    for (let k = 0; k < n; k++) {
+    // Pagada en su totalidad antes de tiempo: las cuotas posteriores al pago cuentan juntas en la fecha del pago
+    const paidOff = payoffs.get(t.id);
+    let k = 0;
+    for (; k < n; k++) {
+      const date = addMonthsIso(t.occurred_on, k);
+      if (paidOff && date > paidOff && k > 0) break;
       out.push({
         ...t,
-        occurred_on: addMonthsIso(t.occurred_on, k),
+        occurred_on: date,
         amount: amounts[k],
         installment_no: k + 1,
         installment_of: t,
         splits: t.splits.map((s, j) => ({ ...s, id: `${s.id}#${k + 1}`, amount: splitParts[j][k] })),
+      });
+    }
+    if (paidOff && k < n) {
+      const sum = (xs: number[]) => xs.slice(k).reduce((a, x) => a + x, 0);
+      out.push({
+        ...t,
+        occurred_on: paidOff,
+        amount: sum(amounts),
+        installment_no: k + 1,
+        installment_of: t,
+        splits: t.splits.map((s, j) => ({ ...s, id: `${s.id}#${k + 1}`, amount: sum(splitParts[j]) })),
       });
     }
   }
@@ -215,13 +249,17 @@ export function cardDue(
   let laterCapital = 0;
   let interest = 0;
   const laterOf = new Map<string, number>(); // capital de cuotas que vencen después del periodo, por compra
+  const payoffs = payoffDates(txs);
   const inExtract = matchedWithItems(txs.filter((t) => t.account_id === card.id), statementItems.filter((i) => i.account_id === card.id));
   for (const t of txs) {
     if (t.account_id !== card.id || inExtract.has(t.id)) continue;
     const n = installmentsOf(t);
     if (n === 1) continue;
     let later = 0;
+    const paidOff = payoffs.get(t.id);
     for (const c of installmentPlan(t.amount, n, t.occurred_on, rateOf(t, card))) {
+      // Ya pagada en su totalidad: las cuotas posteriores al pago no se deben
+      if (paidOff && c.date > paidOff) continue;
       if (c.date > period.end) later += c.capital;
       else if (c.date >= period.start) interest += c.interest;
     }
@@ -230,7 +268,7 @@ export function cardDue(
   }
 
   // Sin día de corte y de pago no se sabe qué extracto vence: se aparta la deuda menos las cuotas futuras
-  const items = statementItems.filter((i) => i.account_id === card.id);
+  const items = statementItems.filter((i) => i.account_id === card.id && !payoffs.has(i.id));
   if (!card.statement_day || !card.due_day) {
     // Las compras a cuotas del extracto todavía no se facturan: su saldo no se paga ahora
     const later = laterCapital + statementItemsAfter(items, 0).later;
@@ -243,7 +281,8 @@ export function cardDue(
   const statements = statementsDueIn(card.statement_day, card.due_day, period);
   const lastCut = statements.reduce((acc, x) => (x.cut > acc ? x.cut : acc), "");
   const charges = txs
-    .filter((t) => t.account_id === card.id && t.kind === "EXPENSE" && t.status !== "PENDING_REVIEW")
+    // Una compra pagada en su totalidad ya no compone la deuda
+    .filter((t) => t.account_id === card.id && t.kind === "EXPENSE" && t.status !== "PENDING_REVIEW" && !payoffs.has(t.id))
     .sort((a, b) => (a.occurred_on < b.occurred_on ? 1 : a.occurred_on > b.occurred_on ? -1 : 0));
   let remaining = debt;
   let billed = 0;
@@ -273,7 +312,7 @@ export function cardDue(
   // Lo que se calcula compra por compra se redondea distinto que en el banco: si ya hubo un pago después del corte
   // y solo falta una diferencia de redondeo, el extracto queda pagado
   const paidAfterCut = lastCut && txs.some((t) => t.to_account_id === card.id && (t.kind === "TRANSFER" || t.kind === "SETTLEMENT")
-    && t.status !== "PENDING_REVIEW" && t.occurred_on > lastCut);
+    && t.status !== "PENDING_REVIEW" && t.occurred_on > lastCut && !isPayoff(t));
   if (paidAfterCut && capitalDue + interest <= ROUNDING_TOLERANCE) {
     capitalDue = 0;
     interest = 0;
@@ -339,6 +378,8 @@ export function projectCard(
     ? { cut: card.statement_day, due: card.due_day, openingDay: card.opening_at.slice(0, 10) }
     : null;
   const inExtract = matchedWithItems(txs.filter((t) => t.account_id === card.id), statementItems.filter((i) => i.account_id === card.id));
+  // Compras pagadas en su totalidad: sus cuotas posteriores al pago ya no se proyectan
+  const payoffs = opts.ignorePayments ? new Map<string, string>() : payoffDates(txs);
   const add = (month: string, capital: number, interest: number, seen: Set<string>, line?: Omit<ProjectionLine, "capital" | "interest">) => {
     const i = index.get(month);
     if (i === undefined) return;
@@ -356,16 +397,20 @@ export function projectCard(
     const n = installmentsOf(t);
     const seen = new Set<string>();
     const label = t.merchant || t.description || "Compra";
+    const paidOff = payoffs.get(t.id);
     if (billing && t.kind === "EXPENSE" && t.status !== "PENDING_REVIEW" && t.occurred_on > billing.openingDay) {
       const due = billingDue(billing.cut, billing.due, t.occurred_on);
       for (const c of installmentPlan(t.amount, n, t.occurred_on, rateOf(t, card))) {
-        add(addMonthsIso(due, c.no - 1).slice(0, 7), c.capital, c.interest, seen, { key: t.id, label, no: c.no, of: n, source: "APP" });
+        const dueOn = addMonthsIso(due, c.no - 1);
+        if (paidOff && dueOn > paidOff) continue;
+        add(dueOn.slice(0, 7), c.capital, c.interest, seen, { key: t.id, label, no: c.no, of: n, source: "APP" });
       }
       continue;
     }
     if (n === 1) continue;
     for (const c of installmentPlan(t.amount, n, t.occurred_on, rateOf(t, card))) {
       if (c.date < from.slice(0, 7) + "-01") continue;
+      if (paidOff && c.date > paidOff) continue;
       add(c.date.slice(0, 7), c.capital, c.interest, seen, { key: t.id, label, no: c.no, of: n, source: "APP" });
     }
   }
@@ -380,7 +425,7 @@ export function projectCard(
     return billingDue(billing.cut, billing.due, dayAfter(ref));
   };
   for (const it of statementItems) {
-    if (it.account_id !== card.id) continue;
+    if (it.account_id !== card.id || payoffs.has(it.id)) continue;
     const left = it.installments - it.paid_installments;
     if (left <= 0 || it.remaining_balance <= 0) continue;
     const r = monthlyRate(it.rate_ea ?? card.interest_rate_ea);
@@ -398,10 +443,10 @@ export function projectCard(
   }
   // Saldo al corte con el que se registró la tarjeta (la deuda inicial sin el saldo diferido de las compras del extracto):
   // se paga en la fecha de pago de ese extracto. Lo que ya se abonó a la tarjeta desde entonces lo descuenta.
-  const statement = legacySchedule(card, statementItems).find((c) => c.statement);
+  const statement = legacySchedule(card, statementItems, payoffs).find((c) => c.statement);
   if (statement && billing) {
     const paid = opts.ignorePayments ? 0 : txs
-      .filter((t) => t.to_account_id === card.id && (t.kind === "TRANSFER" || t.kind === "SETTLEMENT") && t.status !== "PENDING_REVIEW" && t.occurred_on >= billing.openingDay)
+      .filter((t) => t.to_account_id === card.id && (t.kind === "TRANSFER" || t.kind === "SETTLEMENT") && t.status !== "PENDING_REVIEW" && t.occurred_on >= billing.openingDay && !isPayoff(t))
       .reduce((a, t) => a + t.amount, 0);
     const left = statement.amount - paid;
     const month = opts.ignorePayments || statement.due.slice(0, 7) >= start ? statement.due.slice(0, 7) : start;

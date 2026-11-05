@@ -4,7 +4,7 @@
 // presupuesto de la tarjeta solo cuenta la parte de cada pago que cubre esa deuda anterior (nunca dos veces).
 
 import type { CardStatementItem, Transaction } from "@/lib/types";
-import { billingDue, ROUNDING_TOLERANCE } from "./installments";
+import { billingDue, payoffDates, ROUNDING_TOLERANCE } from "./installments";
 import { periodFor, type PeriodSettings } from "./periods";
 
 export interface LegacyCuota {
@@ -59,7 +59,7 @@ function cutPlus(statementDay: number, cut: string, k: number): string {
  * de ese extracto, y una cuota de capital de cada compra diferida por cada corte siguiente. Sin día de corte, de pago
  * o sin deuda inicial, vacío.
  */
-export function legacySchedule(card: CardLike, items: CardStatementItem[]): LegacyCuota[] {
+export function legacySchedule(card: CardLike, items: CardStatementItem[], payoffs: Map<string, string> = new Map()): LegacyCuota[] {
   const debt = Math.max(0, -Number(card.opening_balance ?? 0));
   if (!card.statement_day || !card.due_day || !card.opening_at || debt <= 0) return [];
   const sd = card.statement_day;
@@ -79,10 +79,18 @@ export function legacySchedule(card: CardLike, items: CardStatementItem[]): Lega
     const left = it.installments - it.paid_installments;
     let bal = Math.round(it.remaining_balance);
     const part = Math.round(bal / left);
+    // Pagada en su totalidad: lo que faltaba se factura de una vez el día antes del pago (así ese pago lo cubre)
+    const paidOff = payoffs.get(it.id);
     for (let k = 0; k < left && bal > 0; k++) {
+      const cut = cutPlus(sd, firstCut, k + 1);
+      if (paidOff && cut >= paidOff) {
+        const before = new Date(Date.parse(`${paidOff}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
+        byCut.set(before, (byCut.get(before) ?? 0) + bal);
+        bal = 0;
+        break;
+      }
       const capital = k === left - 1 ? bal : Math.min(bal, part);
       bal -= capital;
-      const cut = cutPlus(sd, firstCut, k + 1);
       byCut.set(cut, (byCut.get(cut) ?? 0) + capital);
     }
   }
@@ -118,7 +126,7 @@ export function cardPaymentPortions(
   const out = new Map<string, CardPaymentPortion>();
   for (const card of accounts) {
     if (card.kind !== "CREDIT_CARD" || !card.budget_category_id || card.archived || !card.opening_at) continue;
-    const plan = legacySchedule(card, items);
+    const plan = legacySchedule(card, items, payoffDates(txs));
     if (plan.length === 0) continue;
     const open = openingDay(card.opening_at);
     const payments = txs
@@ -142,8 +150,8 @@ export function cardPaymentPortions(
  * Montos del presupuesto de la tarjeta por periodo, desde el periodo de `today`: lo que vence de la deuda anterior en
  * cada periodo. Se juntan los periodos seguidos con el mismo monto y al final queda en 0 (la deuda anterior se acabó).
  */
-export function cardBudgetVersions(card: CardLike, items: CardStatementItem[], settings: PeriodSettings, today: string): { valid_from: string; amount: number }[] {
-  const plan = legacySchedule(card, items);
+export function cardBudgetVersions(card: CardLike, items: CardStatementItem[], settings: PeriodSettings, today: string, payoffs: Map<string, string> = new Map()): { valid_from: string; amount: number }[] {
+  const plan = legacySchedule(card, items, payoffs);
   const current = periodFor(settings, today);
   const byPeriod = new Map<string, number>();
   for (const c of plan) {
