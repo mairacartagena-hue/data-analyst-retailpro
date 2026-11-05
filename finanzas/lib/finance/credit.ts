@@ -1,7 +1,8 @@
 // Créditos con saldo (hipoteca, libre inversión): cuota, reparto de cada pago y cuota estimada.
 // Cada pago se divide en capital (baja la deuda, no es gasto), intereses y costos (seguros, otros: son gastos).
 
-import type { Account, Transaction } from "@/lib/types";
+import type { Account, DueSettlement, Transaction } from "@/lib/types";
+import { settledAsPaid, settlementFor } from "./dueSettlements";
 import { addMonthsIso, monthlyRate, statementsDueIn } from "./installments";
 import type { Period } from "./periods";
 
@@ -131,6 +132,8 @@ export function creditReserve(
   txs: Transaction[],
   period: Period,
   today: string,
+  /** Vencimientos resueltos: "la cuota era menor" (o se pagó de más) deja la cuota pagada. */
+  settlements: DueSettlement[] = [],
 ): number {
   const owed = Math.max(0, -balance);
   const cuota = nextCuota(owed, account, today);
@@ -143,7 +146,8 @@ export function creditReserve(
   const expectedCapital = Math.max(1, cuota - interest - Math.round(account.monthly_costs ?? 0));
 
   let reserve = 0;
-  for (const { cut } of dues) {
+  for (const { cut, due } of dues) {
+    if (settledAsPaid(settlementFor(settlements, account.id, due))) continue;
     const nextCut = addMonthsIso(cut, 1);
     const inWindow = (t: Transaction) => t.status !== "PENDING_REVIEW" && t.occurred_on > cut && t.occurred_on <= nextCut;
     const capitalPaid = txs

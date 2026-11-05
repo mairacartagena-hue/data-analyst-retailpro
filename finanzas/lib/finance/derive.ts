@@ -1,14 +1,16 @@
 // Une los datos que llegan de Supabase con las funciones puras de presupuesto, cruce y Saldo Seguro.
 
 import type {
+  DueSettlement,
   Account, CardStatementItem, Category, CategoryBudgetRow, CategoryLimit, LedgerRow, ManualAsset, Member, PeriodSettingsRow, SavingsContribution, SavingsGoal, Transaction,
 } from "@/lib/types";
-import { categoryStatus, type BudgetCategory, type CategoryStatus, type Members, type SpendingRow } from "./budget";
+import { categoryStatus, WARNING_RATIO, type BudgetCategory, type CategoryStatus, type Members, type SpendingRow } from "./budget";
 import { netFor, owedToPartner, type LedgerEntry } from "./crossLedger";
 import { DEFAULT_PERIOD_SETTINGS, isWithin, type Period, type PeriodSettings } from "./periods";
 import { computeSafeToSpend, type SafeToSpendResult } from "./safeToSpend";
 import { cardDue } from "./installments";
 import { creditReserve } from "./credit";
+import { dueBudgetAdjustments } from "./dueSettlements";
 import { todayBogota } from "./periods";
 import { pendingSavingsByGoal } from "./goals";
 import { categoryPath, consumptionSign, creditBudgetMap } from "./spaces";
@@ -35,6 +37,8 @@ export interface Snapshot {
   contributions?: SavingsContribution[];
   /** Compras a cuotas de los extractos de las tarjetas. */
   cardItems?: CardStatementItem[];
+  /** Vencimientos de créditos y tarjetas pagados con otro valor (ver dueSettlements.ts). */
+  dueSettlements?: DueSettlement[];
 }
 
 export function toPeriodSettings(row: PeriodSettingsRow | null | undefined): PeriodSettings {
@@ -103,12 +107,29 @@ export function spendingByLimit(s: Pick<Snapshot, "categories" | "spending" | "l
 /** Estado de cada presupuesto de categoría en el periodo (por id de presupuesto). */
 export function statusesFor(s: Snapshot, period: Period): Map<string, CategoryStatus> {
   const members = membersOf(s.me, s.partner);
-  const rows = spendingByLimit(s);
+  // Cuotas pagadas con otro valor: el abono a capital no cuenta y el presupuesto se ajusta a lo pagado
+  const adj = dueBudgetAdjustments(s.dueSettlements, s.accounts, period);
+  const rows = spendingByLimit(adj.rows.length ? { ...s, spending: [...s.spending, ...adj.rows] } : s);
   const out = new Map<string, CategoryStatus>();
   for (const c of toBudgetCategories(s.limits, s.budgets)) {
-    out.set(c.id, categoryStatus(c, period, rows.get(c.id) ?? [], s.settings, members));
+    let st = categoryStatus(c, period, rows.get(c.id) ?? [], s.settings, members);
+    const categoryId = s.limits.find((l) => l.id === c.id)?.category_id;
+    for (const b of adj.budget) if (b.categoryId === categoryId) st = shiftBudget(st, b.userId, b.amount);
+    out.set(c.id, st);
   }
   return out;
+}
+
+/** Suma `amount` a lo asignado de una persona (o a la primera asignación si no tiene) y recalcula el estado. */
+function shiftBudget(st: CategoryStatus, userId: string, amount: number): CategoryStatus {
+  if (st.allocations.length === 0) return st;
+  const i = Math.max(0, st.allocations.findIndex((a) => a.userId === userId));
+  const allocations = st.allocations.map((a, j) => (j === i
+    ? { ...a, budget: a.budget + amount, available: a.available + amount, remaining: a.remaining + amount } : a));
+  const totalAvailable = allocations.reduce((x, a) => x + a.available, 0);
+  const ratio = totalAvailable > 0 ? st.totalSpent / totalAvailable : st.totalSpent > 0 ? Infinity : 0;
+  const level = ratio >= 1 && st.totalSpent > 0 ? "over" : ratio >= WARNING_RATIO ? "warning" : "ok";
+  return { ...st, allocations, totalAvailable, ratio, level };
 }
 
 /** Quién asume un presupuesto de categoría (null en montos fijos: los dos). */
@@ -195,11 +216,13 @@ export function safeToSpendDetail(s: Snapshot, period: Period, statuses = status
     if (a.kind === "LOAN") {
       if (owed > 0) debts.push({ id: a.id, label: a.name, amount: owed, note: "Préstamo: se aparta todo lo que debes" });
     } else if (a.kind === "CREDIT") {
-      const cuota = creditReserve(a, bal, s.transactions, period, todayBogota());
+      const cuota = creditReserve(a, bal, s.transactions, period, todayBogota(), s.dueSettlements);
       if (cuota > 0) debts.push({ id: a.id, label: a.name, amount: cuota, note: `Próxima cuota (debes ${formatCop(owed)} en total)` });
     } else if (a.kind === "CREDIT_CARD") {
       const d = cardDue(a, bal, s.transactions, period, s.cardItems ?? []);
-      if (d.due > 0) debts.push({
+      // "La cuota era menor" (o se pagó de más) dejó pagado el extracto del periodo
+      const settled = (s.dueSettlements ?? []).some((x) => x.account_id === a.id && x.mode !== "PARTIAL" && isWithin(x.due_date, period));
+      if (d.due > 0 && !settled) debts.push({
         id: a.id, label: a.name, amount: d.due,
         note: `Vence este periodo (deuda total ${formatCop(d.debt)}${d.laterCapital > 0 ? `; ${formatCop(d.laterCapital)} en cuotas que vencen después` : ""})`,
       });

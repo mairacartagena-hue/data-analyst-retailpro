@@ -14,11 +14,11 @@ function hash(s: string): string {
 
 /** Con las notificaciones activas, deja programados en la base los recordatorios de los próximos días. */
 export function PushScheduler() {
-  const { me, accounts, balances, transactions, commitments, cardItems, reconciliations, supabase } = useFinance();
+  const { me, accounts, balances, transactions, commitments, cardItems, reconciliations, dueSettlements, supabase } = useFinance();
   const today = todayBogota();
   const reminders = useMemo(
-    () => buildReminders({ me: me.user_id, today, accounts, balances, transactions, commitments, cardItems, reconciliations }),
-    [me.user_id, today, accounts, balances, transactions, commitments, cardItems, reconciliations],
+    () => buildReminders({ me: me.user_id, today, accounts, balances, transactions, commitments, cardItems, reconciliations, dueSettlements }),
+    [me.user_id, today, accounts, balances, transactions, commitments, cardItems, reconciliations, dueSettlements],
   );
 
   useEffect(() => {

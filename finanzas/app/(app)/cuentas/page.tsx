@@ -30,6 +30,8 @@ export default function CuentasPage() {
   const [assetOpen, setAssetOpen] = useState(false);
   const [view, setView] = useState<View>("cuentas");
   const [startCuota, setStartCuota] = useState(false);
+  /** Fecha de pago del vencimiento que se paga (desde Vencimientos). */
+  const [cuotaDue, setCuotaDue] = useState<string | undefined>(undefined);
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
     const v = q.get("vista");
@@ -40,6 +42,8 @@ export default function CuentasPage() {
     if (a) {
       setEditing(a);
       setStartCuota(q.get("cuota") === "1");
+      const due = q.get("vence");
+      setCuotaDue(due && /^\d{4}-\d{2}-\d{2}$/.test(due) ? due : undefined);
       setOpen(true);
       window.history.replaceState(null, "", v ? `/cuentas?vista=${v}` : "/cuentas");
     }
@@ -203,7 +207,7 @@ export default function CuentasPage() {
 
       </>)}
 
-      <AccountSheet open={open} onOpenChange={(v) => { setOpen(v); if (!v) setStartCuota(false); }} account={editing} defaultKind={newKind} startCuota={startCuota} />
+      <AccountSheet open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setStartCuota(false); setCuotaDue(undefined); } }} account={editing} defaultKind={newKind} startCuota={startCuota} cuotaDue={cuotaDue} />
       <AssetSheet open={assetOpen} onOpenChange={setAssetOpen} asset={asset} />
     </main>
   );

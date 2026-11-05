@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { Archive, ArchiveRestore, FileUp } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
-import type { Account, CardStatementItem, ManualAsset, Visibility } from "@/lib/types";
+import type { Account, CardStatementItem, DueSettlementMode, ManualAsset, Visibility } from "@/lib/types";
 import type { CardStatementData } from "@/lib/capture/cardStatement";
 import { cardBudgetVersions } from "@/lib/finance/cardBudget";
 import { ACCOUNT_KIND_LABEL, ASSET_TYPE_LABEL, VISIBILITY_LABEL } from "@/lib/types";
@@ -13,7 +13,9 @@ import { Collapsible } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
 import { ErrorText, Field, Input, Select } from "@/components/ui/input";
 import { payoffDates, projectCard } from "@/lib/finance/installments";
-import { capitalPaidRatio, installmentLabel, installmentsPaid, nextCuota, suggestSplit } from "@/lib/finance/credit";
+import { capitalPaidRatio, creditReserve, installmentLabel, installmentsPaid, nextCuota, suggestSplit } from "@/lib/finance/credit";
+import { dueDiffers, dueForPayment, settledAsPaid, settlementFor } from "@/lib/finance/dueSettlements";
+import { DueDifference, saveDueSettlement } from "@/components/DueDifference";
 import { formatCop } from "@/lib/finance/money";
 import { formatDay, monthName, periodFor, todayBogota } from "@/lib/finance/periods";
 import { CategoryOptions } from "@/components/CategoryPicker";
@@ -35,7 +37,7 @@ import { CardStatementPdf } from "@/components/CardStatementPdf";
 const KINDS: AccountKind[] = ["DEPOSIT", "WALLET", "CASH", "CREDIT_CARD", "LOAN", "CREDIT"];
 const VISIBILITIES: Visibility[] = ["PRIVATE", "BALANCE_ONLY", "PUBLIC"];
 
-export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOSIT", startCuota = false }: { open: boolean; onOpenChange: (v: boolean) => void; account: Account | null; defaultKind?: AccountKind; startCuota?: boolean }) {
+export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOSIT", startCuota = false, cuotaDue }: { open: boolean; onOpenChange: (v: boolean) => void; account: Account | null; defaultKind?: AccountKind; startCuota?: boolean; cuotaDue?: string }) {
   const finance = useFinance();
   const { me, supabase, reload, partner, categories } = finance;
   const [name, setName] = useState("");
@@ -445,7 +447,7 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
         {/* Cuenta guardada: primero lo que se usa (cuotas, compras, presupuesto) y los datos plegados */}
         {isCard && account && <CardProjection account={account} />}
         {isCard && account && <CardBudget account={account} />}
-        {isCredit && account && <CreditPayments account={account} autoOpen={startCuota} />}
+        {isCredit && account && <CreditPayments account={account} autoOpen={startCuota} dueFor={cuotaDue} />}
         {isCredit && account && <CreditPaymentAdjust account={account} />}
         {isCredit && account && <CreditBudget account={account} />}
         {account ? (
@@ -861,8 +863,10 @@ function CardPurchases({ account, rows }: { account: Account; rows: ReturnType<t
 }
 
 /** Registrar una cuota del crédito: el capital baja la deuda (transferencia) y los intereses y costos son gastos. */
-function CreditPayments({ account, autoOpen = false }: { account: Account; autoOpen?: boolean }) {
-  const { accounts, balances, categories, me, supabase, reload, transactions } = useFinance();
+function CreditPayments({ account, autoOpen = false, dueFor }: { account: Account; autoOpen?: boolean; dueFor?: string }) {
+  const { accounts, balances, categories, me, supabase, reload, transactions, dueSettlements, household } = useFinance();
+  /** Pago con otro valor que la cuota: se pregunta qué pasó antes de guardar. */
+  const [duePrompt, setDuePrompt] = useState<{ expected: number; due: string } | null>(null);
   const [open, setOpen] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -888,6 +892,7 @@ function CreditPayments({ account, autoOpen = false }: { account: Account; autoO
   function openForm() {
     setOpen(true);
     setErr(null);
+    setDuePrompt(null);
     setDate(today);
     setTotal(String(next || ""));
     const s = suggestSplit(owed, account.interest_rate_ea, next, account.monthly_costs ?? 0);
@@ -907,12 +912,21 @@ function CreditPayments({ account, autoOpen = false }: { account: Account; autoO
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoOpen]);
 
-  async function save() {
+  async function save(dueMode?: DueSettlementMode) {
     setErr(null);
     if (totalN <= 0) return setErr("Escribe el valor de la cuota.");
     if (!payFrom) return setErr("Elige de qué cuenta se paga.");
     if (interestN + costsN > 0 && !categoryId) return setErr("Elige la categoría de los intereses y costos.");
     if (interestN + costsN > totalN) return setErr("Intereses y costos no pueden ser mayores que la cuota.");
+    // Vencimiento que paga y lo que falta de su cuota (tras un abono parcial, solo el resto)
+    const due = account.due_day ? dueFor ?? dueForPayment(account.due_day, date) : null;
+    const prior = due ? settlementFor(dueSettlements, account.id, due) : undefined;
+    const left = due ? creditReserve(account, balances[account.id] ?? 0, transactions, { start: due, end: due }, today, dueSettlements) : 0;
+    const expected = due && !settledAsPaid(prior) ? (left > 0 ? left : next) : 0;
+    if (due && !dueMode && dueDiffers(expected, totalN)) {
+      setDuePrompt({ expected, due });
+      return;
+    }
     setBusy(true);
     if (capitalN > 0) {
       const r = await supabase.rpc("save_transaction", { p: {
@@ -933,7 +947,14 @@ function CreditPayments({ account, autoOpen = false }: { account: Account; autoO
       } });
       if (r.error) { setBusy(false); return setErr(errMsg(r.error)); }
     }
+    if (due && dueMode) {
+      const r = await saveDueSettlement(supabase, prior, {
+        householdId: household.id, accountId: account.id, due, mode: dueMode, expected, paid: totalN, payerId: me.user_id,
+      });
+      if (r.error) { setBusy(false); return setErr(`La cuota quedó guardada, pero no lo que elegiste sobre la diferencia: ${errMsg(r.error)}`); }
+    }
     setBusy(false);
+    setDuePrompt(null);
     setOpen(false);
     void reload();
   }
@@ -978,9 +999,13 @@ function CreditPayments({ account, autoOpen = false }: { account: Account; autoO
               </Select>
             </Field>
           )}
+          {duePrompt && (
+            <DueDifference expected={duePrompt.expected} paid={totalN} due={duePrompt.due} busy={busy}
+              onChoose={(mode) => save(mode)} onBack={() => setDuePrompt(null)} />
+          )}
           <ErrorText>{err}</ErrorText>
-          <div className="flex gap-2">
-            <Button size="sm" onClick={save} disabled={busy}>Guardar cuota</Button>
+          <div className={duePrompt ? "hidden" : "flex gap-2"}>
+            <Button size="sm" onClick={() => save()} disabled={busy}>Guardar cuota</Button>
             <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>Cancelar</Button>
           </div>
         </div>
