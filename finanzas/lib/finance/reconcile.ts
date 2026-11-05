@@ -24,6 +24,22 @@ export function monthRange(month: string): MonthRange {
   return { month, start, end: addDays(next, -1) };
 }
 
+/**
+ * Periodo que cierra una cuenta en el mes. Las tarjetas con día de corte se concilian con el extracto: van del día
+ * siguiente al corte del mes anterior hasta el corte de este mes, así las compras posteriores al corte (que el banco
+ * factura en el próximo extracto) no descuadran el cierre. Las demás cuentas usan el mes calendario.
+ */
+export function closeRange(account: Pick<Account, "kind" | "statement_day">, month: string): MonthRange {
+  const cal = monthRange(month);
+  const day = account.kind === "CREDIT_CARD" ? account.statement_day : null;
+  if (!day) return cal;
+  const cutIn = (m: string) => {
+    const last = Number(monthRange(m).end.slice(8));
+    return `${m}-${String(Math.min(day, last)).padStart(2, "0")}`;
+  };
+  return { month, start: addDays(cutIn(shiftMonth(month, -1)), 1), end: cutIn(month) };
+}
+
 export function shiftMonth(month: string, n: number): string {
   const [y, m] = month.split("-").map(Number);
   return new Date(Date.UTC(y, m - 1 + n, 1)).toISOString().slice(0, 7);
@@ -143,13 +159,14 @@ export interface ReconciliationDrift {
 export function reconciliationDrift(
   account: Account,
   txs: Transaction[],
-  rec: Pick<Reconciliation, "month" | "status" | "statement_balance" | "updated_at">,
+  rec: Pick<Reconciliation, "month" | "status" | "statement_balance" | "updated_at"> & { cut_date?: string | null },
 ): ReconciliationDrift | null {
   if (rec.status !== "RECONCILED") return null;
-  const range = monthRange(rec.month.slice(0, 7));
-  // Corte: el final del mes, o el momento de conciliar si fue antes (el saldo del banco era el de ese momento)
+  // Corte: el día del extracto (tarjetas conciliadas al corte) o el final del mes; o el momento de conciliar si fue
+  // antes (el saldo del banco era el de ese momento)
+  const end = rec.cut_date ?? monthRange(rec.month.slice(0, 7)).end;
   const recMs = Date.parse(rec.updated_at);
-  const monthEndMs = Date.parse(`${range.end}T23:59:59.999-05:00`);
+  const monthEndMs = Date.parse(`${end}T23:59:59.999-05:00`);
   const cutoffMs = Math.min(recMs, monthEndMs);
   const cutoff = new Date(cutoffMs - 5 * 3_600_000).toISOString().slice(0, 10); // día en Bogotá
   // Los movimientos sin hora del mismo día del corte cuentan dentro del corte
