@@ -3,10 +3,10 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Bell, BellOff, Download, LogOut, RefreshCw, Share2 } from "lucide-react";
+import { ArrowLeft, Bell, BellOff, BookOpen, Download, LogOut, RefreshCw, Share2 } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { MemberBadge } from "@/components/MemberBadge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, SectionTitle } from "@/components/ui/card";
 import { ErrorText, Field, Input } from "@/components/ui/input";
 import { Segmented } from "@/components/ui/segmented";
@@ -201,6 +201,14 @@ export default function AjustesPage() {
       <SecuritySettings />
 
       <InstallCard />
+
+      <SectionTitle>Manual de uso</SectionTitle>
+      <Card className="space-y-3">
+        <p className="text-sm">Una guía con ejemplos para probar cada función. Se descarga como un archivo y se abre sin internet.</p>
+        <a href="/manual-finanzas.html" download="Manual-Finanzas-en-Pareja.html" className={buttonVariants({ variant: "outline" })}>
+          <BookOpen size={16} /> Descargar el manual
+        </a>
+      </Card>
 
       <Button variant="ghost" className="mt-8 w-full text-muted" onClick={logout}><LogOut size={18} /> Cerrar sesión</Button>
 
