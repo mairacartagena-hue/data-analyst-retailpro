@@ -59,6 +59,15 @@ export default function ComprasPage() {
   const pendientes = propios.filter((i) => !i.comprado);
   const comprados = propios.filter((i) => i.comprado);
   const productos = pantry.filter((p) => (activa === "Mascotas" ? p.es_mascotas : !p.es_mascotas));
+  // Despensa de mascotas agrupada por mascota; lo que es para todas va al final
+  const gruposMascotas = [
+    ...[...pets]
+      .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"))
+      .map((pet) => ({ clave: pet.id, titulo: pet.nombre, productos: productos.filter((p) => p.pet_id === pet.id) })),
+    { clave: "todas", titulo: "Todas las mascotas", productos: productos.filter((p) => !p.pet_id || !pets.some((x) => x.id === p.pet_id)) },
+  ]
+    .filter((g) => g.productos.length > 0)
+    .map((g) => ({ ...g, productos: [...g.productos].sort((a, b) => pantryDaysLeft(a) - pantryDaysLeft(b)) }));
   async function agregar(e: React.FormEvent) {
     e.preventDefault();
     if (!nombre.trim() || !lista) return;
@@ -336,42 +345,48 @@ export default function ComprasPage() {
                 {productos.length === 0 ? (
                   <Empty>Agrega lo que siempre compran (café, arroz, jabón) y cuántos días les dura.</Empty>
                 ) : (
-                  <ul className="card p-0!">
-                    {[...productos]
-                      .sort((a, b) => pantryDaysLeft(a) - pantryDaysLeft(b))
-                      .map((p) => {
-                        const d = pantryDaysLeft(p);
-                        const pct = Math.max(0, Math.min(100, (d / p.duracion_dias) * 100));
-                        return (
-                          <li key={p.id} className="border-b-2 border-rosa-claro last:border-b-0">
-                            <button className="flex w-full items-center gap-3 px-4 py-3 text-left" onClick={() => setProducto(p)}>
-                              <div className="min-w-0 flex-1">
-                                <p className="text-[15px] font-semibold">{pets.find((x) => x.id === p.pet_id)?.nombre ?? p.nombre}</p>
-                                {(p.pet_id || p.marca || p.tipo_comida || p.rota || p.responsable_id) && (
-                                  <p className="text-xs text-sec">
-                                    {[
-                                      p.pet_id ? p.nombre : null,
-                                      p.marca,
-                                      p.tipo_comida,
-                                      p.rota ? "Responsable: rotar" : p.responsable_id ? `Responsable: ${memberById(p.responsable_id)?.nombre ?? ""}` : null,
-                                    ]
-                                      .filter(Boolean)
-                                      .join(" · ")}
-                                  </p>
-                                )}
-                                <div className="mt-1.5 h-2.5 overflow-hidden rounded-full border-2 border-vino">
-                                  <div className={`h-full ${pct <= 20 ? "bg-accion" : "bg-rosa"}`} style={{ width: `${pct}%` }} />
-                                </div>
-                              </div>
-                              <span className={`w-24 text-right text-xs font-semibold ${pct <= 20 ? "text-accion" : "text-sec"}`}>
-                                {diasTexto(d)}
-                              </span>
-                              <Pencil size={14} className="text-sec" />
-                            </button>
-                          </li>
-                        );
-                      })}
-                  </ul>
+                  <div className="space-y-1">
+                    {gruposMascotas.map((g) => (
+                      <div key={g.clave}>
+                        <SectionHeader title={g.titulo} small {...plegable(`despensa:${g.clave}`, g.productos.length)} />
+                        {!plegada(`despensa:${g.clave}`) && (
+                          <ul className="card p-0!">
+                            {g.productos.map((p) => {
+                              const d = pantryDaysLeft(p);
+                              const pct = Math.max(0, Math.min(100, (d / p.duracion_dias) * 100));
+                              return (
+                                <li key={p.id} className="border-b-2 border-rosa-claro last:border-b-0">
+                                  <button className="flex w-full items-center gap-3 px-4 py-3 text-left" onClick={() => setProducto(p)}>
+                                    <div className="min-w-0 flex-1">
+                                      <p className="text-[15px] font-semibold">{p.nombre}</p>
+                                      {(p.marca || p.tipo_comida || p.rota || p.responsable_id) && (
+                                        <p className="text-xs text-sec">
+                                          {[
+                                            p.marca,
+                                            p.tipo_comida,
+                                            p.rota ? "Responsable: rotar" : p.responsable_id ? `Responsable: ${memberById(p.responsable_id)?.nombre ?? ""}` : null,
+                                          ]
+                                            .filter(Boolean)
+                                            .join(" · ")}
+                                        </p>
+                                      )}
+                                      <div className="mt-1.5 h-2.5 overflow-hidden rounded-full border-2 border-vino">
+                                        <div className={`h-full ${pct <= 20 ? "bg-accion" : "bg-rosa"}`} style={{ width: `${pct}%` }} />
+                                      </div>
+                                    </div>
+                                    <span className={`w-24 text-right text-xs font-semibold ${pct <= 20 ? "text-accion" : "text-sec"}`}>
+                                      {diasTexto(d)}
+                                    </span>
+                                    <Pencil size={14} className="text-sec" />
+                                  </button>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 )}
                 </>
               )}
