@@ -9,7 +9,7 @@ import { Avatar, Checkbox, Empty, ErrorText, JUNTOS, PageHeader, Pills, SectionH
 import { Loading } from "@/components/Loading";
 import { getSupabase } from "@/lib/supabase/client";
 import { todayStr } from "@/lib/dates";
-import { pantryDaysLeft } from "@/lib/logic";
+import { formatCantidad, pantryDaysLeft, parseCantidad } from "@/lib/logic";
 import { CATEGORIAS, CATEGORIAS_MASCOTAS, LISTAS, type Categoria, type NombreLista, type PantryProduct, type ShoppingItem, type ShoppingList, type Task } from "@/lib/types";
 
 export default function ComprasPage() {
@@ -22,6 +22,7 @@ export default function ComprasPage() {
   const [error, setError] = useState<string | null>(null);
   const [producto, setProducto] = useState<PantryProduct | "nuevo" | null>(null);
   const [importar, setImportar] = useState(false);
+  const [parcial, setParcial] = useState<ShoppingItem | null>(null);
   // Secciones plegadas (por lista). Se recuerda en este celular.
   const [plegadas, setPlegadas] = useState<string[]>([]);
   useEffect(() => {
@@ -86,6 +87,43 @@ export default function ComprasPage() {
     optimistic("items", { ...i, comprado: !i.comprado });
     const { error } = await getSupabase().from("shopping_items").update({ comprado: !i.comprado }).eq("id", i.id);
     if (error) optimistic("items", { ...i });
+  }
+
+  /** Compra parcial: lo comprado pasa a "Comprado" y en la lista queda lo que falta */
+  async function comprarParte(i: ShoppingItem, comprada: number) {
+    const total = parseCantidad(i.cantidad);
+    if (!total || comprada <= 0) return;
+    if (comprada >= total.n) return toggle(i);
+    const sb = getSupabase();
+    const falta = formatCantidad(total.n - comprada, total.unidad);
+    const compradaTxt = formatCantidad(comprada, total.unidad);
+    optimistic("items", { ...i, cantidad: falta });
+    const { data: nuevo, error: errNuevo } = await sb
+      .from("shopping_items")
+      .insert({
+        list_id: i.list_id,
+        household_id: i.household_id,
+        nombre: i.nombre,
+        categoria: i.categoria,
+        cantidad: compradaTxt,
+        pedido_por: i.pedido_por,
+        pedido_juntos: i.pedido_juntos ?? false,
+        pet_id: i.pet_id ?? null,
+        comprado: true,
+        comprado_en: new Date().toISOString(),
+      })
+      .select()
+      .single();
+    if (errNuevo || !nuevo) {
+      optimistic("items", { ...i });
+      return setError(errNuevo ? errMsg(errNuevo) : "No pudimos guardar la compra.");
+    }
+    optimistic("items", nuevo as ShoppingItem);
+    const { error } = await sb.from("shopping_items").update({ cantidad: falta }).eq("id", i.id);
+    if (error) {
+      optimistic("items", { ...i });
+      setError(errMsg(error));
+    }
   }
 
   async function comprarADespensa(i: ShoppingItem) {
@@ -361,6 +399,9 @@ export default function ComprasPage() {
             </div>
           )}
 
+          {pendientes.some((i) => parseCantidad(i.cantidad)) && (
+            <p className="mt-4 text-xs text-sec">¿Compraste solo una parte? Toca el producto y escribe cuánto compraste.</p>
+          )}
           {categorias.map((c) => (
             <section key={c}>
               <SectionHeader title={c} small {...plegable(c, pendientes.filter((i) => i.categoria === c).length)} />
@@ -369,7 +410,14 @@ export default function ComprasPage() {
                   {pendientes
                     .filter((i) => i.categoria === c)
                     .map((i) => (
-                      <ItemRow key={i.id} item={i} onToggle={() => toggle(i)} onDelete={() => borrar(i)} pedidoPor={memberById(i.pedido_por)} />
+                      <ItemRow
+                        key={i.id}
+                        item={i}
+                        onToggle={() => toggle(i)}
+                        onDelete={() => borrar(i)}
+                        onParcial={() => setParcial(i)}
+                        pedidoPor={memberById(i.pedido_por)}
+                      />
                     ))}
                 </ul>
               )}
@@ -461,6 +509,20 @@ export default function ComprasPage() {
         </>
       )}
 
+      <ParcialSheet
+        item={parcial}
+        onClose={() => setParcial(null)}
+        onComprar={async (n) => {
+          const i = parcial;
+          setParcial(null);
+          if (i) await comprarParte(i, n);
+        }}
+        onTodo={() => {
+          const i = parcial;
+          setParcial(null);
+          if (i) toggle(i);
+        }}
+      />
       <PantrySheet producto={producto} onClose={() => setProducto(null)} paraMascotas={activa === "Mascotas"} />
     </>
   );
@@ -470,21 +532,36 @@ function ItemRow({
   item: i,
   onToggle,
   onDelete,
+  onParcial,
   pedidoPor,
 }: {
   item: ShoppingItem;
   onToggle: () => void;
   onDelete: () => void;
+  /** Abre "¿Cuánto compraste?" (solo productos pendientes con cantidad) */
+  onParcial?: () => void;
   pedidoPor?: ReturnType<ReturnType<typeof useHousehold>["memberById"]>;
 }) {
+  const puedeParcial = !!onParcial && !i.comprado && !!parseCantidad(i.cantidad);
+  const texto = (
+    <p className={`text-[15px] font-medium ${i.comprado ? "text-sec line-through" : ""}`}>
+      {i.nombre}
+      {i.cantidad && (
+        <span className="text-sec"> · {i.cantidad}</span>
+      )}
+    </p>
+  );
   return (
     <li className="flex items-center gap-3 border-b-2 border-rosa-claro px-4 py-3 last:border-b-0">
       <Checkbox checked={i.comprado} onChange={onToggle} label={`Comprado ${i.nombre}`} />
       <div className="min-w-0 flex-1">
-        <p className={`text-[15px] font-medium ${i.comprado ? "text-sec line-through" : ""}`}>
-          {i.nombre}
-          {i.cantidad && <span className="text-sec"> · {i.cantidad}</span>}
-        </p>
+        {puedeParcial ? (
+          <button className="w-full text-left" onClick={onParcial} aria-label={`Comprar una parte de ${i.nombre}`}>
+            {texto}
+          </button>
+        ) : (
+          texto
+        )}
       </div>
       {i.es_automatico && <span className="tag tag-oscuro">Auto</span>}
       {i.pedido_juntos ? (
@@ -664,6 +741,67 @@ function PantrySheet({
           </button>
         )}
       </div>
+    </Sheet>
+  );
+}
+
+function ParcialSheet({
+  item,
+  onClose,
+  onComprar,
+  onTodo,
+}: {
+  item: ShoppingItem | null;
+  onClose: () => void;
+  onComprar: (n: number) => void;
+  onTodo: () => void;
+}) {
+  const [valor, setValor] = useState("");
+  useEffect(() => setValor(""), [item?.id]);
+  const total = parseCantidad(item?.cantidad);
+  const n = Number(valor.replace(",", "."));
+  const valido = !!total && n > 0 && n < total.n;
+  const falta = total && valido ? formatCantidad(total.n - n, total.unidad) : null;
+
+  return (
+    <Sheet open={!!item && !!total} onClose={onClose} title="¿Cuánto compraste?">
+      {item && total && (
+        <div className="space-y-4">
+          <p className="text-[15px]">
+            <strong>{item.nombre}</strong> · necesitas {item.cantidad}
+          </p>
+          <div>
+            <label className="label" htmlFor="parcial">
+              Compraste
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                id="parcial"
+                className="input flex-1"
+                inputMode="decimal"
+                value={valor}
+                onChange={(e) => setValor(e.target.value)}
+                placeholder={`Menos de ${formatCantidad(total.n, "")}`}
+                autoFocus
+              />
+              {total.unidad && <span className="shrink-0 text-[15px] font-semibold">{total.unidad}</span>}
+            </div>
+          </div>
+          {falta ? (
+            <p className="rounded-[10px] bg-rosa-claro px-3 py-2 text-sm">
+              Queda en la lista: <strong>{falta}</strong>
+            </p>
+          ) : (
+            valor && n >= total.n && <p className="text-sm text-sec">Eso es todo lo que necesitabas: usa &quot;Compré todo&quot;.</p>
+          )}
+          <button className="btn btn-primary w-full" disabled={!valido} onClick={() => onComprar(n)}>
+            Guardar lo que compré
+          </button>
+          <button className="btn btn-secondary w-full" onClick={onTodo}>
+            Compré todo ({item.cantidad})
+          </button>
+        </div>
+      )}
     </Sheet>
   );
 }
