@@ -132,6 +132,8 @@ export interface PantryProduct {
   rota?: boolean;
   marca?: string | null;
   tipo_comida?: string | null;
+  /** Días adicionales que rinde la última compra (si se compró de más) */
+  dias_extra?: number;
 }
 
 export interface Reminder {

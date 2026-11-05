@@ -9,7 +9,7 @@ import { Avatar, Checkbox, Empty, ErrorText, JUNTOS, PageHeader, Pills, SectionH
 import { Loading } from "@/components/Loading";
 import { getSupabase } from "@/lib/supabase/client";
 import { todayStr } from "@/lib/dates";
-import { formatCantidad, pantryDaysLeft, parseCantidad, sumarCantidades } from "@/lib/logic";
+import { diasExtraPorCompra, formatCantidad, pantryDaysLeft, parseCantidad, sumarCantidades } from "@/lib/logic";
 import { CATEGORIAS, CATEGORIAS_MASCOTAS, LISTAS, type Categoria, type NombreLista, type PantryProduct, type ShoppingItem, type ShoppingList, type Task } from "@/lib/types";
 
 export default function ComprasPage() {
@@ -128,6 +128,27 @@ export default function ComprasPage() {
     if (errBorrar) setError(errMsg(errBorrar));
   }
 
+  /** Producto de la despensa que corresponde a un producto de la lista */
+  const despensaDe = (i: ShoppingItem) =>
+    pantry.find((p) => p.id === i.pantry_product_id) ??
+    pantry.find((p) => p.nombre.trim().toLowerCase() === i.nombre.trim().toLowerCase());
+
+  /** Para cuántos días alcanza la cantidad pedida (de la lista o de la despensa) */
+  const diasBaseDe = (i: ShoppingItem | null) => (i ? i.duracion_dias ?? despensaDe(i)?.duracion_dias ?? null : null);
+
+  /** Guarda en la despensa los días que rinde lo comprado de más */
+  async function guardarDiasExtra(i: ShoppingItem, extra: number) {
+    if (extra <= 0) return;
+    const sb = getSupabase();
+    const prod = despensaDe(i);
+    const consulta = prod
+      ? sb.from("pantry_products").update({ dias_extra: extra }).eq("id", prod.id)
+      : sb.from("pantry_products").update({ dias_extra: extra }).eq("household_id", i.household_id).ilike("nombre", i.nombre.trim());
+    const { data, error } = await consulta.select();
+    if (error) return setError(errMsg(error));
+    (data as PantryProduct[] | null)?.forEach((p) => optimistic("pantry", p));
+  }
+
   /** Cambia la cantidad de un producto (pendiente o ya comprado) */
   async function editarCantidad(i: ShoppingItem, texto: string) {
     const cantidad = texto.trim() || null;
@@ -154,7 +175,11 @@ export default function ComprasPage() {
         optimistic("items", { ...i });
         return setError(errMsg(error));
       }
-      return toggle(conCantidad);
+      await toggle(conCantidad);
+      // Lo que se compró de más rinde días adicionales en la despensa
+      const base = diasBaseDe(i);
+      if (base) await guardarDiasExtra(conCantidad, diasExtraPorCompra(total.n, comprada, base));
+      return;
     }
     const sb = getSupabase();
     const falta = formatCantidad(total.n - comprada, total.unidad);
@@ -536,6 +561,7 @@ export default function ComprasPage() {
 
       <ItemSheet
         item={parcial}
+        diasBase={diasBaseDe(parcial)}
         onClose={() => setParcial(null)}
         onCantidad={async (texto) => {
           const i = parcial;
@@ -623,6 +649,7 @@ function PantrySheet({
   const [responsable, setResponsable] = useState("rotar");
   const [duracion, setDuracion] = useState("30");
   const [ultima, setUltima] = useState(todayStr());
+  const [diasExtra, setDiasExtra] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const editando = producto && producto !== "nuevo" ? producto : null;
   const esMascota = paraMascotas || !!petId || !!editando?.es_mascotas;
@@ -638,6 +665,7 @@ function PantrySheet({
     setResponsable(editando && !editando.rota && editando.responsable_id ? editando.responsable_id : "rotar");
     setDuracion(String(editando?.duracion_dias ?? 30));
     setUltima(editando?.fecha_ultima_compra ?? todayStr());
+    setDiasExtra(editando?.dias_extra ?? 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [producto]);
 
@@ -655,6 +683,7 @@ function PantrySheet({
       rota: esMascota && responsable === "rotar",
       duracion_dias: dias,
       fecha_ultima_compra: ultima,
+      dias_extra: diasExtra,
       pet_id: mascota ? mascota.id : null,
       es_mascotas: mascota ? true : editando ? !!editando.es_mascotas : paraMascotas,
       marca: esMascota && marca.trim() ? marca.trim() : null,
@@ -785,6 +814,16 @@ function PantrySheet({
             <input id="p-ult" type="date" className="input" value={ultima} onChange={(e) => setUltima(e.target.value)} />
           </div>
         </div>
+        {diasExtra > 0 && (
+          <div className="flex items-center justify-between gap-3 rounded-[10px] bg-rosa-claro px-3 py-2 text-sm">
+            <span>
+              La última compra fue de más: rinde <strong>{diasExtra} {diasExtra === 1 ? "día" : "días"} extra</strong>.
+            </span>
+            <button className="shrink-0 font-semibold text-accion" onClick={() => setDiasExtra(0)}>
+              Quitar
+            </button>
+          </div>
+        )}
         <ErrorText>{error}</ErrorText>
         <button className="btn btn-primary w-full" onClick={guardar}>
           Guardar producto
@@ -805,8 +844,11 @@ function ItemSheet({
   onComprar,
   onTodo,
   onCantidad,
+  diasBase,
 }: {
   item: ShoppingItem | null;
+  /** Para cuántos días alcanza la cantidad pedida (si se sabe) */
+  diasBase?: number | null;
   onClose: () => void;
   onComprar: (n: number) => void;
   onTodo: () => void;
@@ -826,7 +868,21 @@ function ItemSheet({
   let aviso: React.ReactNode = null;
   if (total && valido) {
     if (n < total.n) aviso = <>Queda en la lista: <strong>{formatCantidad(total.n - n, total.unidad)}</strong></>;
-    else if (n > total.n) aviso = <>Compraste más de lo que pedía la lista. Queda como comprado: <strong>{formatCantidad(n, total.unidad)}</strong></>;
+    else if (n > total.n) {
+      const extra = diasBase ? diasExtraPorCompra(total.n, n, diasBase) : 0;
+      aviso = (
+        <>
+          Compraste más de lo que pedía la lista. Queda como comprado: <strong>{formatCantidad(n, total.unidad)}</strong>
+          {extra > 0 && (
+            <>
+              <br />
+              Lo que pedía la lista ({item!.cantidad}) alcanza para {diasBase} {diasBase === 1 ? "día" : "días"}: lo que compraste rinde{" "}
+              <strong>{extra} {extra === 1 ? "día" : "días"} más</strong> ({diasBase! + extra} días en total).
+            </>
+          )}
+        </>
+      );
+    }
     else aviso = <>Compraste todo lo que necesitabas.</>;
   }
 
@@ -894,11 +950,12 @@ function ItemSheet({
 function PantryRow({ producto: p, onAbrir }: { producto: PantryProduct; onAbrir: () => void }) {
   const { memberById } = useHousehold();
   const d = pantryDaysLeft(p);
-  const pct = Math.max(0, Math.min(100, (d / p.duracion_dias) * 100));
+  const pct = Math.max(0, Math.min(100, (d / (p.duracion_dias + (p.dias_extra ?? 0))) * 100));
   const detalles = [
     p.marca,
     p.tipo_comida,
-    `Dura ${p.duracion_dias} ${p.duracion_dias === 1 ? "día" : "días"}`,
+    `Dura ${p.duracion_dias} ${p.duracion_dias === 1 ? "día" : "días"}` +
+      ((p.dias_extra ?? 0) > 0 ? ` (+${p.dias_extra} por compra extra)` : ""),
     p.rota ? "Responsable: rotar" : p.responsable_id ? `Responsable: ${memberById(p.responsable_id)?.nombre ?? ""}` : null,
   ].filter(Boolean);
   return (
