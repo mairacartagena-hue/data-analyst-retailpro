@@ -136,6 +136,8 @@ export interface PantryProduct {
   tipo_comida?: string | null;
   /** Días adicionales que rinde la última compra (si se compró de más) */
   dias_extra?: number;
+  /** Tienda donde se compra (opcional) */
+  tienda?: string | null;
 }
 
 export interface Reminder {

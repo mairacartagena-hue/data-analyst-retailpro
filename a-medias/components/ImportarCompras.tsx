@@ -8,7 +8,7 @@ import { CATEGORIAS, CATEGORIAS_MASCOTAS, LISTAS, type Categoria, type NombreLis
 import { useHousehold } from "./HouseholdProvider";
 import { ErrorText, Sheet, errMsg } from "./ui";
 
-const ENC_DESPENSA = ["nombre", "lista", "categoria", "dias", "ultima_compra", "mascota", "marca", "tipo_comida", "responsable"];
+const ENC_DESPENSA = ["nombre", "lista", "categoria", "dias", "ultima_compra", "mascota", "marca", "tipo_comida", "responsable", "tienda"];
 const ENC_LISTA = ["producto", "lista", "cantidad", "categoria", "dias", "mascota", "pedido_por", "tienda"];
 
 type Op = { tabla: "pantry_products" | "shopping_items"; fila: Record<string, unknown>; idExistente?: string; nombre: string };
@@ -44,10 +44,10 @@ export function ImportarCompras({ open, onClose }: { open: boolean; onClose: () 
     descargar(
       "plantilla_despensa.csv",
       plantillaCsv(ENC_DESPENSA, [
-        ["Cafe molido 500g", "Mercado", "Abarrotes", "30", "20/10/2026", "", "", "", ""],
-        ["Detergente liquido", "Mercado", "Aseo", "45", "01/10/2026", "", "", "", ""],
-        ["Arena para gato", "Mascotas", "", "30", "15/10/2026", "Todas", "Catsan", "", "Rotar"],
-        ["Comida", "Mascotas", "", "30", "10/10/2026", p1, "Royal Canin", "Concentrado seco", m1],
+        ["Cafe molido 500g", "Mercado", "Abarrotes", "30", "20/10/2026", "", "", "", "", "D1"],
+        ["Detergente liquido", "Mercado", "Aseo", "45", "01/10/2026", "", "", "", "", ""],
+        ["Arena para gato", "Mascotas", "", "30", "15/10/2026", "Todas", "Catsan", "", "Rotar", "Tienda de mascotas"],
+        ["Comida", "Mascotas", "", "30", "10/10/2026", p1, "Royal Canin", "Concentrado seco", m1, ""],
       ]),
     );
   }
@@ -153,6 +153,8 @@ export function ImportarCompras({ open, onClose }: { open: boolean; onClose: () 
             tipo_comida: tipo,
             responsable_id: responsableId,
             rota,
+            // Sin la columna tienda en el archivo, no se borra la que ya tenía
+            ...(col(fila, "tienda") ? { tienda: col(fila, "tienda") } : {}),
           },
         });
         return;
