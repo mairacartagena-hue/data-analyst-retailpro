@@ -89,11 +89,34 @@ export default function ComprasPage() {
     if (error) optimistic("items", { ...i });
   }
 
+  /** Cambia la cantidad de un producto (pendiente o ya comprado) */
+  async function editarCantidad(i: ShoppingItem, texto: string) {
+    const cantidad = texto.trim() || null;
+    optimistic("items", { ...i, cantidad });
+    const { error } = await getSupabase().from("shopping_items").update({ cantidad }).eq("id", i.id);
+    if (error) {
+      optimistic("items", { ...i });
+      setError(errMsg(error));
+    }
+  }
+
   /** Compra parcial: lo comprado pasa a "Comprado" y en la lista queda lo que falta */
   async function comprarParte(i: ShoppingItem, comprada: number) {
     const total = parseCantidad(i.cantidad);
     if (!total || comprada <= 0) return;
-    if (comprada >= total.n) return toggle(i);
+    if (comprada >= total.n) {
+      // Todo (o más de lo pedido): queda comprado con lo que de verdad se compró
+      const cantidad = formatCantidad(comprada, total.unidad);
+      if (cantidad === i.cantidad) return toggle(i);
+      const conCantidad = { ...i, cantidad };
+      optimistic("items", conCantidad);
+      const { error } = await getSupabase().from("shopping_items").update({ cantidad }).eq("id", i.id);
+      if (error) {
+        optimistic("items", { ...i });
+        return setError(errMsg(error));
+      }
+      return toggle(conCantidad);
+    }
     const sb = getSupabase();
     const falta = formatCantidad(total.n - comprada, total.unidad);
     const compradaTxt = formatCantidad(comprada, total.unidad);
@@ -399,8 +422,8 @@ export default function ComprasPage() {
             </div>
           )}
 
-          {pendientes.some((i) => parseCantidad(i.cantidad)) && (
-            <p className="mt-4 text-xs text-sec">¿Compraste solo una parte? Toca el producto y escribe cuánto compraste.</p>
+          {pendientes.length + comprados.length > 0 && (
+            <p className="mt-4 text-xs text-sec">Toca un producto para cambiar la cantidad o anotar cuánto compraste.</p>
           )}
           {categorias.map((c) => (
             <section key={c}>
@@ -415,7 +438,7 @@ export default function ComprasPage() {
                         item={i}
                         onToggle={() => toggle(i)}
                         onDelete={() => borrar(i)}
-                        onParcial={() => setParcial(i)}
+                        onAbrir={() => setParcial(i)}
                         pedidoPor={memberById(i.pedido_por)}
                       />
                     ))}
@@ -439,7 +462,14 @@ export default function ComprasPage() {
               {!plegada("comprado") && (
                 <ul className="card p-0!">
                   {comprados.map((i) => (
-                    <ItemRow key={i.id} item={i} onToggle={() => toggle(i)} onDelete={() => borrar(i)} pedidoPor={memberById(i.pedido_por)} />
+                    <ItemRow
+                      key={i.id}
+                      item={i}
+                      onToggle={() => toggle(i)}
+                      onDelete={() => borrar(i)}
+                      onAbrir={() => setParcial(i)}
+                      pedidoPor={memberById(i.pedido_por)}
+                    />
                   ))}
                 </ul>
               )}
@@ -509,9 +539,14 @@ export default function ComprasPage() {
         </>
       )}
 
-      <ParcialSheet
+      <ItemSheet
         item={parcial}
         onClose={() => setParcial(null)}
+        onCantidad={async (texto) => {
+          const i = parcial;
+          setParcial(null);
+          if (i) await editarCantidad(i, texto);
+        }}
         onComprar={async (n) => {
           const i = parcial;
           setParcial(null);
@@ -532,17 +567,16 @@ function ItemRow({
   item: i,
   onToggle,
   onDelete,
-  onParcial,
+  onAbrir,
   pedidoPor,
 }: {
   item: ShoppingItem;
   onToggle: () => void;
   onDelete: () => void;
-  /** Abre "¿Cuánto compraste?" (solo productos pendientes con cantidad) */
-  onParcial?: () => void;
+  /** Abre el panel del producto: cambiar la cantidad o anotar cuánto se compró */
+  onAbrir?: () => void;
   pedidoPor?: ReturnType<ReturnType<typeof useHousehold>["memberById"]>;
 }) {
-  const puedeParcial = !!onParcial && !i.comprado && !!parseCantidad(i.cantidad);
   const texto = (
     <p className={`text-[15px] font-medium ${i.comprado ? "text-sec line-through" : ""}`}>
       {i.nombre}
@@ -555,8 +589,8 @@ function ItemRow({
     <li className="flex items-center gap-3 border-b-2 border-rosa-claro px-4 py-3 last:border-b-0">
       <Checkbox checked={i.comprado} onChange={onToggle} label={`Comprado ${i.nombre}`} />
       <div className="min-w-0 flex-1">
-        {puedeParcial ? (
-          <button className="w-full text-left" onClick={onParcial} aria-label={`Comprar una parte de ${i.nombre}`}>
+        {onAbrir ? (
+          <button className="w-full text-left" onClick={onAbrir} aria-label={`Cantidad de ${i.nombre}`}>
             {texto}
           </button>
         ) : (
@@ -745,61 +779,91 @@ function PantrySheet({
   );
 }
 
-function ParcialSheet({
+function ItemSheet({
   item,
   onClose,
   onComprar,
   onTodo,
+  onCantidad,
 }: {
   item: ShoppingItem | null;
   onClose: () => void;
   onComprar: (n: number) => void;
   onTodo: () => void;
+  onCantidad: (texto: string) => void;
 }) {
   const [valor, setValor] = useState("");
-  useEffect(() => setValor(""), [item?.id]);
+  const [cantidad, setCantidad] = useState("");
+  useEffect(() => {
+    setValor("");
+    setCantidad(item?.cantidad ?? "");
+  }, [item?.id, item?.cantidad]);
   const total = parseCantidad(item?.cantidad);
   const n = Number(valor.replace(",", "."));
-  const valido = !!total && n > 0 && n < total.n;
-  const falta = total && valido ? formatCantidad(total.n - n, total.unidad) : null;
+  const valido = !!total && n > 0;
+  const pendiente = !!item && !item.comprado;
+
+  let aviso: React.ReactNode = null;
+  if (total && valido) {
+    if (n < total.n) aviso = <>Queda en la lista: <strong>{formatCantidad(total.n - n, total.unidad)}</strong></>;
+    else if (n > total.n) aviso = <>Compraste más de lo que pedía la lista. Queda como comprado: <strong>{formatCantidad(n, total.unidad)}</strong></>;
+    else aviso = <>Compraste todo lo que necesitabas.</>;
+  }
 
   return (
-    <Sheet open={!!item && !!total} onClose={onClose} title="¿Cuánto compraste?">
-      {item && total && (
-        <div className="space-y-4">
-          <p className="text-[15px]">
-            <strong>{item.nombre}</strong> · necesitas {item.cantidad}
-          </p>
-          <div>
-            <label className="label" htmlFor="parcial">
-              Compraste
-            </label>
-            <div className="flex items-center gap-2">
-              <input
-                id="parcial"
-                className="input flex-1"
-                inputMode="decimal"
-                value={valor}
-                onChange={(e) => setValor(e.target.value)}
-                placeholder={`Menos de ${formatCantidad(total.n, "")}`}
-                autoFocus
-              />
-              {total.unidad && <span className="shrink-0 text-[15px] font-semibold">{total.unidad}</span>}
+    <Sheet open={!!item} onClose={onClose} title={item?.nombre ?? ""}>
+      {item && (
+        <div className="space-y-5">
+          {pendiente && total && (
+            <div className="space-y-3">
+              <p className="text-[15px]">
+                Necesitas <strong>{item.cantidad}</strong>
+              </p>
+              <div>
+                <label className="label" htmlFor="parcial">
+                  ¿Cuánto compraste?
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    id="parcial"
+                    className="input flex-1"
+                    inputMode="decimal"
+                    value={valor}
+                    onChange={(e) => setValor(e.target.value)}
+                    placeholder={formatCantidad(total.n, "")}
+                  />
+                  {total.unidad && <span className="shrink-0 text-[15px] font-semibold">{total.unidad}</span>}
+                </div>
+              </div>
+              {aviso && <p className="rounded-[10px] bg-rosa-claro px-3 py-2 text-sm">{aviso}</p>}
+              <button className="btn btn-primary w-full" disabled={!valido} onClick={() => onComprar(n)}>
+                Guardar lo que compré
+              </button>
+              <button className="btn btn-secondary w-full" onClick={onTodo}>
+                Compré todo ({item.cantidad})
+              </button>
             </div>
-          </div>
-          {falta ? (
-            <p className="rounded-[10px] bg-rosa-claro px-3 py-2 text-sm">
-              Queda en la lista: <strong>{falta}</strong>
-            </p>
-          ) : (
-            valor && n >= total.n && <p className="text-sm text-sec">Eso es todo lo que necesitabas: usa &quot;Compré todo&quot;.</p>
           )}
-          <button className="btn btn-primary w-full" disabled={!valido} onClick={() => onComprar(n)}>
-            Guardar lo que compré
-          </button>
-          <button className="btn btn-secondary w-full" onClick={onTodo}>
-            Compré todo ({item.cantidad})
-          </button>
+
+          <div className={`space-y-2 ${pendiente && total ? "border-t-2 border-rosa-claro pt-4" : ""}`}>
+            <label className="label" htmlFor="cantidad-producto">
+              {item.comprado ? "Cantidad que compraste" : "Cantidad"}
+            </label>
+            <input
+              id="cantidad-producto"
+              className="input"
+              value={cantidad}
+              onChange={(e) => setCantidad(e.target.value)}
+              placeholder="Ej: 2 kilos"
+            />
+            <button
+              className="btn btn-secondary w-full"
+              disabled={cantidad.trim() === (item.cantidad ?? "")}
+              onClick={() => onCantidad(cantidad)}
+            >
+              Guardar cantidad
+            </button>
+          </div>
         </div>
       )}
     </Sheet>
