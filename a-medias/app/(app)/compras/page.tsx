@@ -68,6 +68,14 @@ export default function ComprasPage() {
   ]
     .filter((g) => g.productos.length > 0)
     .map((g) => ({ ...g, productos: [...g.productos].sort((a, b) => pantryDaysLeft(a) - pantryDaysLeft(b)) }));
+  // Despensa de Mercado agrupada por categoría (tipo de alimento), en el orden de siempre
+  const gruposMercado = [...CATEGORIAS, ...[...new Set(productos.map((p) => p.categoria))].filter((c) => !CATEGORIAS.includes(c))]
+    .map((c) => ({
+      clave: c,
+      titulo: c,
+      productos: productos.filter((p) => p.categoria === c).sort((a, b) => pantryDaysLeft(a) - pantryDaysLeft(b)),
+    }))
+    .filter((g) => g.productos.length > 0);
   async function agregar(e: React.FormEvent) {
     e.preventDefault();
     if (!nombre.trim() || !lista) return;
@@ -351,37 +359,9 @@ export default function ComprasPage() {
                         <SectionHeader title={g.titulo} small {...plegable(`despensa:${g.clave}`, g.productos.length)} />
                         {!plegada(`despensa:${g.clave}`) && (
                           <ul className="card p-0!">
-                            {g.productos.map((p) => {
-                              const d = pantryDaysLeft(p);
-                              const pct = Math.max(0, Math.min(100, (d / p.duracion_dias) * 100));
-                              return (
-                                <li key={p.id} className="border-b-2 border-rosa-claro last:border-b-0">
-                                  <button className="flex w-full items-center gap-3 px-4 py-3 text-left" onClick={() => setProducto(p)}>
-                                    <div className="min-w-0 flex-1">
-                                      <p className="text-[15px] font-semibold">{p.nombre}</p>
-                                      {(p.marca || p.tipo_comida || p.rota || p.responsable_id) && (
-                                        <p className="text-xs text-sec">
-                                          {[
-                                            p.marca,
-                                            p.tipo_comida,
-                                            p.rota ? "Responsable: rotar" : p.responsable_id ? `Responsable: ${memberById(p.responsable_id)?.nombre ?? ""}` : null,
-                                          ]
-                                            .filter(Boolean)
-                                            .join(" · ")}
-                                        </p>
-                                      )}
-                                      <div className="mt-1.5 h-2.5 overflow-hidden rounded-full border-2 border-vino">
-                                        <div className={`h-full ${pct <= 20 ? "bg-accion" : "bg-rosa"}`} style={{ width: `${pct}%` }} />
-                                      </div>
-                                    </div>
-                                    <span className={`w-24 text-right text-xs font-semibold ${pct <= 20 ? "text-accion" : "text-sec"}`}>
-                                      {diasTexto(d)}
-                                    </span>
-                                    <Pencil size={14} className="text-sec" />
-                                  </button>
-                                </li>
-                              );
-                            })}
+                            {g.productos.map((p) => (
+                              <PantryRow key={p.id} producto={p} onAbrir={() => setProducto(p)} />
+                            ))}
                           </ul>
                         )}
                       </div>
@@ -510,42 +490,20 @@ export default function ComprasPage() {
                 {productos.length === 0 ? (
                   <Empty>Agrega lo que siempre compran (café, arroz, jabón) y cuántos días les dura.</Empty>
                 ) : (
-                  <ul className="card p-0!">
-                    {[...productos]
-                      .sort((a, b) => pantryDaysLeft(a) - pantryDaysLeft(b))
-                      .map((p) => {
-                        const d = pantryDaysLeft(p);
-                        const pct = Math.max(0, Math.min(100, (d / p.duracion_dias) * 100));
-                        return (
-                          <li key={p.id} className="border-b-2 border-rosa-claro last:border-b-0">
-                            <button className="flex w-full items-center gap-3 px-4 py-3 text-left" onClick={() => setProducto(p)}>
-                              <div className="min-w-0 flex-1">
-                                <p className="text-[15px] font-semibold">{pets.find((x) => x.id === p.pet_id)?.nombre ?? p.nombre}</p>
-                                {(p.pet_id || p.marca || p.tipo_comida || p.rota || p.responsable_id) && (
-                                  <p className="text-xs text-sec">
-                                    {[
-                                      p.pet_id ? p.nombre : null,
-                                      p.marca,
-                                      p.tipo_comida,
-                                      p.rota ? "Responsable: rotar" : p.responsable_id ? `Responsable: ${memberById(p.responsable_id)?.nombre ?? ""}` : null,
-                                    ]
-                                      .filter(Boolean)
-                                      .join(" · ")}
-                                  </p>
-                                )}
-                                <div className="mt-1.5 h-2.5 overflow-hidden rounded-full border-2 border-vino">
-                                  <div className={`h-full ${pct <= 20 ? "bg-accion" : "bg-rosa"}`} style={{ width: `${pct}%` }} />
-                                </div>
-                              </div>
-                              <span className={`w-24 text-right text-xs font-semibold ${pct <= 20 ? "text-accion" : "text-sec"}`}>
-                                {diasTexto(d)}
-                              </span>
-                              <Pencil size={14} className="text-sec" />
-                            </button>
-                          </li>
-                        );
-                      })}
-                  </ul>
+                  <div className="space-y-1">
+                    {gruposMercado.map((g) => (
+                      <div key={g.clave}>
+                        <SectionHeader title={g.titulo} small {...plegable(`despensa:${g.clave}`, g.productos.length)} />
+                        {!plegada(`despensa:${g.clave}`) && (
+                          <ul className="card p-0!">
+                            {g.productos.map((p) => (
+                              <PantryRow key={p.id} producto={p} onAbrir={() => setProducto(p)} />
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 )}
                 </>
               )}
@@ -641,7 +599,7 @@ function PantrySheet({
   const [marca, setMarca] = useState("");
   const [tipoComida, setTipoComida] = useState("");
   const [responsable, setResponsable] = useState("rotar");
-  const [duracion, setDuracion] = useState(30);
+  const [duracion, setDuracion] = useState("30");
   const [ultima, setUltima] = useState(todayStr());
   const [error, setError] = useState<string | null>(null);
   const editando = producto && producto !== "nuevo" ? producto : null;
@@ -656,7 +614,7 @@ function PantrySheet({
     setMarca(editando?.marca ?? "");
     setTipoComida(editando?.tipo_comida ?? "");
     setResponsable(editando && !editando.rota && editando.responsable_id ? editando.responsable_id : "rotar");
-    setDuracion(editando?.duracion_dias ?? 30);
+    setDuracion(String(editando?.duracion_dias ?? 30));
     setUltima(editando?.fecha_ultima_compra ?? todayStr());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [producto]);
@@ -665,14 +623,15 @@ function PantrySheet({
     const mascota = pets.find((p) => p.id === petId);
     // Si es comida de una mascota, el nombre puede quedar vacío: se arma solo
     const nombreFinal = nombre.trim() || (mascota ? `Comida de ${mascota.nombre}` : "");
-    if (!nombreFinal || duracion < 1) return setError("Completa el nombre y los días.");
+    const dias = Math.round(Number(duracion));
+    if (!nombreFinal || !(dias >= 1)) return setError("Completa el nombre y los días que les dura (1 o más).");
     const fila = {
       household_id: household!.id,
       nombre: nombreFinal,
       categoria: esMascota ? ("Otros" as Categoria) : categoria,
       responsable_id: esMascota && responsable !== "rotar" ? responsable : null,
       rota: esMascota && responsable === "rotar",
-      duracion_dias: duracion,
+      duracion_dias: dias,
       fecha_ultima_compra: ultima,
       pet_id: mascota ? mascota.id : null,
       es_mascotas: mascota ? true : editando ? !!editando.es_mascotas : paraMascotas,
@@ -771,7 +730,31 @@ function PantrySheet({
             <label className="label" htmlFor="p-dur">
               Les dura (días)
             </label>
-            <input id="p-dur" type="number" min={1} className="input" value={duracion} onChange={(e) => setDuracion(Number(e.target.value))} />
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm h-11 w-10 shrink-0 px-0!"
+                aria-label="Un día menos"
+                onClick={() => setDuracion(String(Math.max(1, (Number(duracion) || 1) - 1)))}
+              >
+                −
+              </button>
+              <input
+                id="p-dur"
+                inputMode="numeric"
+                className="input min-w-0 text-center"
+                value={duracion}
+                onChange={(e) => setDuracion(e.target.value.replace(/[^0-9]/g, ""))}
+              />
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm h-11 w-10 shrink-0 px-0!"
+                aria-label="Un día más"
+                onClick={() => setDuracion(String((Number(duracion) || 0) + 1))}
+              >
+                +
+              </button>
+            </div>
           </div>
           <div>
             <label className="label" htmlFor="p-ult">
@@ -882,5 +865,33 @@ function ItemSheet({
         </div>
       )}
     </Sheet>
+  );
+}
+
+/** Producto de la despensa: nombre, detalles, cuánto dura y cuánto le queda */
+function PantryRow({ producto: p, onAbrir }: { producto: PantryProduct; onAbrir: () => void }) {
+  const { memberById } = useHousehold();
+  const d = pantryDaysLeft(p);
+  const pct = Math.max(0, Math.min(100, (d / p.duracion_dias) * 100));
+  const detalles = [
+    p.marca,
+    p.tipo_comida,
+    `Dura ${p.duracion_dias} ${p.duracion_dias === 1 ? "día" : "días"}`,
+    p.rota ? "Responsable: rotar" : p.responsable_id ? `Responsable: ${memberById(p.responsable_id)?.nombre ?? ""}` : null,
+  ].filter(Boolean);
+  return (
+    <li className="border-b-2 border-rosa-claro last:border-b-0">
+      <button className="flex w-full items-center gap-3 px-4 py-3 text-left" onClick={onAbrir} aria-label={`Editar ${p.nombre}`}>
+        <div className="min-w-0 flex-1">
+          <p className="text-[15px] font-semibold">{p.nombre}</p>
+          <p className="text-xs text-sec">{detalles.join(" · ")}</p>
+          <div className="mt-1.5 h-2.5 overflow-hidden rounded-full border-2 border-vino">
+            <div className={`h-full ${pct <= 20 ? "bg-accion" : "bg-rosa"}`} style={{ width: `${pct}%` }} />
+          </div>
+        </div>
+        <span className={`w-24 text-right text-xs font-semibold ${pct <= 20 ? "text-accion" : "text-sec"}`}>{diasTexto(d)}</span>
+        <Pencil size={14} className="text-sec" />
+      </button>
+    </li>
   );
 }
