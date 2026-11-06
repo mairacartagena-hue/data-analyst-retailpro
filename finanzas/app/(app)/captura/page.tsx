@@ -7,6 +7,7 @@ import { useFinance } from "@/lib/data/FinanceProvider";
 import { useShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Card, SectionTitle } from "@/components/ui/card";
+import { InfoNote } from "@/components/ui/info-note";
 import { ErrorText } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { MemorySheet, memoryTitle } from "@/components/MemorySheet";
@@ -169,12 +170,12 @@ export default function CapturaPage() {
   return (
     <main className="px-4 pt-[calc(12px+env(safe-area-inset-top))]">
       <div className="flex items-center gap-2 py-2">
-        <Link href="/mas" aria-label="Volver" className="rounded-full p-2 text-muted hover:bg-surface-2"><ArrowLeft size={20} /></Link>
+        <Link href="/ajustes" aria-label="Volver" className="rounded-full p-2 text-muted hover:bg-surface-2"><ArrowLeft size={20} /></Link>
         <h1 className="font-display text-3xl">Captura automática</h1>
       </div>
-      <p className="px-1 text-sm text-muted">
+      <InfoNote>
         Tus notificaciones, SMS y correos bancarios llegan solos a la app. Lo que no se pueda conciliar queda en “Por revisar” en el inicio.
-      </p>
+      </InfoNote>
       <ErrorText>{error}</ErrorText>
 
       {connected && (
@@ -296,7 +297,7 @@ export default function CapturaPage() {
       <FoldSection id="memoria" title="Memoria de comercios" count={memoryGroups.length}>
       {(limit) => <>
       {memory.length === 0 ? (
-        <p className="px-1 text-sm text-muted">Cuando revises un movimiento con “Recordar este comercio”, aparecerá aquí.</p>
+        <p className="px-1 text-sm text-muted">Cuando revises un movimiento y elijas recordar el comercio (Sugerir o Siempre), aparecerá aquí.</p>
       ) : (
         <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface">
           {memoryGroups.slice(0, limit).map((g) => {

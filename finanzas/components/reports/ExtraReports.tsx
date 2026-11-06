@@ -6,7 +6,7 @@ import { useFinance } from "@/lib/data/FinanceProvider";
 import { BarList, ChartCard } from "@/components/charts/Charts";
 import { Segmented } from "@/components/ui/segmented";
 import type { Transaction } from "@/lib/types";
-import { statusesFor } from "@/lib/finance/derive";
+import { netWorth, statusesFor } from "@/lib/finance/derive";
 import { formatCop, formatCopShort } from "@/lib/finance/money";
 import { addDays, formatDay, periodFor, shiftPeriod, todayBogota, type Period } from "@/lib/finance/periods";
 import { creditChargeIds, fixedVariableItems, taxSummary, type FixedKind, type ReportSpace } from "@/lib/finance/reports";
@@ -222,7 +222,10 @@ function FixedVariableSheet({ shown, items, onClose }: {
 
 /** Resumen del año para la declaración de renta (de la persona que mira). */
 export function TaxSummaryCard() {
-  const { transactions, categories, accounts, me } = useFinance();
+  const state = useFinance();
+  const { transactions, categories, accounts, me } = state;
+  // Patrimonio: solo lo tuyo (tus cuentas y tus activos y pasivos), que es lo que va en tu declaración
+  const worth = netWorth(state, "me");
   const thisYear = Number(todayBogota().slice(0, 4));
   const [year, setYear] = useState(thisYear - (Number(todayBogota().slice(5, 7)) <= 8 ? 1 : 0));
   const s = useMemo(() => taxSummary(transactions, { userId: me.user_id, year, categories, accounts }), [transactions, me.user_id, year, categories, accounts]);
@@ -234,7 +237,7 @@ export function TaxSummaryCard() {
   );
   return (
     <ChartCard id="renta" defaultOpen={false} summary={`${year}: ingresos ${formatCopShort(s.income)} · 4x1000 ${formatCopShort(s.gmf)}`} title="Resumen para la renta" subtitle="Lo tuyo del año según lo registrado en la app. Es una guía: los valores oficiales salen de los certificados de tus bancos"
-      table={{ columns: ["Concepto", "Valor"], rows: [["Ingresos", s.income], ...s.incomeByCategory.map((i) => [`  ${i.name}`, i.total] as [string, number]), ["4x1000 pagado", s.gmf], ...s.credits.flatMap((c) => [[`${c.name}: intereses`, c.interest], [`${c.name}: seguros y otros cargos`, c.insurance], [`${c.name}: abono a capital`, c.capital]] as [string, number][])] }}>
+      table={{ columns: ["Concepto", "Valor"], rows: [["Ingresos", s.income], ...s.incomeByCategory.map((i) => [`  ${i.name}`, i.total] as [string, number]), ["4x1000 pagado", s.gmf], ["Patrimonio: activos (hoy)", worth.assets], ["Patrimonio: pasivos (hoy)", worth.liabilities], ["Patrimonio neto (hoy)", worth.total], ...s.credits.flatMap((c) => [[`${c.name}: intereses`, c.interest], [`${c.name}: seguros y otros cargos`, c.insurance], [`${c.name}: abono a capital`, c.capital]] as [string, number][])] }}>
       <Segmented className="mb-2" value={String(year)} onChange={(v) => setYear(Number(v))}
         options={[{ value: String(thisYear - 1), label: String(thisYear - 1) }, { value: String(thisYear), label: `${thisYear} (en curso)` }]} />
       <div className="divide-y divide-border">
@@ -243,6 +246,13 @@ export function TaxSummaryCard() {
         {s.credits.map((c) => row(`${c.name}: intereses`, c.interest, `${c.payments} cuota${c.payments === 1 ? "" : "s"} · sin seguros y otros cargos (${formatCop(c.insurance)}, según el valor mensual del crédito) · abono a capital ${formatCop(c.capital)}. Los intereses de un crédito de vivienda son deducibles; confírmalos con el certificado del banco.`))}
         {s.credits.length === 0 && <p className="py-2 text-xs text-muted">No hay cuotas de créditos registradas en {year}.</p>}
       </div>
+      <h3 className="mt-4 text-sm font-semibold">Patrimonio</h3>
+      <div className="divide-y divide-border">
+        {row("Activos", worth.assets, "Tus cuentas con saldo, inversiones y bienes.")}
+        {row("Pasivos (deudas)", worth.liabilities, "Tarjetas, créditos y préstamos.")}
+        {row("Patrimonio neto", worth.total)}
+      </div>
+      <p className="mt-1 text-xs text-muted">Son los saldos de hoy. En la declaración van los del 31 de diciembre: confírmalos con los certificados de tus bancos.</p>
       {year === thisYear && <p className="mt-2 text-xs text-muted">El año va en curso: los valores crecen hasta el 31 de diciembre.</p>}
     </ChartCard>
   );

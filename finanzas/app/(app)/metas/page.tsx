@@ -7,6 +7,7 @@ import { useFinance } from "@/lib/data/FinanceProvider";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Card, SectionTitle } from "@/components/ui/card";
+import { InfoNote } from "@/components/ui/info-note";
 import { ErrorText, Field, Input, Select } from "@/components/ui/input";
 import { Segmented } from "@/components/ui/segmented";
 import { AmountInput } from "@/components/AmountInput";
@@ -63,9 +64,9 @@ export default function MetasPage() {
         </div>
         <Button size="sm" onClick={() => edit(null)}><Plus size={16} /> Nueva</Button>
       </div>
-      <p className="px-1 text-sm text-muted">
+      <InfoNote>
         Las del hogar las ven los dos y ambos pueden aportar; las personales solo tú. El aporte previsto se aparta de tu Saldo Seguro mientras falte.
-      </p>
+      </InfoNote>
 
       {activeGoals.length === 0 ? (
         <Card className="mt-4 space-y-2 text-center">

@@ -20,12 +20,18 @@ export function creditCheckDue(account: Pick<Account, "id" | "due_day" | "openin
 }
 
 /** Aviso mensual: “¿El saldo de tu hipoteca es $X? Confirmar / Corregir”. */
-export function CreditCheck() {
+export function useCreditDue(): Account[] {
   const { accounts, balances, reconciliations, me } = useFinance();
   const today = todayBogota();
-  const due = accounts.filter((a) => a.kind === "CREDIT" && !a.archived && a.owner_user_id === me.user_id
+  return accounts.filter((a) => a.kind === "CREDIT" && !a.archived && a.owner_user_id === me.user_id
     && (balances[a.id] ?? 0) < 0
     && creditCheckDue(a, reconciliations.filter((r) => r.account_id === a.id && r.status === "RECONCILED").map((r) => r.month), today));
+}
+
+export function CreditCheck() {
+  const { balances } = useFinance();
+  const today = todayBogota();
+  const due = useCreditDue();
   if (due.length === 0) return null;
   return <>{due.map((a) => <CreditCheckRow key={a.id} account={a} balance={balances[a.id] ?? 0} today={today} />)}</>;
 }
@@ -61,7 +67,7 @@ function CreditCheckRow({ account, balance, today }: { account: Account; balance
 
   const typed = parseCop(value);
   return (
-    <div className="mt-4 space-y-2 rounded-2xl bg-wood-soft px-4 py-3 text-sm">
+    <div className="space-y-2 rounded-2xl bg-wood-soft px-4 py-3 text-sm">
       <div className="flex items-center gap-3">
         <Landmark size={18} className="shrink-0 text-wood" />
         <span className="flex-1">¿El saldo de tu <strong>{account.name}</strong> es <strong>{formatCop(owed)}</strong>?</span>

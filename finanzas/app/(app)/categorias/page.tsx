@@ -7,6 +7,7 @@ import { useFinance } from "@/lib/data/FinanceProvider";
 import { CategorySheet } from "@/components/CategorySheet";
 import { Button } from "@/components/ui/button";
 import { Card, SectionTitle } from "@/components/ui/card";
+import { InfoNote } from "@/components/ui/info-note";
 import type { Category } from "@/lib/types";
 import { budgetVersionAt } from "@/lib/finance/budget";
 import { toBudgetCategories } from "@/lib/finance/derive";
@@ -128,15 +129,15 @@ export default function CategoriasPage() {
     <main className="px-4 pb-6 pt-[calc(12px+env(safe-area-inset-top))]">
       <div className="flex items-center justify-between py-2">
         <div className="flex items-center gap-2">
-          <Link href="/mas" aria-label="Volver" className="rounded-full p-2 text-muted hover:bg-surface-2"><ArrowLeft size={20} /></Link>
+          <Link href="/ajustes" aria-label="Volver" className="rounded-full p-2 text-muted hover:bg-surface-2"><ArrowLeft size={20} /></Link>
           <h1 className="font-display text-3xl">Categorías</h1>
         </div>
         <Button size="sm" onClick={() => edit(null)}><Plus size={16} /> Nueva</Button>
       </div>
-      <p className="px-1 text-sm text-muted">
+      <InfoNote>
         Son las mismas de <Link href="/presupuestos" className="font-semibold text-olive underline">Presupuesto</Link> y
         las que eliges al registrar un pago. Para crear una subcategoría (ej. Energía dentro de Servicios), toca “Nueva” y elige en qué categoría va.
-      </p>
+      </InfoNote>
 
       <div className="mt-3 space-y-1.5 rounded-2xl bg-surface-2 p-3">
         <p className="text-sm">Estructura sugerida: Vivienda y hogar, Alimentación, Mascotas, Transporte, Salud, Deudas, Estilo de vida y Ahorro, con sus subcategorías, más las de ingresos.</p>

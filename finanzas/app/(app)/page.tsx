@@ -4,23 +4,23 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
-import { ArrowRightLeft, ChevronDown, Settings } from "lucide-react";
+import { ArrowRightLeft, BellDot, ChevronDown, Settings } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { useShell } from "@/components/AppShell";
 import { PeriodSwitcher, SwipePeriods } from "@/components/PeriodSwitcher";
 import { MemberBadge } from "@/components/MemberBadge";
-import { PendingReview } from "@/components/PendingReview";
+import { PendingReview, usePendingReview } from "@/components/PendingReview";
 import { BudgetDetailSheet } from "@/components/BudgetDetailSheet";
 import type { CategoryLimit } from "@/lib/types";
-import { CloseReminder } from "@/components/CloseReminder";
-import { DriftAlert } from "@/components/DriftAlert";
-import { CreditCheck } from "@/components/CreditCheck";
+import { CloseReminder, useCloseMissing } from "@/components/CloseReminder";
+import { DriftAlert, useDrift } from "@/components/DriftAlert";
+import { CreditCheck, useCreditDue } from "@/components/CreditCheck";
 import { UpcomingList, useUpcoming } from "@/components/Upcoming";
 import { Card, SectionTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
 import { Sheet } from "@/components/ui/sheet";
-import { crossNet, limitsForScope, netWorth, safeToSpendDetail, safeToSpendFor, statusesFor, type SafeToSpendDetail, type Scope } from "@/lib/finance/derive";
+import { crossNet, limitsForScope, safeToSpendDetail, safeToSpendFor, statusesFor, type SafeToSpendDetail, type Scope } from "@/lib/finance/derive";
 import { formatCop } from "@/lib/finance/money";
 import { categoryPath } from "@/lib/finance/spaces";
 import { categoryLabel } from "@/lib/finance/labels";
@@ -50,7 +50,6 @@ export default function HomePage() {
   const safeDetail = useMemo(() => safeToSpendDetail(state, period, statuses), [state, period, statuses]);
   const safe = useMemo(() => safeToSpendFor(state, period, statuses, safeDetail), [state, period, statuses, safeDetail]);
   const net = crossNet(state);
-  const worth = netWorth(state, scope);
   const cats = limitsForScope(state, scope);
   const upcoming = useUpcoming(period);
   const pendingDues = upcoming.occurrences.filter((o) => !o.paid && (scope !== "household" || o.payment.scope === "HOUSEHOLD"));
@@ -74,19 +73,10 @@ export default function HomePage() {
 
       <PeriodSwitcher />
 
-      <Segmented className="mt-3" value={scope} onChange={setScope} options={[
-        { value: "me", label: "Mis finanzas" },
-        { value: "household", label: "Hogar" },
-        { value: "global", label: "Vista global" },
-      ]} />
-
       <SwipePeriods>
-        <DriftAlert />
-        <CloseReminder />
-        <CreditCheck />
-        <PendingReview />
-
         <SafeToSpendCard safe={safe} detail={safeDetail} />
+
+        <PendingBox />
 
         {partner ? (
           <Card className="mt-3 flex items-center gap-3">
@@ -109,11 +99,18 @@ export default function HomePage() {
           </Card>
         )}
 
+        {/* La vista solo cambia lo de abajo (vencimientos y presupuestos); el Saldo Seguro es siempre el tuyo */}
+        <Segmented className="mt-5" value={scope} onChange={setScope} options={[
+          { value: "me", label: "Mis finanzas" },
+          { value: "household", label: "Hogar" },
+          { value: "global", label: "Todo" },
+        ]} />
+
         {pendingDues.length + cardDues.length + obligationDues.length > 0 && (
           <>
             <div className="mt-5 flex items-center justify-between">
               <SectionTitle className="m-0">Próximos vencimientos</SectionTitle>
-              <Link href="/presupuestos" className="text-sm font-semibold text-olive">Ver todos</Link>
+              <Link href="/presupuestos?vista=vencimientos" className="text-sm font-semibold text-olive">Ver todos</Link>
             </div>
             <UpcomingList occurrences={pendingDues} cards={cardDues} obligations={obligationDues} today={upcoming.today} limit={3} />
           </>
@@ -127,18 +124,57 @@ export default function HomePage() {
         ) : (
           <BudgetAlerts cats={cats} statuses={statuses} onOpen={setDetail} />
         )}
-
-        <SectionTitle>Patrimonio</SectionTitle>
-        <Card>
-          <p className="text-xs text-muted">Patrimonio neto</p>
-          <p className={cn("num mt-1 text-lg font-semibold", worth.total < 0 && "text-danger")}>{formatCop(worth.total)}</p>
-          <p className="num mt-1 text-xs text-muted">Activos {formatCop(worth.assets)}</p>
-          <p className="num text-xs text-muted">Pasivos {formatCop(worth.liabilities)}</p>
-        </Card>
       </SwipePeriods>
       <BudgetDetailSheet limit={detail} status={detail ? statuses.get(detail.id) : undefined} onClose={() => setDetail(null)}
         onEdit={(l) => router.push(`/presupuestos?limite=${l.id}`)} />
     </main>
+  );
+}
+
+const PENDING_KEY = "home-pending-open";
+
+/** Inicio: todos los avisos (descuadres, cierre, créditos por confirmar y movimientos por revisar) en una sola tarjeta plegable. */
+function PendingBox() {
+  const drift = useDrift();
+  const close = useCloseMissing();
+  const credits = useCreditDue();
+  const review = usePendingReview();
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    try { setOpen(localStorage.getItem(PENDING_KEY) === "1"); } catch {}
+  }, []);
+  const toggle = () => {
+    const next = !open;
+    setOpen(next);
+    try { localStorage.setItem(PENDING_KEY, next ? "1" : "0"); } catch {}
+  };
+  const total = drift.length + (close ? 1 : 0) + credits.length + review.length;
+  if (total === 0) return null;
+  const parts = [
+    drift.length > 0 && `${drift.length} descuadre${drift.length === 1 ? "" : "s"}`,
+    close && "cierre del mes",
+    credits.length > 0 && `${credits.length} crédito${credits.length === 1 ? "" : "s"} por confirmar`,
+    review.length > 0 && `${review.length} por revisar`,
+  ].filter(Boolean).join(" · ");
+  return (
+    <Card className={cn("mt-3 p-0", drift.length > 0 && "border-danger/40")}>
+      <button type="button" onClick={toggle} aria-expanded={open} className="flex w-full items-center gap-3 px-4 py-3 text-left">
+        <BellDot size={20} className={cn("shrink-0", drift.length > 0 ? "text-danger" : "text-warning")} />
+        <span className="min-w-0 flex-1">
+          <span className="block font-semibold">Pendientes · {total}</span>
+          <span className="block truncate text-xs text-muted">{parts}</span>
+        </span>
+        <ChevronDown size={18} className={cn("shrink-0 text-muted transition-transform", open && "rotate-180")} />
+      </button>
+      {open && (
+        <div className="space-y-2 border-t border-border p-3">
+          <DriftAlert />
+          <CloseReminder />
+          <CreditCheck />
+          <PendingReview />
+        </div>
+      )}
+    </Card>
   );
 }
 
@@ -226,7 +262,7 @@ function SafeToSpendCard({ safe, detail }: { safe: ReturnType<typeof safeToSpend
   const info = section ? SECTION_INFO[section] : null;
   const lines = section ? detail[section] : [];
   return (
-    <Card className="mt-4 bg-olive text-on-olive">
+    <Card className="mt-3 bg-olive text-on-olive">
       <button className="w-full text-left" onClick={() => setOpen(!open)} aria-expanded={open}>
         <p className="text-sm opacity-80">Saldo Seguro para Gastar</p>
         <motion.p key={safe.total} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}

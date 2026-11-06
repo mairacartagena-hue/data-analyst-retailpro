@@ -19,6 +19,7 @@ import { CreditPaymentAdjust } from "@/components/CreditPaymentAdjust";
 import { creditMonthBreakdown } from "@/lib/finance/creditPayments";
 import { Segmented } from "@/components/ui/segmented";
 import { Collapsible } from "@/components/ui/collapsible";
+import { InfoNote } from "@/components/ui/info-note";
 import type { Account } from "@/lib/types";
 import { ACCOUNT_KIND_LABEL } from "@/lib/types";
 import { acceptDrift, accountStatement, effectOn, gmfEstimate, monthRange, reconciliationDrift, shiftMonth, type GmfMode } from "@/lib/finance/reconcile";
@@ -148,6 +149,11 @@ export default function CierrePage() {
         { value: "cuentas", label: `Cuentas · ${doneOf(myAccounts)}/${myAccounts.length}` },
         { value: "creditos", label: `Créditos · ${doneOf(myCredits)}/${myCredits.length}` },
       ]} />
+      {tab === "creditos" && shown.length > 0 && (
+        <InfoNote className="-mt-1 mb-3">
+          Compara la deuda de capital con el extracto del crédito. Si no cuadra, suele ser porque el reparto de alguna cuota (capital e intereses) no coincide con el banco: el ajuste corrige la deuda sin contar como gasto ni ingreso.
+        </InfoNote>
+      )}
       {shown.length === 0 ? (
         <p className="px-1 text-sm text-muted">{tab === "creditos" ? "No tienes créditos ni préstamos. Agrégalos en Cuentas → Créditos." : "No tienes cuentas. Agrégalas en Cuentas."}</p>
       ) : (
@@ -155,14 +161,6 @@ export default function CierrePage() {
           open={(openId ?? shown.find((x) => !reconciliations.some((r) => r.account_id === x.id && r.month === monthRange(month).start))?.id) === a.id}
           onToggle={() => setOpenId((cur) => (cur === a.id ? "" : a.id))} />)}</div>
       )}
-      {tab === "creditos" && shown.length > 0 && (
-        <p className="mt-3 px-1 text-xs text-muted">
-          Compara la deuda de capital con el extracto del crédito. Si no cuadra, suele ser porque el reparto de alguna cuota (capital e intereses) no coincide con el banco: el ajuste corrige la deuda sin contar como gasto ni ingreso.
-        </p>
-      )}
-      <p className="mt-3 px-1 text-xs text-muted">
-        El 4x1000 es un estimado: 0,4 % de lo que sale de la cuenta por encima del tope exento (350 UVT al mes en cuentas exentas, 65 UVT en depósitos de bajo monto; UVT {formatCop(state.uvt)}). Confírmalo con tu extracto.
-      </p>
     </main>
   );
 }
@@ -399,6 +397,11 @@ function AccountClose({ account, month, open, onToggle }: { account: Account; mo
               ))}
             </div>
             <p className="text-xs text-muted">Van a tu categoría “Gastos bancarios”. Cada uno que registres se descuenta de la diferencia.</p>
+            {!isCard && (
+              <InfoNote className="px-0" label="Sobre el 4x1000">
+                Es un estimado: 0,4 % de lo que sale de la cuenta por encima del tope exento (350 UVT al mes en cuentas exentas, 65 UVT en depósitos de bajo monto; UVT {formatCop(uvt)}). Confírmalo con tu extracto.
+              </InfoNote>
+            )}
             <button className="text-xs text-olive underline" onClick={() => openTransaction(null)}>Registrar otro movimiento que falte</button>
           </div>}
 

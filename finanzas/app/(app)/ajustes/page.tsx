@@ -3,11 +3,12 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Bell, BellOff, BookOpen, Download, LogOut, RefreshCw, Share2 } from "lucide-react";
+import { ArrowLeft, Bell, BellOff, BookOpen, CalendarRange, ChevronRight, Download, Home, Landmark, LogOut, RefreshCw, Shapes, Share2, Zap } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { MemberBadge } from "@/components/MemberBadge";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { Card, SectionTitle } from "@/components/ui/card";
+import { FoldSection } from "@/components/ui/fold-section";
+import { formatCop } from "@/lib/finance/money";
 import { ErrorText, Field, Input } from "@/components/ui/input";
 import { Segmented } from "@/components/ui/segmented";
 import { getInstallPrompt, isStandalone, subscribeInstallPrompt } from "@/lib/pwa";
@@ -22,7 +23,7 @@ const COLORS = ["#6b7a3a", "#a0703f", "#8c5a46", "#4f6d6a", "#7b5c8a", "#b5654a"
 type Theme = "system" | "light" | "dark";
 
 export default function AjustesPage() {
-  const { me, partner, household, settings, supabase, reload, uvt, queue } = useFinance();
+  const { me, partner, household, settings, supabase, reload, uvt, queue, categories } = useFinance();
   const router = useRouter();
 
   const [name, setName] = useState(me.display_name);
@@ -122,6 +123,9 @@ export default function AjustesPage() {
     router.refresh();
   }
 
+  const THEME_LABEL: Record<Theme, string> = { system: "tema automático", light: "tema claro", dark: "tema oscuro" };
+  const periodSummary = cycle === "MONTHLY" ? `Mensual, desde el día ${monthlyDay || "1"}` : `Quincenal: días ${firstDay} y ${secondDay}`;
+
   return (
     <main className="px-4 pt-[calc(12px+env(safe-area-inset-top))]">
       <div className="flex items-center gap-2 py-2">
@@ -130,8 +134,9 @@ export default function AjustesPage() {
       </div>
       <ErrorText>{error}</ErrorText>
 
-      <SectionTitle>Mi perfil</SectionTitle>
-      <Card className="space-y-4">
+      <div className="mt-2 space-y-3">
+      <FoldSection id="ajustes:perfil" title="Perfil y apariencia" summary={`${name || me.display_name} · ${THEME_LABEL[theme]}`}
+        icon={<MemberBadge member={{ ...me, display_name: name || me.display_name, color, avatar: avatar || null }} size={28} />}>
         <div className="flex items-center gap-3">
           <MemberBadge member={{ ...me, display_name: name || me.display_name, color, avatar: avatar || null }} size={52} />
           <div className="flex-1">
@@ -153,10 +158,15 @@ export default function AjustesPage() {
         {partner && partner.color.toLowerCase() === color.toLowerCase() && (
           <p className="text-xs text-warning">Tu pareja usa el mismo color; conviene elegir otro para diferenciarse.</p>
         )}
-      </Card>
+        <Field label="Tema">
+          <Segmented value={theme} onChange={applyTheme} options={[
+            { value: "system", label: "Automático" }, { value: "light", label: "Claro" }, { value: "dark", label: "Oscuro" },
+          ]} />
+        </Field>
+      </FoldSection>
 
-      <SectionTitle>Hogar</SectionTitle>
-      <Card className="space-y-3">
+      <FoldSection id="ajustes:hogar" title="Hogar" icon={<Home size={18} />}
+        summary={partner ? `${household.name} · con ${partner.display_name}` : `${household.name} · invita a tu pareja`}>
         <p className="font-semibold">{household.name}</p>
         {partner ? (
           <div className="flex items-center gap-2 text-sm"><MemberBadge member={partner} size={24} /> {partner.display_name} es parte del hogar.</div>
@@ -170,10 +180,9 @@ export default function AjustesPage() {
             </div>
           </>
         )}
-      </Card>
+      </FoldSection>
 
-      <SectionTitle>Periodos</SectionTitle>
-      <Card className="space-y-4">
+      <FoldSection id="ajustes:periodos" title="Periodos" summary={periodSummary} icon={<CalendarRange size={18} />}>
         <Segmented value={cycle} onChange={setCycle} options={[{ value: "MONTHLY", label: "Mensual" }, { value: "BIWEEKLY", label: "Quincenal" }]} />
         {cycle === "MONTHLY" ? (
           <Field label="Día en que empieza el mes" htmlFor="md" hint="Por ejemplo 25 si les pagan ese día. Del 1 al 28.">
@@ -186,29 +195,46 @@ export default function AjustesPage() {
           </div>
         )}
         <p className="text-xs text-muted">Aplica a los dos. Los presupuestos se repiten en cada periodo.</p>
+        <FirstSweep disabled={periodsDirty} />
+      </FoldSection>
+
+      <Link href="/categorias" className="flex items-center gap-3 rounded-3xl border border-border bg-surface px-4 py-3.5 shadow-soft hover:bg-surface-2">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-2"><Shapes size={18} /></span>
+        <span className="min-w-0 flex-1">
+          <span className="block font-semibold">Categorías</span>
+          <span className="block truncate text-xs text-muted">{categories.filter((c) => !c.archived).length} activas · se usan en Presupuesto y en los pagos</span>
+        </span>
+        <ChevronRight size={18} className="shrink-0 text-muted" />
+      </Link>
+
+      <Link href="/captura" className="flex items-center gap-3 rounded-3xl border border-border bg-surface px-4 py-3.5 shadow-soft hover:bg-surface-2">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-2"><Zap size={18} /></span>
+        <span className="min-w-0 flex-1">
+          <span className="block font-semibold">Captura automática</span>
+          <span className="block truncate text-xs text-muted">Notificaciones, SMS y correos bancarios</span>
+        </span>
+        <ChevronRight size={18} className="shrink-0 text-muted" />
+      </Link>
+
+      <FoldSection id="ajustes:avisos" title="Notificaciones y seguridad" summary="Aviso diario, huella y verificación en dos pasos" icon={<Bell size={18} />}>
+        <NotificationsCard />
+        <SecuritySettings />
+      </FoldSection>
+
+      <FoldSection id="ajustes:impuestos" title="Impuestos" summary={`UVT ${formatCop(Number(uvtText) || uvt)}`} icon={<Landmark size={18} />}>
         <Field label="Valor de la UVT del año" htmlFor="uvt" hint="Se usa para el tope exento del 4x1000. 2026: $52.374 (Resolución DIAN 000238 de 2025). Actualízalo cada enero.">
           <Input id="uvt" inputMode="numeric" value={uvtText} onChange={(e) => setUvtText(e.target.value.replace(/\D/g, ""))} />
         </Field>
-        <FirstSweep disabled={periodsDirty} />
-      </Card>
+      </FoldSection>
 
-      <SectionTitle>Apariencia</SectionTitle>
-      <Segmented value={theme} onChange={applyTheme} options={[
-        { value: "system", label: "Automático" }, { value: "light", label: "Claro" }, { value: "dark", label: "Oscuro" },
-      ]} />
-
-      <NotificationsCard />
-      <SecuritySettings />
-
-      <InstallCard />
-
-      <SectionTitle>Manual de uso</SectionTitle>
-      <Card className="space-y-3">
+      <FoldSection id="ajustes:manual" title="Instalar y manual de uso" summary="La app en tu celular y una guía con ejemplos" icon={<BookOpen size={18} />}>
+        <InstallCard />
         <p className="text-sm">Una guía con ejemplos para probar cada función. Se descarga como un archivo y se abre sin internet.</p>
         <a href="/manual-finanzas.html" download="Manual-Finanzas-en-Pareja.html" className={buttonVariants({ variant: "outline" })}>
           <BookOpen size={16} /> Descargar el manual
         </a>
-      </Card>
+      </FoldSection>
+      </div>
 
       <Button variant="ghost" className="mt-8 w-full text-muted" onClick={logout}><LogOut size={18} /> Cerrar sesión</Button>
 
@@ -230,17 +256,14 @@ function InstallCard() {
   useEffect(() => setStandalone(isStandalone()), []);
   if (standalone) return null;
   return (
-    <>
-      <SectionTitle>Instalar</SectionTitle>
-      <Card className="space-y-3">
+    <div className="space-y-3 border-b border-border pb-4">
         <p className="text-sm">Instálala en tu Android o computador para abrirla como una app.</p>
         {prompt ? (
           <Button onClick={async () => { await prompt.prompt(); }}><Download size={16} /> Instalar app</Button>
         ) : (
           <p className="text-xs text-muted">En Chrome: menú ⋮ → “Instalar app” o “Agregar a pantalla principal”.</p>
         )}
-      </Card>
-    </>
+    </div>
   );
 }
 
@@ -275,9 +298,8 @@ function NotificationsCard() {
   }
 
   return (
-    <>
-      <SectionTitle>Notificaciones</SectionTitle>
-      <Card className="space-y-3">
+    <div className="space-y-3">
+        <p className="text-sm font-semibold">Notificaciones</p>
         <p className="text-sm">
           Un aviso al día (8 a. m.) con lo que vence: pagos programados, tarjetas, cuotas de los créditos, el saldo del crédito por confirmar,
           el cierre del mes y los movimientos por revisar.
@@ -299,7 +321,6 @@ function NotificationsCard() {
         {state === "on" && <p className="text-xs text-muted">Activadas en este celular. Cada persona las activa en el suyo.</p>}
         {msg && <p className="text-xs text-olive">{msg}</p>}
         <ErrorText>{error}</ErrorText>
-      </Card>
-    </>
+    </div>
   );
 }

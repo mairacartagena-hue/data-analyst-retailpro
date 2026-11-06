@@ -10,6 +10,7 @@ import { ACCOUNT_KIND_LABEL, ASSET_TYPE_LABEL, VISIBILITY_LABEL } from "@/lib/ty
 import type { AccountKind } from "@/lib/finance/safeToSpend";
 import { Sheet } from "@/components/ui/sheet";
 import { Collapsible } from "@/components/ui/collapsible";
+import { Segmented } from "@/components/ui/segmented";
 import { Button } from "@/components/ui/button";
 import { ErrorText, Field, Input, Select } from "@/components/ui/input";
 import { isPointsPayoff, payoffDates, pointsPayoffs, projectCard } from "@/lib/finance/installments";
@@ -67,9 +68,12 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
   const [cutDate, setCutDate] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** Cuenta guardada (tarjeta o crédito): la hoja se divide en pestañas. */
+  const [tab, setTab] = useState<"resumen" | "compras" | "cuotas" | "ajustes">("resumen");
 
   useEffect(() => {
     if (!open) return;
+    setTab(account?.kind === "CREDIT" ? "cuotas" : "resumen");
     setError(null);
     setCardDrafts([]);
     setCutDate("");
@@ -444,13 +448,24 @@ export function AccountSheet({ open, onOpenChange, account, defaultKind = "DEPOS
             <Button className="flex-1" size="lg" onClick={save} disabled={busy}>{busy ? "Guardando..." : "Guardar"}</Button>
           </div></div>}>
       <div className="space-y-4 pb-2">
-        {/* Cuenta guardada: primero lo que se usa (cuotas, compras, presupuesto) y los datos plegados */}
-        {isCard && account && <CardProjection account={account} />}
-        {isCard && account && <CardBudget account={account} />}
-        {isCredit && account && <CreditPayments account={account} autoOpen={startCuota} dueFor={cuotaDue} />}
-        {isCredit && account && <CreditPaymentAdjust account={account} />}
-        {isCredit && account && <CreditBudget account={account} />}
-        {account ? (
+        {/* Tarjeta o crédito guardado: pestañas para no apilar todo en un solo scroll */}
+        {account && (isCard || isCredit) && (
+          <Segmented value={tab} onChange={setTab} options={isCard ? [
+            { value: "resumen", label: "Resumen" },
+            { value: "compras", label: "Compras" },
+            { value: "ajustes", label: "Ajustes" },
+          ] : [
+            { value: "cuotas", label: "Cuotas" },
+            { value: "ajustes", label: "Ajustes" },
+          ]} />
+        )}
+        {isCard && account && tab === "resumen" && <CardProjection account={account} part="projection" />}
+        {isCard && account && tab === "compras" && <CardProjection account={account} part="purchases" />}
+        {isCard && account && tab === "ajustes" && <CardBudget account={account} />}
+        {isCredit && account && tab === "cuotas" && <CreditPayments account={account} autoOpen={startCuota} dueFor={cuotaDue} />}
+        {isCredit && account && tab === "cuotas" && <CreditPaymentAdjust account={account} />}
+        {isCredit && account && tab === "ajustes" && <CreditBudget account={account} />}
+        {account && (isCard || isCredit) && tab !== "ajustes" ? null : account ? (
           <Collapsible title="Datos de la cuenta" summary={resumenCuenta}>
             {campos}
           </Collapsible>
@@ -588,7 +603,7 @@ function NewCardPurchases({ items, onChange }: { items: CardDraft[]; onChange: (
 }
 
 /** Cuotas que faltan por pagar en la tarjeta, mes a mes: compras registradas en la app y compras del extracto. */
-function CardProjection({ account }: { account: Account }) {
+function CardProjection({ account, part }: { account: Account; part: "projection" | "purchases" }) {
   const cardId = account.id;
   const { transactions, cardItems, balances } = useFinance();
   const [openMonth, setOpenMonth] = useState<string | null>(null);
@@ -605,9 +620,12 @@ function CardProjection({ account }: { account: Account }) {
   const debtAfter = new Map<string, number>();
   allRows.reduce((left, r) => { const v = Math.max(0, left - r.capital); debtAfter.set(r.month, v); return v; }, debtNow);
 
+  // Pestaña Compras: las compras a cuotas usan la misma proyección para lo que falta de cada una
+  if (part === "purchases") return <CardPurchases account={account} rows={allRows} />;
+
   return (
     <div className="space-y-3">
-      <Collapsible title={byPayment ? "Proyección de pagos" : "Cuotas de los próximos meses"}
+      <Collapsible title={byPayment ? "Proyección de pagos" : "Cuotas de los próximos meses"} defaultOpen
         summary={rows.length ? `${formatCop(rows[0].total)} el próximo` : "sin cuotas"}>
       {rows.length === 0 ? (
         <p className="rounded-2xl bg-surface-2 px-3 py-2.5 text-sm text-muted">No hay cuotas pendientes en esta tarjeta.</p>
@@ -650,8 +668,6 @@ function CardProjection({ account }: { account: Account }) {
         <p className="text-xs text-muted">Toca un mes para ver qué compras y qué cuota de cada una se pagan. Total pendiente: {formatCop(total)} (capital más intereses estimados). Es una estimación; el plan de pagos del banco manda.{byPayment ? " Incluye lo que compres a cuotas después del corte, en el extracto que lo factura." : ""}</p>
       )}
       </Collapsible>
-
-      <CardPurchases account={account} rows={allRows} />
     </div>
   );
 }
@@ -813,7 +829,7 @@ function CardPurchases({ account, rows }: { account: Account; rows: ReturnType<t
   }
 
   return (
-    <Collapsible title="Compras a cuotas" summary={purchases.length ? String(purchases.length) : undefined}>
+    <Collapsible title="Compras a cuotas" summary={purchases.length ? String(purchases.length) : undefined} defaultOpen>
       <p className="text-xs text-muted">
         Las compras a cuotas de la tarjeta: las que registraste en la app y las del extracto que no son movimientos.
         Para terminar de pagar una antes de tiempo, toca “Pagar el total”{withPoints ? " o, si la pagaste con puntos, “Con puntos”" : ""}.
