@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Building2, CreditCard, Handshake, Landmark, Lock, Plus, Smartphone, Wallet } from "lucide-react";
+import { ArrowLeft, Building2, ChevronDown, CreditCard, Handshake, Landmark, Lock, Plus, Smartphone, Wallet } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { AccountSheet, AssetSheet } from "@/components/AccountSheet";
 import { MemberBadge } from "@/components/MemberBadge";
@@ -13,7 +13,8 @@ import { Card, SectionTitle } from "@/components/ui/card";
 import type { Account, ManualAsset } from "@/lib/types";
 import { ASSET_TYPE_LABEL, VISIBILITY_LABEL } from "@/lib/types";
 import { formatCop } from "@/lib/finance/money";
-import { responsibleOf } from "@/lib/finance/derive";
+import { netWorth, responsibleOf } from "@/lib/finance/derive";
+import { InfoNote } from "@/components/ui/info-note";
 import { cn } from "@/lib/utils";
 import { capitalPaidRatio, installmentLabel, isCreditKind, nextCuota } from "@/lib/finance/credit";
 import { todayBogota } from "@/lib/finance/periods";
@@ -23,7 +24,10 @@ type View = "cuentas" | "creditos" | "cruce";
 const ICONS = { DEPOSIT: Landmark, WALLET: Smartphone, CASH: Wallet, CREDIT_CARD: CreditCard, LOAN: Handshake, CREDIT: Building2 };
 
 export default function CuentasPage() {
-  const { accounts, balances, me, partner, assets, memberById } = useFinance();
+  const state = useFinance();
+  const { accounts, balances, me, partner, assets, memberById } = state;
+  const [showTheirs, setShowTheirs] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
   const [editing, setEditing] = useState<Account | null>(null);
   const [open, setOpen] = useState(false);
   const [asset, setAsset] = useState<ManualAsset | null>(null);
@@ -109,12 +113,42 @@ export default function CuentasPage() {
     );
   };
 
+  const worth = netWorth(state, "me");
+
+  // Cuentas de la pareja: plegadas, con cuántas son
+  const theirSection = partner ? (
+    <>
+      <button type="button" onClick={() => setShowTheirs(!showTheirs)} aria-expanded={showTheirs}
+        className="mb-2 mt-6 flex w-full items-center gap-2 px-1 text-left text-xs font-semibold uppercase tracking-[0.12em] text-muted">
+        <MemberBadge member={partner} size={18} /> <span className="flex-1">De {partner.display_name} ({theirs.length})</span>
+        <ChevronDown size={16} className={cn("transition-transform", showTheirs && "rotate-180")} />
+      </button>
+      {showTheirs && (theirs.length === 0 ? (
+        <p className="px-1 text-sm text-muted">{partner.display_name} no ha compartido cuentas contigo.</p>
+      ) : (
+        <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface">{theirs.map((a) => row(a, false))}</div>
+      ))}
+    </>
+  ) : null;
+
+  // Archivadas: escondidas detrás de un enlace
+  const archivedSection = (word: string) => archived.length > 0 && (
+    <>
+      <button className="mt-4 px-1 text-sm text-muted underline" onClick={() => setShowArchived(!showArchived)}>
+        {showArchived ? "Ocultar" : "Ver"} {word} ({archived.length})
+      </button>
+      {showArchived && (
+        <div className="mt-2 divide-y divide-border overflow-hidden rounded-2xl border border-dashed border-border opacity-70">{archived.map((a) => row(a, true))}</div>
+      )}
+    </>
+  );
+
   return (
     <main className="px-4 pt-[calc(12px+env(safe-area-inset-top))]">
       <div className="flex items-center justify-between py-2">
         <div className="flex items-center gap-2">
           <Link href="/mas" aria-label="Volver" className="rounded-full p-2 text-muted hover:bg-surface-2"><ArrowLeft size={20} /></Link>
-          <h1 className="font-display text-3xl">{view === "cruce" ? "Cruce" : view === "creditos" ? "Créditos" : "Cuentas"}</h1>
+          <h1 className="font-display text-3xl">Cuentas</h1>
         </div>
         {view !== "cruce" && <Button size="sm" onClick={() => { setEditing(null); setOpen(true); }}><Plus size={16} /> {view === "creditos" ? "Nuevo" : "Nueva"}</Button>}
       </div>
@@ -141,19 +175,9 @@ export default function CuentasPage() {
       ) : (
         <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface">{mine.map((a) => row(a, true))}</div>
       )}
-      <p className="mt-2 px-1 text-xs text-muted">Toca un crédito para registrar una cuota (se divide en capital, intereses y seguros). El saldo se confirma cada mes con el extracto en Cierre del mes.</p>
-      {partner && theirs.length > 0 && (
-        <>
-          <SectionTitle className="flex items-center gap-2"><MemberBadge member={partner} size={18} /> De {partner.display_name}</SectionTitle>
-          <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface">{theirs.map((a) => row(a, false))}</div>
-        </>
-      )}
-      {archived.length > 0 && (
-        <>
-          <SectionTitle>Archivados</SectionTitle>
-          <div className="divide-y divide-border overflow-hidden rounded-2xl border border-dashed border-border opacity-70">{archived.map((a) => row(a, true))}</div>
-        </>
-      )}
+      <InfoNote className="mt-2">Toca un crédito para registrar una cuota (se divide en capital, intereses y seguros). El saldo se confirma cada mes con el extracto en Cierre del mes.</InfoNote>
+      {partner && theirs.length > 0 && theirSection}
+      {archivedSection("archivados")}
 
       </>) : (<>
 
@@ -167,22 +191,13 @@ export default function CuentasPage() {
         <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface">{mine.map((a) => row(a, true))}</div>
       )}
 
-      {partner && (
-        <>
-          <SectionTitle className="flex items-center gap-2"><MemberBadge member={partner} size={18} /> De {partner.display_name}</SectionTitle>
-          {theirs.length === 0 ? (
-            <p className="px-1 text-sm text-muted">{partner.display_name} no ha compartido cuentas contigo.</p>
-          ) : (
-            <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface">{theirs.map((a) => row(a, false))}</div>
-          )}
-        </>
-      )}
+      {partner && theirSection}
 
       <div className="mt-6 flex items-center justify-between">
         <SectionTitle className="m-0">Otros activos y pasivos</SectionTitle>
         <Button size="sm" variant="ghost" onClick={() => { setAsset(null); setAssetOpen(true); }}><Plus size={16} /> Agregar</Button>
       </div>
-      <p className="mb-2 px-1 text-xs text-muted">Inversiones, bienes o créditos que suman al patrimonio neto. Los valores los actualizas tú.</p>
+      <InfoNote className="mb-2" label="Qué va aquí">Inversiones, bienes o créditos que suman al patrimonio neto. Los valores los actualizas tú.</InfoNote>
       {[...myAssets, ...theirAssets].length > 0 && (
         <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface">
           {[...myAssets, ...theirAssets].map((a) => (
@@ -198,12 +213,15 @@ export default function CuentasPage() {
         </div>
       )}
 
-      {archived.length > 0 && (
-        <>
-          <SectionTitle>Archivadas</SectionTitle>
-          <div className="divide-y divide-border overflow-hidden rounded-2xl border border-dashed border-border opacity-70">{archived.map((a) => row(a, true))}</div>
-        </>
-      )}
+      {/* Patrimonio y pasivos al final: lo tuyo (tus cuentas y tus otros activos y pasivos) */}
+      <SectionTitle>Tu patrimonio</SectionTitle>
+      <Card className="grid grid-cols-3 gap-2 text-center">
+        <div><p className="text-xs text-muted">Activos</p><p className="num font-semibold">{formatCop(worth.assets)}</p></div>
+        <div><p className="text-xs text-muted">Pasivos</p><p className="num font-semibold text-danger">{formatCop(worth.liabilities)}</p></div>
+        <div><p className="text-xs text-muted">Neto</p><p className={cn("num font-semibold", worth.total < 0 && "text-danger")}>{formatCop(worth.total)}</p></div>
+      </Card>
+
+      {archivedSection("archivadas")}
 
       </>)}
 
