@@ -9,7 +9,7 @@ import { CATEGORIAS, CATEGORIAS_MASCOTAS, LISTAS, type Categoria, type NombreLis
 import { useHousehold } from "./HouseholdProvider";
 import { ErrorText, Sheet, errMsg } from "./ui";
 
-const ENC_DESPENSA = ["nombre", "lista", "categoria", "dias", "ultima_compra", "mascota", "marca", "tipo_comida", "responsable", "tienda"];
+const ENC_DESPENSA = ["nombre", "lista", "categoria", "dias", "ultima_compra", "mascota", "marca", "tipo_comida", "responsable", "tienda", "auto"];
 const ENC_LISTA = ["producto", "lista", "cantidad", "categoria", "dias", "mascota", "pedido_por", "tienda"];
 
 type Op = { tabla: "pantry_products" | "shopping_items"; fila: Record<string, unknown>; idExistente?: string; nombre: string };
@@ -45,10 +45,10 @@ export function ImportarCompras({ open, onClose }: { open: boolean; onClose: () 
     descargar(
       "plantilla_despensa.csv",
       plantillaCsv(ENC_DESPENSA, [
-        ["Cafe molido 500g", "Mercado", "Abarrotes", "30", "20/10/2026", "", "", "", "", "D1, Exito"],
-        ["Detergente liquido", "Mercado", "Aseo", "45", "01/10/2026", "", "", "", "", ""],
-        ["Arena para gato", "Mascotas", "", "30", "15/10/2026", "Todas", "Catsan", "", "Rotar", "Tienda de mascotas"],
-        ["Comida", "Mascotas", "", "30", "10/10/2026", p1, "Royal Canin", "Concentrado seco", m1, ""],
+        ["Cafe molido 500g", "Mercado", "Abarrotes", "30", "20/10/2026", "", "", "", "", "D1, Exito", "si"],
+        ["Detergente liquido", "Mercado", "Aseo", "45", "01/10/2026", "", "", "", "", "", "no"],
+        ["Arena para gato", "Mascotas", "", "30", "15/10/2026", "Todas", "Catsan", "", "Rotar", "Tienda de mascotas", "si"],
+        ["Comida", "Mascotas", "", "30", "10/10/2026", p1, "Royal Canin", "Concentrado seco", m1, "", "si"],
       ]),
     );
   }
@@ -78,6 +78,12 @@ export function ImportarCompras({ open, onClose }: { open: boolean; onClose: () 
     };
     // Una o varias tiendas separadas por coma o guion: se guardan como "D1, Éxito"
     const tiendaDe = (fila: string[]) => separarTiendas(col(fila, "tienda")).join(", ");
+    const autoDe = (fila: string[]): boolean | undefined => {
+      const v = normalizar(col(fila, "auto"));
+      if (["si", "s", "true", "1", "encendido", "x"].includes(v)) return true;
+      if (["no", "n", "false", "0", "apagado"].includes(v)) return false;
+      return undefined;
+    };
 
     const nuevas: Op[] = [];
     const malas: Err[] = [];
@@ -158,6 +164,8 @@ export function ImportarCompras({ open, onClose }: { open: boolean; onClose: () 
             rota,
             // Sin la columna tienda en el archivo, no se borra la que ya tenía
             ...(tiendaDe(fila) ? { tienda: tiendaDe(fila) } : {}),
+            // AUTO: "si" o "no" (vacío o sin la columna: no se cambia; en productos nuevos queda encendido)
+            ...(autoDe(fila) !== undefined ? { auto: autoDe(fila) } : {}),
           },
         });
         return;

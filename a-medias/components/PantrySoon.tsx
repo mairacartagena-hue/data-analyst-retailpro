@@ -29,7 +29,7 @@ export function PantryCards({ productos: lista }: { productos?: PantryProduct[] 
           <div key={p.id} className="card w-36 shrink-0 bg-rosa-claro! p-3!">
             <p className="truncate text-[15px] font-semibold">{p.nombre}</p>
             <p className={`mt-1 text-xs font-semibold ${d <= 0 ? "text-accion" : "text-sec"}`}>{diasTexto(d)}</p>
-            <span className="tag mt-2 bg-crema!">En Mercado</span>
+            <span className="tag mt-2 bg-crema!">{p.auto === false ? "Sin AUTO" : p.es_mascotas ? "En Mascotas" : "En Mercado"}</span>
           </div>
         );
       })}
