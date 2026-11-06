@@ -632,6 +632,15 @@ export default function ComprasPage() {
 
       <ItemSheet
         item={parcial}
+        despensa={parcial ? despensaDe(parcial) ?? null : null}
+        onAuto={async (prod, valor) => {
+          optimistic("pantry", { ...prod, auto: valor });
+          const { error } = await getSupabase().from("pantry_products").update({ auto: valor }).eq("id", prod.id);
+          if (error) {
+            optimistic("pantry", { ...prod });
+            setError(errMsg(error));
+          }
+        }}
         diasBase={diasBaseDe(parcial)}
         onClose={() => setParcial(null)}
         tiendasUsadas={tiendasUsadas}
@@ -799,6 +808,7 @@ function PantrySheet({
           </label>
           <input id="p-nombre" className="input" value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Café" />
         </div>
+        <AutoRow checked={auto} onChange={setAuto} lista={esMascota ? "Mascotas" : "Mercado"} />
         {!esMascota && (
           <div>
             <label className="label" htmlFor="p-cat">
@@ -917,19 +927,6 @@ function PantrySheet({
             <input id="p-ult" type="date" className="input" value={ultima} onChange={(e) => setUltima(e.target.value)} />
           </div>
         </div>
-        <div className="flex items-center justify-between gap-3 rounded-[10px] border-2 border-vino px-3 py-2.5">
-          <div>
-            <p className="flex items-center gap-2 text-[15px] font-semibold">
-              <span className="tag tag-oscuro">Auto</span> Agregar solo a la lista
-            </p>
-            <p className="text-xs text-sec">
-              {auto
-                ? `Cuando le quede el 20% o menos, se agrega solo a ${esMascota ? "Mascotas" : "Mercado"}.`
-                : "Apagado: no se agrega solo; lo agregas tú cuando quieras."}
-            </p>
-          </div>
-          <Switch checked={auto} onChange={setAuto} label="Agregar solo a la lista (AUTO)" />
-        </div>
         {diasExtra > 0 && (
           <div className="flex items-center justify-between gap-3 rounded-[10px] bg-rosa-claro px-3 py-2 text-sm">
             <span>
@@ -962,8 +959,13 @@ function ItemSheet({
   onCantidad,
   diasBase,
   tiendasUsadas = [],
+  despensa = null,
+  onAuto,
 }: {
   item: ShoppingItem | null;
+  /** Producto de la despensa del que viene (para encender o apagar AUTO) */
+  despensa?: PantryProduct | null;
+  onAuto?: (producto: PantryProduct, valor: boolean) => void;
   tiendasUsadas?: string[];
   /** Para cuántos días alcanza la cantidad pedida (si se sabe) */
   diasBase?: number | null;
@@ -1010,6 +1012,13 @@ function ItemSheet({
     <Sheet open={!!item} onClose={onClose} title={item?.nombre ?? ""}>
       {item && (
         <div className="space-y-5">
+          {despensa && onAuto && (
+            <AutoRow
+              checked={despensa.auto !== false}
+              onChange={(v) => onAuto(despensa, v)}
+              lista={despensa.es_mascotas ? "Mascotas" : "Mercado"}
+            />
+          )}
           {pendiente && total && (
             <div className="space-y-3">
               <p className="text-[15px]">
@@ -1083,6 +1092,25 @@ function ItemSheet({
 }
 
 /** Producto de la despensa: nombre, detalles, cuánto dura y cuánto le queda */
+/** Interruptor AUTO: agregar el producto solo a la lista cuando se está acabando */
+function AutoRow({ checked, onChange, lista }: { checked: boolean; onChange: (v: boolean) => void; lista: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-[10px] border-2 border-vino px-3 py-2.5">
+      <div>
+        <p className="flex items-center gap-2 text-[15px] font-semibold">
+          <span className="tag tag-oscuro">Auto</span> Agregar solo a la lista
+        </p>
+        <p className="text-xs text-sec">
+          {checked
+            ? `Cuando le quede el 20% o menos, se agrega solo a ${lista}.`
+            : "Apagado: no se agrega solo; lo agregas tú cuando quieras."}
+        </p>
+      </div>
+      <Switch checked={checked} onChange={onChange} label="Agregar solo a la lista (AUTO)" />
+    </div>
+  );
+}
+
 function PantryRow({ producto: p, onAbrir }: { producto: PantryProduct; onAbrir: () => void }) {
   const { memberById } = useHousehold();
   const d = pantryDaysLeft(p);
