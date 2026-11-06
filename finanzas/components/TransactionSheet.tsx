@@ -881,14 +881,16 @@ export function TransactionSheet({
           )}
 
           {isPendingReview && kind === "EXPENSE" && !splitMode && (
-            <div className="rounded-2xl border border-border bg-surface px-3">
-              <SwitchRow label="Recordar este comercio" hint="La próxima vez te sugiero la misma categoría, responsable y espacio."
-                checked={remember} onCheckedChange={setRemember} />
-              {remember && (
-                <SwitchRow label="Aplicar siempre sin preguntar" hint="Se confirma solo cuando llegue otro pago igual."
-                  checked={autoApply} onCheckedChange={setAutoApply} />
-              )}
-            </div>
+            <Field label="Este comercio" hint={!remember ? "No se guarda nada para la próxima vez."
+              : autoApply ? "Cuando llegue otro pago igual se confirma solo, con la misma categoría, responsable y espacio."
+              : "La próxima vez te sugiero la misma categoría, responsable y espacio."}>
+              <Segmented value={!remember ? "NO" : autoApply ? "ALWAYS" : "SUGGEST"}
+                onChange={(v) => { setRemember(v !== "NO"); setAutoApply(v === "ALWAYS"); }} options={[
+                  { value: "NO", label: "No recordar" },
+                  { value: "SUGGEST", label: "Sugerir" },
+                  { value: "ALWAYS", label: "Siempre" },
+                ]} />
+            </Field>
           )}
 
           {more || tagIds.length > 0 ? (
