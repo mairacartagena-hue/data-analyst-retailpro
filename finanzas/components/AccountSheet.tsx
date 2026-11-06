@@ -12,7 +12,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { Collapsible } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
 import { ErrorText, Field, Input, Select } from "@/components/ui/input";
-import { payoffDates, projectCard } from "@/lib/finance/installments";
+import { isPointsPayoff, payoffDates, pointsPayoffs, projectCard } from "@/lib/finance/installments";
 import { capitalPaidRatio, creditReserve, installmentLabel, installmentsPaid, nextCuota, suggestSplit } from "@/lib/finance/credit";
 import { dueDiffers, dueForPayment, settledAsPaid, settlementFor } from "@/lib/finance/dueSettlements";
 import { DueDifference, saveDueSettlement } from "@/components/DueDifference";
@@ -660,10 +660,15 @@ function CardProjection({ account }: { account: Account }) {
  * Compras a cuotas de la tarjeta, en una sola sección: las registradas en la app y las del extracto que no son
  * movimientos (que se agregan aquí, a mano o desde el PDF). Cada una con lo que le falta y "Pagar el total": una
  * transferencia a la tarjeta marcada como pago total de esa compra (mark_card_payoff, migración 0058).
+ * Si la tarjeta permite pagar con puntos, también "Con puntos": un ajuste que baja la deuda sin sacar plata de
+ * ninguna cuenta y que no cuenta en presupuestos (migración 0059).
  */
 function CardPurchases({ account, rows }: { account: Account; rows: ReturnType<typeof projectCard> }) {
   const { accounts, transactions, cardItems, supabase, reload, me } = useFinance();
   const [openId, setOpenId] = useState<string | null>(null);
+  const [mode, setMode] = useState<"TOTAL" | "POINTS">("TOTAL");
+  const [points, setPoints] = useState("");
+  const [pointsEnabled, setPointsEnabled] = useState(!!account.points_enabled);
   const [payFrom, setPayFrom] = useState("");
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState(todayBogota());
@@ -675,6 +680,12 @@ function CardPurchases({ account, rows }: { account: Account; rows: ReturnType<t
   const mine = cardItems.filter((i) => i.account_id === account.id);
   const payAccounts = accounts.filter((a) => a.owner_user_id === me.user_id && !a.archived && ["DEPOSIT", "WALLET", "CASH"].includes(a.kind));
   const canPay = account.owner_user_id === me.user_id || account.responsible_user_id === me.user_id;
+  // Los puntos son de quien tiene la tarjeta
+  const isOwner = account.owner_user_id === me.user_id;
+  const withPoints = isOwner && pointsEnabled;
+  // Pagos totales de compras de esta tarjeta: con plata (transferencia a la tarjeta) o con puntos (ajuste en la tarjeta)
+  const payoffTxs = transactions.filter((t) => t.pays_off_id && t.status !== "PENDING_REVIEW"
+    && ((t.kind === "TRANSFER" && t.to_account_id === account.id) || (isPointsPayoff(t) && t.account_id === account.id)));
 
   // Lo que falta de cada compra: sus cuotas de la proyección (capital e intereses estimados)
   const pending = new Map<string, { id: string; label: string; source: string; left: number; of: number; next: number; capital: number; interest: number }>();
@@ -690,7 +701,7 @@ function CardPurchases({ account, rows }: { account: Account; rows: ReturnType<t
       pending.set(id, p);
     }
   }
-  const paidOffIds = new Set(transactions.filter((t) => t.kind === "TRANSFER" && t.to_account_id === account.id && t.pays_off_id && t.status !== "PENDING_REVIEW").map((t) => t.pays_off_id as string));
+  const paidOffIds = new Set(payoffTxs.map((t) => t.pays_off_id as string));
   // Las de la app con una sola cuota se pagan con el extracto: solo se listan las que tienen más de una;
   // las del extracto se listan siempre (se pueden quitar), también si ya no les queda saldo
   const purchases = [
@@ -729,17 +740,28 @@ function CardPurchases({ account, rows }: { account: Account; rows: ReturnType<t
   }
 
   // Las que ya se pagaron en su totalidad
-  const paidOff = transactions
-    .filter((t) => t.kind === "TRANSFER" && t.to_account_id === account.id && t.pays_off_id && t.status !== "PENDING_REVIEW")
+  const paidOff = payoffTxs
     .map((t) => {
       const compra = transactions.find((x) => x.id === t.pays_off_id);
       const item = cardItems.find((i) => i.id === t.pays_off_id);
-      return { id: t.id, label: compra ? compra.merchant || compra.description || "Compra" : item?.description ?? "Compra", date: t.occurred_on, amount: t.amount };
+      return { id: t.id, label: compra ? compra.merchant || compra.description || "Compra" : item?.description ?? "Compra", date: t.occurred_on, amount: t.amount, points: isPointsPayoff(t) };
     })
     .sort((a, b) => b.date.localeCompare(a.date));
 
-  function open(p: { id: string; capital: number }) {
+  async function togglePoints(on: boolean) {
+    setPointsEnabled(on);
+    const { error } = await supabase.from("accounts").update({ points_enabled: on }).eq("id", account.id);
+    if (error) {
+      setPointsEnabled(!on);
+      return setErr(errMsg(error));
+    }
+    void reload();
+  }
+
+  function open(p: { id: string; capital: number }, how: "TOTAL" | "POINTS") {
     setOpenId(p.id);
+    setMode(how);
+    setPoints("");
     setErr(null);
     setAmount(String(Math.round(p.capital)));
     setDate(todayBogota());
@@ -768,34 +790,86 @@ function CardPurchases({ account, rows }: { account: Account; rows: ReturnType<t
     void reload();
   }
 
+  async function payWithPoints(p: { id: string; label: string }) {
+    setErr(null);
+    const value = parseCop(amount) ?? 0;
+    if (value <= 0) return setErr("Escribe el valor que cubrieron los puntos.");
+    const used = parseCop(points) ?? 0;
+    setBusy(true);
+    const r = await supabase.rpc("save_transaction", { p: {
+      kind: "ADJUSTMENT", direction: "IN", amount: value, occurred_on: date, account_id: account.id,
+      description: `Pago con puntos · ${p.label} (${account.name})${used > 0 ? ` · ${used.toLocaleString("es-CO")} puntos` : ""}`,
+      tags: ["#puntos"],
+    } });
+    if (r.error) { setBusy(false); return setErr(errMsg(r.error)); }
+    const m = await supabase.rpc("mark_card_payoff", { p_transfer: r.data as string, p_purchase: p.id });
+    setBusy(false);
+    if (m.error) {
+      void reload();
+      return setErr(`El pago con puntos quedó registrado y bajó la deuda, pero la compra no quedó marcada como pagada: ${errMsg(m.error)}`);
+    }
+    setOpenId(null);
+    void reload();
+  }
+
   return (
     <Collapsible title="Compras a cuotas" summary={purchases.length ? String(purchases.length) : undefined}>
       <p className="text-xs text-muted">
         Las compras a cuotas de la tarjeta: las que registraste en la app y las del extracto que no son movimientos.
-        Para terminar de pagar una antes de tiempo, toca “Pagar el total”.
+        Para terminar de pagar una antes de tiempo, toca “Pagar el total”{withPoints ? " o, si la pagaste con puntos, “Con puntos”" : ""}.
       </p>
+      {isOwner && (
+        <SwitchRow label="Esta tarjeta permite pagar con puntos"
+          hint="Muestra “Con puntos” en cada compra. Lo que cubren los puntos baja la deuda y no cuenta en tus presupuestos."
+          checked={pointsEnabled} onCheckedChange={(v) => void togglePoints(v)} />
+      )}
+      {!openId && <ErrorText>{err}</ErrorText>}
       {purchases.length > 0 && (
         <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface">
           {purchases.map((p) => (
             <div key={p.id} className="space-y-2 px-3.5 py-2.5 text-sm">
-              <div className="flex items-center gap-2">
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate">{p.label}</span>
-                  <span className="text-xs text-muted">
-                    {p.left > 0
-                      ? <>Faltan {p.left} cuota{p.left === 1 ? "" : "s"}{p.of ? ` (de la ${p.next} a la ${p.of})` : ""} · capital {formatCop(p.capital)}{p.interest > 0 ? ` · intereses estimados ${formatCop(p.interest)}` : ""}</>
-                      : "Sin saldo pendiente"}
-                    {p.source === "EXTRACT" ? " · del extracto" : ""}
-                  </span>
+              <div className="min-w-0">
+                <span className="block truncate">{p.label}</span>
+                <span className="text-xs text-muted">
+                  {p.left > 0
+                    ? <>Faltan {p.left} cuota{p.left === 1 ? "" : "s"}{p.of ? ` (de la ${p.next} a la ${p.of})` : ""} · capital {formatCop(p.capital)}{p.interest > 0 ? ` · intereses estimados ${formatCop(p.interest)}` : ""}</>
+                    : "Sin saldo pendiente"}
+                  {p.source === "EXTRACT" ? " · del extracto" : ""}
                 </span>
-                {canPay && openId !== p.id && p.left > 0 && (
-                  <Button size="sm" variant="outline" onClick={() => open(p)} disabled={payAccounts.length === 0}>Pagar el total</Button>
-                )}
-                {isItem(p.id) && openId !== p.id && (
-                  <button className="text-xs text-danger underline" onClick={() => void removeItem(p.id)}>Quitar</button>
-                )}
               </div>
-              {openId === p.id && (
+              {openId !== p.id && ((canPay && p.left > 0) || isItem(p.id)) && (
+                <div className="flex flex-wrap items-center gap-2">
+                  {canPay && p.left > 0 && (
+                    <Button size="sm" variant="outline" onClick={() => open(p, "TOTAL")} disabled={payAccounts.length === 0}>Pagar el total</Button>
+                  )}
+                  {withPoints && p.left > 0 && (
+                    <Button size="sm" variant="outline" onClick={() => open(p, "POINTS")}>⭐ Con puntos</Button>
+                  )}
+                  {isItem(p.id) && (
+                    <button className="ml-auto text-xs text-danger underline" onClick={() => void removeItem(p.id)}>Quitar</button>
+                  )}
+                </div>
+              )}
+              {openId === p.id && mode === "POINTS" && (
+                <div className="space-y-2 rounded-2xl border border-border p-3">
+                  <div className="grid grid-cols-2 gap-2">
+                    <Field label="Valor que cubren"><AmountInput value={amount} onChange={setAmount} /></Field>
+                    <Field label="Fecha del canje" htmlFor={`pt-date-${p.id}`}><Input id={`pt-date-${p.id}`} type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+                  </div>
+                  <Field label="Puntos usados (opcional)" htmlFor={`pt-n-${p.id}`}>
+                    <Input id={`pt-n-${p.id}`} inputMode="numeric" value={points} onChange={(e) => setPoints(e.target.value.replace(/[^\d.]/g, "").slice(0, 12))} />
+                  </Field>
+                  <p className="text-xs text-muted">
+                    Sugerido: el capital que falta, {formatCop(p.capital)}. Escribe el valor que te abonó el banco. Baja la deuda de la tarjeta sin sacar plata de ninguna cuenta, y lo que cubrieron los puntos no cuenta en tus presupuestos.
+                  </p>
+                  <ErrorText>{err}</ErrorText>
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={() => void payWithPoints(p)} disabled={busy}>Registrar pago con puntos</Button>
+                    <Button size="sm" variant="ghost" onClick={() => setOpenId(null)}>Cancelar</Button>
+                  </div>
+                </div>
+              )}
+              {openId === p.id && mode === "TOTAL" && (
                 <div className="space-y-2 rounded-2xl border border-border p-3">
                   <div className="grid grid-cols-2 gap-2">
                     <Field label="Valor pagado"><AmountInput value={amount} onChange={setAmount} /></Field>
@@ -827,11 +901,11 @@ function CardPurchases({ account, rows }: { account: Account; rows: ReturnType<t
             {paidOff.map((p) => (
               <div key={p.id} className="flex items-center justify-between gap-2 px-3.5 py-2 text-sm">
                 <span className="min-w-0 truncate">{p.label}</span>
-                <span className="shrink-0 text-xs text-muted">{formatDay(p.date)} · {formatCop(p.amount)}</span>
+                <span className="shrink-0 text-xs text-muted">{p.points ? "⭐ con puntos · " : ""}{formatDay(p.date)} · {formatCop(p.amount)}</span>
               </div>
             ))}
           </div>
-          <p className="text-xs text-muted">Para deshacerlo, borra ese pago en Movimientos: la compra vuelve a sus cuotas.</p>
+          <p className="text-xs text-muted">Para deshacerlo, borra ese pago (o el pago con puntos) en Movimientos: la compra vuelve a sus cuotas.</p>
         </div>
       )}
       <div className="space-y-2 border-t border-border pt-3">
@@ -1240,7 +1314,7 @@ function CreditStatementImport({ account, onData }: { account: Account | null; o
 async function linkCardBudget(state: ReturnType<typeof useFinance>, account: Account, items: CardStatementItem[], categoryId: string) {
   const { me, partner, settings, limits, budgets, supabase } = state;
   const today = todayBogota();
-  const versions = cardBudgetVersions(account, items, settings, today, payoffDates(state.transactions));
+  const versions = cardBudgetVersions(account, items, settings, today, payoffDates(state.transactions), pointsPayoffs(state.transactions));
   if (versions.length === 0) throw new Error("la tarjeta no tiene deuda anterior por pagar (revisa el saldo, la fecha de corte y el día de pago)");
   const catId = categoryId || await ensureCategory(state, supabase, account.name, "💳");
   const existing = limits.find((l) => l.category_id === catId && l.scope === "HOUSEHOLD") ?? null;
@@ -1278,7 +1352,7 @@ function CardBudget({ account: opened }: { account: Account }) {
   const linked = account.budget_category_id ? categories.find((c) => c.id === account.budget_category_id) ?? null : null;
   const today = todayBogota();
   const items = cardItems.filter((i) => i.account_id === account.id);
-  const plan = cardBudgetVersions(account, items, settings, today, payoffDates(state.transactions));
+  const plan = cardBudgetVersions(account, items, settings, today, payoffDates(state.transactions), pointsPayoffs(state.transactions));
   const limit = linked ? limits.find((l) => l.category_id === linked.id && l.scope === "HOUSEHOLD") ?? null : null;
   const current = limit ? budgetVersionAt(toBudgetCategories([limit], budgets)[0].budgets, periodFor(settings, today).start)?.amount ?? null : null;
   const [editing, setEditing] = useState(false);

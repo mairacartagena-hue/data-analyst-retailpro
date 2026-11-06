@@ -118,6 +118,8 @@ export interface Account {
   due_day: number | null;
   /** Quién paga la tarjeta o el crédito (vacío = el dueño). */
   responsible_user_id?: string | null;
+  /** Tarjetas: permite pagar compras con puntos (ej. BBVA). */
+  points_enabled?: boolean;
   /** Tarjetas: tasa de interés efectiva anual (%) para estimar los intereses de las cuotas. */
   interest_rate_ea?: number | null;
   /** Créditos: plazo en meses y costos mensuales (seguros, otros). */
