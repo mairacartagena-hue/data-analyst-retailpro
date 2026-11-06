@@ -10,7 +10,7 @@ import { dueDatesBetween, occurrencesIn, type Occurrence } from "@/lib/finance/c
 import { formatCop } from "@/lib/finance/money";
 import { formatDay, todayBogota, type Period } from "@/lib/finance/periods";
 import { accountLabel } from "@/lib/finance/labels";
-import { cardDue, payoffDates, statementsDueIn } from "@/lib/finance/installments";
+import { cardDue, payoffDates, pointsPayoffs, statementsDueIn } from "@/lib/finance/installments";
 import { creditReserve, nextCuota } from "@/lib/finance/credit";
 import { responsibleOf } from "@/lib/finance/derive";
 import { creditBudgetMap } from "@/lib/finance/spaces";
@@ -57,7 +57,7 @@ export function useUpcoming(period: Period) {
         : 0;
       if (d.due <= 0 && paidAmount <= 0) continue;
       const fake = { frequency: "MONTHLY", day_of_month: a.due_day, start_date: period.start, end_date: null, due_date: null } as ScheduledPayment;
-      const plan = a.budget_category_id ? legacySchedule({ ...a, opening_balance: Number(a.opening_balance) }, cardItems, payoffDates(transactions)) : [];
+      const plan = a.budget_category_id ? legacySchedule({ ...a, opening_balance: Number(a.opening_balance) }, cardItems, payoffDates(transactions), pointsPayoffs(transactions)) : [];
       for (const due of dueDatesBetween(fake, period.start, period.end)) {
         const cuota = plan.filter((c) => c.due === due).reduce((sum, c) => sum + c.amount, 0);
         // "La cuota era menor" (o se pagó de más): el vencimiento queda pagado aunque el extracto diga otra cosa

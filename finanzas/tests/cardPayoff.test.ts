@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cardDue, expandInstallments, payoffDates, projectCard } from "@/lib/finance/installments";
+import { cardDue, expandInstallments, payoffDates, pointsPayoffs, projectCard } from "@/lib/finance/installments";
 import { cardPaymentPortions, legacySchedule } from "@/lib/finance/cardBudget";
 import type { Account, CardStatementItem, Transaction } from "@/lib/types";
 
@@ -91,5 +91,42 @@ describe("pago total de una compra del extracto", () => {
     ], [tv]);
     expect(portions.get("pago-extracto")?.amount).toBe(1_000_000);
     expect(portions.get("pago-tv")?.amount).toBe(600_000);
+  });
+});
+
+describe("pago con puntos de una compra a cuotas", () => {
+  // El 20-dic se canjean puntos por lo que faltaba de la nevera: ajuste que suma a la tarjeta
+  const conPuntos = tx({ id: "puntos", kind: "ADJUSTMENT", direction: "IN", occurred_on: "2026-12-20", amount: 1_000_000, account_id: "visa", pays_off_id: "nevera" });
+
+  it("cuenta como pago total: la compra ya no tiene cuotas después del canje", () => {
+    expect(payoffDates([nevera, conPuntos]).get("nevera")).toBe("2026-12-20");
+    expect(pointsPayoffs([nevera, conPuntos]).has("nevera")).toBe(true);
+    expect(pointsPayoffs([nevera, pagoTotal]).has("nevera")).toBe(false);
+    const con = projectCard(card, [nevera, conPuntos], "2026-10-01", 14);
+    expect(con.filter((r) => r.capital > 0).map((r) => r.month)).toEqual(["2026-10", "2026-11", "2026-12"]);
+  });
+
+  it("lo que cubrieron los puntos no cuenta en el presupuesto", () => {
+    const copias = expandInstallments([nevera, conPuntos]).filter((t) => t.installment_of?.id === "nevera");
+    expect(copias.map((c) => [c.occurred_on, c.amount])).toEqual([
+      ["2026-10-15", 100_000], ["2026-11-15", 100_000], ["2026-12-15", 100_000],
+    ]);
+  });
+
+  it("un ajuste que resta o sin compra no es pago con puntos", () => {
+    expect(payoffDates([{ ...conPuntos, direction: "OUT" }]).size).toBe(0);
+    expect(payoffDates([{ ...conPuntos, pays_off_id: null }]).size).toBe(0);
+  });
+
+  it("una compra del extracto pagada con puntos no se factura en el presupuesto de la tarjeta", () => {
+    const acc = { id: "visa", kind: "CREDIT_CARD", statement_day: 20, due_day: 5, opening_at: "2026-10-21T05:00:00.000Z", opening_balance: -1_600_000 };
+    const tv: CardStatementItem = { id: "tv", account_id: "visa", description: "Televisor", purchase_date: "2026-03-01", amount: 1_200_000,
+      installments: 20, paid_installments: 10, remaining_balance: 600_000, rate_ea: 0 };
+    const pagoTv = tx({ id: "pt", kind: "ADJUSTMENT", direction: "IN", occurred_on: "2026-11-10", amount: 600_000, account_id: "visa", pays_off_id: "tv" });
+    const conPlata = legacySchedule(acc, [tv], new Map([["tv", "2026-11-10"]]));
+    const conPts = legacySchedule(acc, [tv], payoffDates([pagoTv]), pointsPayoffs([pagoTv]));
+    const total = (xs: { amount: number }[]) => xs.reduce((a, c) => a + c.amount, 0);
+    expect(total(conPlata)).toBe(1_600_000);
+    expect(total(conPts)).toBe(1_000_000); // solo el saldo al corte
   });
 });

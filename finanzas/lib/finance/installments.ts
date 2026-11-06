@@ -15,18 +15,31 @@ export function installmentsOf(t: Pick<Transaction, "kind" | "installments">): n
   return t.kind === "EXPENSE" && n > 1 ? Math.min(n, MAX_INSTALLMENTS) : 1;
 }
 
+/** ¿Es un pago con puntos de una compra de la tarjeta? (ajuste que suma a la tarjeta con `pays_off_id`) */
+export const isPointsPayoff = (t: Pick<Transaction, "kind" | "direction" | "pays_off_id">) =>
+  t.kind === "ADJUSTMENT" && t.direction === "IN" && !!t.pays_off_id;
+
+/** ¿Es el pago total de una compra? Con plata (transferencia a la tarjeta) o con puntos. */
+const isPayoffTx = (t: Transaction) => !!t.pays_off_id && t.status !== "PENDING_REVIEW" && (t.kind === "TRANSFER" || isPointsPayoff(t));
+
 /**
  * Compras a cuotas pagadas en su totalidad antes de tiempo: id de la compra (movimiento o compra del extracto) →
- * fecha del pago. El pago es una transferencia a la tarjeta con `pays_off_id`; si se borra, la compra vuelve a sus cuotas.
+ * fecha del pago. El pago es una transferencia a la tarjeta con `pays_off_id`, o un ajuste con puntos (migración
+ * 0059); si se borra, la compra vuelve a sus cuotas.
  */
 export function payoffDates(txs: Transaction[]): Map<string, string> {
   const out = new Map<string, string>();
   for (const t of txs) {
-    if (t.kind !== "TRANSFER" || !t.pays_off_id || t.status === "PENDING_REVIEW") continue;
-    const prev = out.get(t.pays_off_id);
-    if (!prev || t.occurred_on < prev) out.set(t.pays_off_id, t.occurred_on);
+    if (!isPayoffTx(t)) continue;
+    const prev = out.get(t.pays_off_id as string);
+    if (!prev || t.occurred_on < prev) out.set(t.pays_off_id as string, t.occurred_on);
   }
   return out;
+}
+
+/** Compras pagadas con puntos: lo que cubrieron los puntos no cuenta en ningún presupuesto. */
+export function pointsPayoffs(txs: Transaction[]): Set<string> {
+  return new Set(txs.filter((t) => isPayoffTx(t) && isPointsPayoff(t)).map((t) => t.pays_off_id as string));
 }
 
 /** ¿El movimiento es el pago total de una compra a cuotas? (no cuenta como pago del extracto) */
@@ -82,6 +95,7 @@ export function installmentPlan(amount: number, n: number, date: string, eaPerce
 export function expandInstallments(txs: Transaction[]): Transaction[] {
   const out: Transaction[] = [];
   const payoffs = payoffDates(txs);
+  const points = pointsPayoffs(txs);
   for (const t of txs) {
     const n = installmentsOf(t);
     if (n === 1) {
@@ -91,6 +105,7 @@ export function expandInstallments(txs: Transaction[]): Transaction[] {
     const amounts = splitEven(t.amount, n);
     const splitParts = t.splits.map((s) => splitEven(s.amount, n));
     // Pagada en su totalidad antes de tiempo: las cuotas posteriores al pago cuentan juntas en la fecha del pago
+    // (si se pagó con puntos, no cuentan)
     const paidOff = payoffs.get(t.id);
     let k = 0;
     for (; k < n; k++) {
@@ -105,7 +120,8 @@ export function expandInstallments(txs: Transaction[]): Transaction[] {
         splits: t.splits.map((s, j) => ({ ...s, id: `${s.id}#${k + 1}`, amount: splitParts[j][k] })),
       });
     }
-    if (paidOff && k < n) {
+    // Con puntos, lo que faltaba no sale del bolsillo: no cuenta en el presupuesto
+    if (paidOff && k < n && !points.has(t.id)) {
       const sum = (xs: number[]) => xs.slice(k).reduce((a, x) => a + x, 0);
       out.push({
         ...t,
@@ -443,7 +459,7 @@ export function projectCard(
   }
   // Saldo al corte con el que se registró la tarjeta (la deuda inicial sin el saldo diferido de las compras del extracto):
   // se paga en la fecha de pago de ese extracto. Lo que ya se abonó a la tarjeta desde entonces lo descuenta.
-  const statement = legacySchedule(card, statementItems, payoffs).find((c) => c.statement);
+  const statement = legacySchedule(card, statementItems, payoffs, opts.ignorePayments ? new Set() : pointsPayoffs(txs)).find((c) => c.statement);
   if (statement && billing) {
     const paid = opts.ignorePayments ? 0 : txs
       .filter((t) => t.to_account_id === card.id && (t.kind === "TRANSFER" || t.kind === "SETTLEMENT") && t.status !== "PENDING_REVIEW" && t.occurred_on >= billing.openingDay && !isPayoff(t))
