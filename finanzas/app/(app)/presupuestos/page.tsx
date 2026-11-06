@@ -13,6 +13,7 @@ import { CommitmentSheet } from "@/components/CommitmentSheet";
 import { UpcomingList, useUpcoming } from "@/components/Upcoming";
 import { MemberBadge } from "@/components/MemberBadge";
 import { Button } from "@/components/ui/button";
+import { Segmented } from "@/components/ui/segmented";
 import { Card, SectionTitle } from "@/components/ui/card";
 import { Sheet } from "@/components/ui/sheet";
 import type { BudgetPlan, CategoryLimit, ScheduledPayment } from "@/lib/types";
@@ -39,13 +40,20 @@ export default function PresupuestosPage() {
   const [commitmentOpen, setCommitmentOpen] = useState(false);
   const [showClosed, setShowClosed] = useState(false);
   const [chooser, setChooser] = useState(false);
+  const [tab, setTab] = useState<"presupuestos" | "vencimientos">("presupuestos");
 
   const statuses = useMemo(() => statusesFor(state, period), [state, period]);
   const upcoming = useUpcoming(period);
 
   // Abrir un presupuesto de categoría desde el inicio (?limite=id)
   useEffect(() => {
-    const id = new URLSearchParams(window.location.search).get("limite");
+    const q = new URLSearchParams(window.location.search);
+    // Desde “Ver todos” de Próximos vencimientos en el inicio (?vista=vencimientos)
+    if (q.get("vista") === "vencimientos") {
+      setTab("vencimientos");
+      window.history.replaceState(null, "", "/presupuestos");
+    }
+    const id = q.get("limite");
     const l = id ? limits.find((x) => x.id === id) : null;
     if (l) {
       setLimit(l);
@@ -107,6 +115,7 @@ export default function PresupuestosPage() {
   const householdCommitted = committedTotal(occurrencesOfSpace(upcoming.occurrences, "HOUSEHOLD"));
   const myCommitted = committedTotal(occurrencesOfSpace(upcoming.occurrences, "PERSONAL", me.user_id));
 
+  const dueCount = upcoming.occurrences.filter((o) => !o.paid).length + upcoming.cards.filter((c) => !c.paid).length + upcoming.obligations.filter((o) => !o.paid).length;
   const editLimit = (l: CategoryLimit | null) => { setLimit(l); setLimitOpen(true); };
   /** Presupuesto personal de la pareja que ella comparte conmigo: solo se mira. */
   const isPartners = (l: CategoryLimit) => l.scope === "PERSONAL" && l.owner_user_id !== me.user_id;
@@ -117,14 +126,22 @@ export default function PresupuestosPage() {
     <main className="px-4 pt-[calc(12px+env(safe-area-inset-top))]">
       <div className="flex items-center justify-between py-2">
         <h1 className="font-display text-3xl">Presupuesto</h1>
-        <Button size="sm" onClick={() => setChooser(true)}><Plus size={16} /> Presupuesto</Button>
+        {tab === "vencimientos" ? (
+          <Button size="sm" onClick={() => editCommitment(null)}><Plus size={16} /> Vencimiento</Button>
+        ) : (
+          <Button size="sm" onClick={() => setChooser(true)}><Plus size={16} /> Presupuesto</Button>
+        )}
       </div>
       <PeriodSwitcher />
+      <Segmented className="mt-3" value={tab} onChange={setTab} options={[
+        { value: "presupuestos", label: "Presupuestos" },
+        { value: "vencimientos", label: dueCount > 0 ? `Vencimientos · ${dueCount}` : "Vencimientos" },
+      ]} />
 
       <SwipePeriods>
-        {/* Próximos vencimientos */}
-        <BudgetGroup id="vencimientos" title="Vencimientos" hint="Cuotas, administración y pagos con fecha"
-          action={<Button size="sm" variant="ghost" onClick={() => editCommitment(null)}><Plus size={16} /> Vencimiento</Button>}>
+        {tab === "vencimientos" ? (<>
+        {/* Vencimientos del periodo: cuotas, administración y pagos con fecha */}
+        <div className="mt-4">
         {(householdCommitted > 0 || myCommitted > 0) && (
           <p className="mb-2 px-1 text-xs text-muted">
             Comprometido sin pagar: <span className="num font-semibold text-text">{formatCop(householdCommitted)}</span> del hogar
@@ -137,25 +154,24 @@ export default function PresupuestosPage() {
         ) : (
           <UpcomingList occurrences={upcoming.occurrences} cards={upcoming.cards} obligations={upcoming.obligations} today={upcoming.today} onEdit={editCommitment} />
         )}
-        </BudgetGroup>
+        </div>
+        </>) : (<>
 
-        {/* Presupuestos por categoría */}
-        <SectionTitle>Cuánto lleva cada uno</SectionTitle>
+        {/* Cuánto lleva cada uno en los presupuestos del hogar: una fila por persona */}
         {shown.some((l) => l.scope === "HOUSEHOLD") && (
-          <div className="grid grid-cols-2 gap-3">
+          <Card className="mt-4 space-y-2.5 p-3.5">
+            <p className="text-xs text-muted">Hogar · cuánto lleva cada uno</p>
             {perMember.map(({ member, available, spent }) => (
-              <Card key={member.user_id} className="p-3.5">
-                <div className="flex items-center gap-2">
-                  <MemberBadge member={member} size={24} />
-                  <span className="truncate text-sm font-semibold">{member.user_id === me.user_id ? "Yo" : member.display_name}</span>
-                </div>
-                <div className="mt-2 h-2 overflow-hidden rounded-full bg-surface-2">
+              <div key={member.user_id} className="flex items-center gap-2.5">
+                <MemberBadge member={member} size={22} />
+                <span className="w-16 shrink-0 truncate text-sm font-semibold">{member.user_id === me.user_id ? "Yo" : member.display_name}</span>
+                <div className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-surface-2">
                   <div className="h-full rounded-full" style={{ width: `${Math.min(100, available ? (spent / available) * 100 : 0)}%`, background: member.color }} />
                 </div>
-                <p className="num mt-1.5 text-xs text-muted">{formatCopShort(spent)} de {formatCopShort(available)}</p>
-              </Card>
+                <span className="num shrink-0 text-xs text-muted">{formatCopShort(spent)} de {formatCopShort(available)}</span>
+              </div>
             ))}
-          </div>
+          </Card>
         )}
 
         {shown.length === 0 && (
@@ -210,6 +226,7 @@ export default function PresupuestosPage() {
             ))}
           </div>
         )}
+        </>)}
 
       </SwipePeriods>
 
