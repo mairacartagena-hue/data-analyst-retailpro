@@ -33,7 +33,7 @@ const NAV: { href: string; label: string; icon: typeof Home; also?: string[] }[]
   { href: "/", label: "Inicio", icon: Home },
   { href: "/movimientos", label: "Movimientos", icon: List },
   { href: "/presupuestos", label: "Presupuesto", icon: PieChart },
-  { href: "/informes", label: "Informes", icon: BarChart3 },
+  { href: "/informes", label: "Informes", icon: BarChart3, also: ["/asistente"] },
   { href: "/mas", label: "Más", icon: Menu, also: ["/cuentas", "/cierre", "/captura", "/ajustes", "/cruce", "/categorias", "/metas", "/etiquetas"] },
 ];
 

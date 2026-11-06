@@ -81,7 +81,7 @@ export default function AsistentePage() {
     <main className="flex min-h-[calc(100dvh-80px)] flex-col px-4 pt-[calc(12px+env(safe-area-inset-top))]">
       <div className="flex items-center justify-between py-2">
         <div className="flex items-center gap-2">
-          <Link href="/mas" aria-label="Volver" className="rounded-full p-2 text-muted hover:bg-surface-2"><ArrowLeft size={20} /></Link>
+          <Link href="/informes" aria-label="Volver" className="rounded-full p-2 text-muted hover:bg-surface-2"><ArrowLeft size={20} /></Link>
           <h1 className="font-display text-3xl">Asistente</h1>
         </div>
         {turns.length > 0 && (

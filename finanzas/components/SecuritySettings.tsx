@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Fingerprint, ShieldCheck } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { Button } from "@/components/ui/button";
-import { Card, SectionTitle } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { ErrorText, Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { RELOCK_MINUTES, disableLock, enableLock, lockCredential, lockSupported } from "@/lib/appLock";
@@ -14,13 +14,11 @@ import { errMsg } from "@/lib/utils";
 /** Ajustes → Seguridad: bloqueo con huella (este celular) y verificación en dos pasos (la cuenta). */
 export function SecuritySettings() {
   return (
-    <>
-      <SectionTitle>Seguridad</SectionTitle>
-      <div className="space-y-3">
-        <FingerprintCard />
-        <TwoStepCard />
-      </div>
-    </>
+    <div className="space-y-3 border-t border-border pt-4">
+      <p className="text-sm font-semibold">Seguridad</p>
+      <FingerprintCard />
+      <TwoStepCard />
+    </div>
   );
 }
 
