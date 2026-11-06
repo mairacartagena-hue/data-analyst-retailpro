@@ -20,14 +20,18 @@ import { formatDay } from "@/lib/finance/periods";
 import { errMsg } from "@/lib/utils";
 
 /** Cola de pendientes del inicio: movimientos que llegaron solos y esperan revisión. */
-export function PendingReview() {
+export function usePendingReview(): Transaction[] {
   const { transactions, me } = useFinance();
-  const pending = transactions.filter((t) => t.status === "PENDING_REVIEW" && t.payer_user_id === me.user_id);
+  return transactions.filter((t) => t.status === "PENDING_REVIEW" && t.payer_user_id === me.user_id);
+}
+
+export function PendingReview() {
+  const pending = usePendingReview();
   if (pending.length === 0) return null;
   const shown = pending.slice(0, 3);
 
   return (
-    <section className="mt-4 space-y-2">
+    <section className="space-y-2">
       <div className="flex items-center justify-between px-1">
         <h2 className="flex items-center gap-2 text-sm font-semibold"><Inbox size={16} className="text-warning" /> Por revisar ({pending.length})</h2>
         {pending.length > shown.length && (
