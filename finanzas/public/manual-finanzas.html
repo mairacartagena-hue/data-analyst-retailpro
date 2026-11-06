@@ -5,99 +5,203 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Manual de uso · Finanzas en Pareja</title>
 <meta name="color-scheme" content="light dark">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&family=Fraunces:opsz,wght@9..144,400;9..144,600&display=swap">
 <style>
+/* Mismo estilo de la revisión visual: crema, oliva y madera; Fraunces para títulos y DM Sans para el texto. Sin internet usa Georgia y la letra del sistema. */
 :root{
-  --bg:#f7f4ee;--surface:#fffdf8;--surface2:#efeadf;--text:#26261f;--muted:#6a675c;--border:#ddd6c6;
-  --accent:#6b7a3a;--accent-soft:#e3e8cf;--on-accent:#fff;--warn:#a0703f;--warn-soft:#f3e3cd;--danger:#a8442f;--danger-soft:#f5d9d1;--ok:#4a6a2a;
+  color-scheme:light dark;
+  --bg:#f4efe6;--surface:#fffaf2;--surface-2:#efe7da;--text:#2e2922;--muted:#7a6e60;--border:#e3d9c8;
+  --olive:#5f6d33;--olive-soft:#dfe4c9;--on-olive:#fffaf2;--wood:#a0703f;--wood-soft:#e9d8c2;
+  --warning:#b9822b;--warning-soft:#f4e3c3;--danger:#a4452c;--danger-soft:#f3d9d0;
+  --font-display:"Fraunces",Georgia,"Times New Roman",serif;--font-body:"DM Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
 }
 @media (prefers-color-scheme:dark){
-  :root{--bg:#16170f;--surface:#1f2015;--surface2:#2a2b1e;--text:#ecead9;--muted:#a3a08e;--border:#3a3b2b;
-  --accent:#a9bb63;--accent-soft:#2f3720;--on-accent:#16170f;--warn:#d9a26a;--warn-soft:#3b2d1a;--danger:#e58a76;--danger-soft:#40231c;--ok:#a9bb63}
+  :root{--bg:#1b1814;--surface:#25211c;--surface-2:#2f2a23;--text:#efe6d8;--muted:#a99b88;--border:#3a332a;
+  --olive:#a3b46a;--olive-soft:#343a24;--on-olive:#1b1814;--wood:#c99764;--wood-soft:#3d3024;
+  --warning:#e0b05a;--warning-soft:#44351b;--danger:#e08467;--danger-soft:#44251b}
 }
 *{box-sizing:border-box}
-html{scroll-behavior:smooth;scroll-padding-top:150px}
-body{margin:0;background:var(--bg);color:var(--text);font:16px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow-wrap:anywhere}
-.wrap{max-width:820px;margin:0 auto;padding:0 16px 48px}
-header.top{padding:28px 0 8px}
-header.top h1{font:700 clamp(26px,7vw,38px)/1.15 Georgia,"Times New Roman",serif;margin:0 0 6px}
-header.top p{margin:0;color:var(--muted)}
-.bar{position:sticky;top:0;z-index:20;background:var(--bg);padding:10px 0 8px;border-bottom:1px solid var(--border)}
-.search{width:100%;padding:11px 14px;border-radius:14px;border:1px solid var(--border);background:var(--surface);color:var(--text);font:inherit}
-.toc{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 0;padding:0;list-style:none}
-.toc a{display:block;padding:5px 10px;border-radius:999px;background:var(--surface2);color:var(--text);text-decoration:none;font-size:13px}
-.toc a:hover,.toc a:focus-visible{background:var(--accent);color:var(--on-accent)}
-.toc.collapsed li:nth-child(n+5){display:none}
-.toggle-toc{background:none;border:0;color:var(--accent);font:inherit;font-size:13px;padding:6px 0 0;cursor:pointer;text-decoration:underline}
-@media(min-width:700px){.toc.collapsed li:nth-child(n+5){display:list-item}.toggle-toc{display:none}}
-details.sec{background:var(--surface);border:1px solid var(--border);border-radius:20px;margin:14px 0;overflow:hidden}
-details.sec>summary{cursor:pointer;list-style:none;padding:16px 18px;font:700 20px/1.25 Georgia,serif;display:flex;gap:10px;align-items:center}
+html{scroll-behavior:smooth;scroll-padding-top:16px}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font-body);font-size:15px;line-height:1.5;overflow-wrap:anywhere}
+.wrap{max-width:760px;margin:0 auto;padding-block:28px 64px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.eyebrow{text-transform:uppercase;letter-spacing:.08em;font-size:11px;font-weight:600;color:var(--muted);margin:0 0 6px}
+h1{font-family:var(--font-display);font-weight:600;font-size:2rem;line-height:1.15;margin:0 0 8px;text-wrap:balance}
+h2{font-family:var(--font-display);font-weight:600;font-size:1.35rem;line-height:1.25;margin:0;text-wrap:balance}
+.lede{color:var(--muted);margin:0 0 16px;max-width:62ch}
+.legend{display:flex;flex-wrap:wrap;gap:8px 16px;font-size:13px;color:var(--muted);margin-bottom:20px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.sw{width:14px;height:10px;border-radius:3px;display:inline-block}
+.sw.d{border:1.5px dashed var(--warning);background:var(--warning-soft)}
+.search{width:100%;padding:11px 14px;border-radius:14px;border:1px solid var(--border);background:var(--surface);color:var(--text);font:inherit;margin-bottom:16px}
+.search:focus-visible,button:focus-visible,a:focus-visible,summary:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--olive);outline-offset:2px}
+
+/* Tabla resumen */
+.tbl{overflow-x:auto;border:1px solid var(--border);border-radius:16px;background:var(--surface);margin-bottom:36px}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--border);vertical-align:top}
+th{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600}
+tr:last-child td{border-bottom:0}
+td a{color:var(--text);font-weight:600;text-decoration:none}
+td a:hover{color:var(--olive)}
+td .pill{margin-top:4px}
+.pill{display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:99px;white-space:nowrap}
+.p-ej{background:var(--olive);color:var(--on-olive)}
+.p-guia{background:var(--surface-2);color:var(--muted)}
+
+/* Secciones */
+details.sec{border-top:1px solid var(--border);margin-top:30px;padding-top:22px}
+details.sec>summary{cursor:pointer;list-style:none;display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 10px}
 details.sec>summary::-webkit-details-marker{display:none}
-details.sec>summary::after{content:"+";margin-left:auto;color:var(--muted);font:400 24px/1 system-ui}
-details.sec[open]>summary::after{content:"−"}
-.num-badge{flex:none;width:30px;height:30px;border-radius:50%;background:var(--accent);color:var(--on-accent);display:grid;place-items:center;font:700 14px system-ui}
-.body{padding:2px 18px 18px}
-.body h3{font-size:17px;margin:22px 0 6px}
-.where{background:var(--accent-soft);border-radius:12px;padding:8px 12px;font-size:14px;margin:8px 0}
-.where b{color:var(--accent)}
-ol.steps{padding-left:0;list-style:none;counter-reset:s;margin:8px 0}
-ol.steps li{counter-increment:s;position:relative;padding:4px 0 4px 38px;margin:4px 0}
-ol.steps li::before{content:counter(s);position:absolute;left:0;top:3px;width:26px;height:26px;border-radius:50%;background:var(--surface2);border:1px solid var(--border);display:grid;place-items:center;font-size:13px;font-weight:700}
-.demo{border:2px dashed var(--border);border-radius:16px;padding:14px;margin:14px 0;background:var(--bg)}
-.demo>.tag{display:inline-block;font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;background:var(--warn-soft);color:var(--warn);padding:2px 9px;border-radius:999px;margin-bottom:8px}
+details.sec>summary::after{content:"−";margin-left:auto;color:var(--muted);font-size:22px;line-height:1}
+details.sec:not([open])>summary::after{content:"+"}
+.num-tag{font-family:var(--font-display);color:var(--wood);font-size:1.35rem}
+.body{display:grid;gap:12px;margin-top:12px}
+.body>*{margin:0;min-width:0}
+.body p{max-width:64ch}
+.body ul{padding-left:20px;display:grid;gap:6px}
+.body h3{font-family:var(--font-display);font-weight:600;font-size:1.05rem;margin:14px 0 0}
+.where{font-size:13px;color:var(--muted)}
+.where b{color:var(--olive);font-weight:600}
+.gain,.note-box{font-size:14px;background:var(--olive-soft);border-radius:12px;padding:8px 12px}
+ol.steps{padding-left:0;list-style:none;counter-reset:s;display:grid;gap:8px}
+ol.steps li{counter-increment:s;position:relative;padding:2px 0 2px 36px;min-height:26px}
+ol.steps li::before{content:counter(s);position:absolute;left:0;top:0;width:26px;height:26px;border-radius:50%;background:var(--olive-soft);color:var(--olive);display:grid;place-items:center;font-size:13px;font-weight:600}
+.note{font-size:13px;color:var(--muted)}
+
+/* Ejemplos para probar */
+.demo{border:2px dashed var(--warning);border-radius:16px;padding:14px;background:var(--surface)}
+.demo>.tag{display:inline-block;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;background:var(--warning-soft);color:var(--warning);padding:2px 9px;border-radius:999px;margin-bottom:8px}
+.demo strong{font-family:var(--font-display);font-weight:600;font-size:1.05rem}
+.demo p{margin:4px 0 0}
 .demo label{display:block;font-size:14px;margin:10px 0 2px;color:var(--muted)}
-.demo input[type=range]{width:100%;accent-color:var(--accent)}
-.demo select,.demo input[type=text],.demo textarea{width:100%;padding:9px 10px;border-radius:10px;border:1px solid var(--border);background:var(--surface);color:var(--text);font:inherit}
+.demo input[type=range]{width:100%;accent-color:var(--olive)}
+.demo select,.demo input[type=text],.demo textarea{width:100%;padding:9px 10px;border-radius:10px;border:1px solid var(--border);background:var(--bg);color:var(--text);font:inherit}
 .demo textarea{min-height:76px;resize:vertical}
 .row{display:flex;justify-content:space-between;gap:12px;padding:4px 0}
 .row .v,.big{font-variant-numeric:tabular-nums}
-.big{font:700 28px/1.2 Georgia,serif}
-.result{margin-top:10px;padding:10px 12px;border-radius:12px;background:var(--surface2)}
-.result.ok{background:var(--accent-soft)}.result.warn{background:var(--warn-soft)}.result.bad{background:var(--danger-soft)}
-.meter{height:16px;border-radius:999px;background:var(--surface2);overflow:hidden;margin:8px 0}
-.meter i{display:block;height:100%;width:0;background:var(--accent);transition:width .2s,background .2s}
-.meter.warn i{background:var(--warn)}.meter.bad i{background:var(--danger)}
-button.btn{font:inherit;font-weight:600;padding:9px 14px;border-radius:12px;border:1px solid var(--accent);background:var(--accent);color:var(--on-accent);cursor:pointer;margin:8px 8px 0 0}
-button.btn.alt{background:transparent;color:var(--accent)}
+.big{font-family:var(--font-display);font-weight:600;font-size:28px;line-height:1.2}
+.result{margin-top:10px;padding:10px 12px;border-radius:12px;background:var(--surface-2);font-size:14px}
+.result.ok{background:var(--olive-soft)}.result.warn{background:var(--warning-soft)}.result.bad{background:var(--danger-soft)}
+.meter{height:16px;border-radius:999px;background:var(--surface-2);overflow:hidden;margin:8px 0}
+.meter i{display:block;height:100%;width:0;background:var(--olive);transition:width .2s,background .2s}
+.meter.warn i{background:var(--warning)}.meter.bad i{background:var(--danger)}
+button.btn{font:inherit;font-weight:600;padding:9px 14px;border-radius:12px;border:1px solid var(--olive);background:var(--olive);color:var(--on-olive);cursor:pointer;margin:8px 8px 0 0}
+button.btn.alt{background:transparent;color:var(--olive)}
+button.btn:disabled{opacity:.5;cursor:default}
 .chk{display:flex;gap:8px;align-items:flex-start;padding:6px 0;font-size:14px;color:var(--text)!important;margin:0!important}
-.faq details{border-top:1px solid var(--border);padding:10px 0}
-.faq summary{cursor:pointer;font-weight:600}
-dl.gl dt{font-weight:700;margin-top:10px}dl.gl dd{margin:2px 0 0;color:var(--muted)}
-.note{font-size:14px;color:var(--muted)}
+
+/* Preguntas y glosario */
+.faq{display:grid;gap:0}
+.faq details{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:9px 12px;margin-top:8px}
+.faq summary{cursor:pointer;font-weight:600;font-size:14px}
+.faq p{margin:8px 0 0;font-size:14px}
+dl.gl{display:grid;gap:8px;margin:0}
+dl.gl>div{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:9px 12px}
+dl.gl dt{font-weight:600;font-size:14px}dl.gl dd{margin:2px 0 0;color:var(--muted);font-size:14px}
+
+.next{margin-top:36px;background:var(--surface);border:1px solid var(--border);border-radius:18px;padding:16px}
+.next p{margin:6px 0 0}
+.next a{color:var(--olive);font-weight:600}
 .empty{display:none;text-align:center;color:var(--muted);padding:30px 0}
-footer{margin-top:30px;text-align:center;color:var(--muted);font-size:13px}
-mark{background:var(--warn-soft);color:inherit;border-radius:3px}
-@media print{.bar,.demo button{display:none}details.sec>*{display:block}}
+footer{margin-top:30px;color:var(--muted);font-size:13px;border-top:1px solid var(--border);padding-top:16px}
+@media (max-width:420px){h1{font-size:1.7rem}}
+@media print{.search,.demo button{display:none}details.sec>*{display:block}}
+
+/* Pantallas de ejemplo (mini celular que se toca) */
+.mini{display:grid;gap:10px;margin:6px 0}
+.mini-cap{margin:0}
+.mini-grid{display:grid;gap:12px;align-items:start}
+@media (min-width:640px){.mini-grid{grid-template-columns:304px minmax(0,1fr)}.mini .tip{position:sticky;top:12px}}
+.phone{width:100%;max-width:320px;margin:0 auto;background:var(--bg);border:1px solid var(--border);border-radius:26px;padding:12px 10px 8px;display:grid;gap:6px;font-size:12px;line-height:1.3;align-content:start}
+.m{display:block;width:100%;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:6px 8px;min-width:0;overflow-wrap:anywhere;font:inherit;color:var(--text);text-align:left;position:relative}
+button.m{cursor:pointer;padding-right:17px}
+button.m::after{content:"";position:absolute;top:5px;right:5px;width:7px;height:7px;border-radius:50%;background:var(--olive);opacity:.55}
+@media (prefers-reduced-motion:no-preference){button.m:not(.sel)::after{animation:pulso 2.4s ease-in-out infinite}}
+@keyframes pulso{0%,100%{opacity:.55;transform:scale(1)}50%{opacity:.15;transform:scale(1.5)}}
+button.m.sel{outline:2px solid var(--olive);outline-offset:-1px;background:var(--olive-soft)}
+button.m.sel::after{animation:none;opacity:1}
+.m b{font-weight:600}
+.m .sub{display:block;color:var(--muted);font-size:11px}
+.m .r{color:var(--muted);font-size:11px;white-space:nowrap}
+.m.h{background:none;border:0;display:flex;justify-content:space-between;align-items:center;gap:8px;font-family:var(--font-display);font-size:15px;padding:2px 4px}
+.m.h .r{font-family:var(--font-body)}
+.m.period{background:none;border:0;text-align:center;color:var(--muted);padding:1px}
+.m.big{background:var(--olive);border-color:var(--olive);color:var(--on-olive);padding:8px}
+.m.big .sub{color:inherit;opacity:.85}
+.m.big .num{display:block;font-family:var(--font-display);font-size:19px}
+button.m.big.sel{background:var(--olive);outline-color:var(--wood)}
+.m.card{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.m.card>span:first-child{min-width:0}
+.m.list .row2{display:flex;justify-content:space-between;gap:8px;padding:3px 0;border-top:1px solid var(--border)}
+.m.list .row2:first-of-type{margin-top:4px}
+.m.list .top{display:flex;justify-content:space-between;gap:8px;font-weight:600}
+.m.mov{display:flex;justify-content:space-between;gap:8px}
+.m.field .sub{margin-bottom:1px}
+.m.btn{background:var(--olive);border-color:var(--olive);color:var(--on-olive);text-align:center;font-weight:600;padding:8px}
+.m.fold{color:var(--muted)}
+.m.note{background:none;border:0;color:var(--muted);font-size:11px;padding:0 4px}
+.m.gauge{padding-bottom:7px}
+.m.gauge .gbar{height:7px;border-radius:99px;background:var(--surface-2);overflow:hidden;margin-top:5px}
+.m.gauge .gbar i{display:block;height:100%;background:var(--olive)}
+.m.gauge.warn .gbar i{background:var(--warning)}
+.m.gauge.bad .gbar i{background:var(--danger)}
+.seg{display:flex;gap:3px;padding:3px;background:var(--surface-2);border-radius:10px}
+.seg>*{flex:1;min-width:0;text-align:center;padding:4px 2px;border-radius:7px;font:inherit;font-size:11px;border:0;background:none;color:var(--text);overflow-wrap:anywhere}
+.seg>.on{background:var(--surface);font-weight:600}
+.seg button{cursor:pointer}
+.duo{display:grid;grid-template-columns:1fr auto;gap:6px}
+.duo .m{height:100%}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.chipsrow{display:flex;flex-wrap:wrap;gap:4px}
+.chipsrow .m{width:auto;border-radius:99px;border-color:var(--olive);color:var(--olive);padding:2px 9px}
+.tabbar{display:grid;grid-template-columns:1fr 1.25fr .7fr 1.2fr 1fr .8fr;gap:2px;border-top:1px solid var(--border);padding-top:6px;margin-top:2px}
+.tabbar button{font:inherit;font-size:9px;background:none;border:0;color:var(--muted);padding:4px 0;border-radius:8px;cursor:pointer;white-space:nowrap;display:grid;gap:1px;justify-items:center}
+.tabbar button i{font-style:normal;font-size:14px;line-height:1.1}
+.tabbar button.on{color:var(--olive);font-weight:600}
+.tabbar button.plus i{background:var(--olive);color:var(--on-olive);width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:17px}
+.tip{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:14px;display:grid;gap:8px;align-content:start}
+.tip h4{font-family:var(--font-display);font-weight:600;font-size:1.05rem;margin:0}
+.tip p{margin:0;font-size:14px}
+.tip .hint{font-size:12px;color:var(--muted)}
+.tip button.btn{justify-self:start;margin:2px 0 0}
+button.m.h,button.m.period{padding-right:16px}
 </style>
 </head>
 <body>
 <div class="wrap">
-<header class="top">
-  <h1>Manual de uso · Finanzas en Pareja</h1>
-  <p>Aprende la app paso a paso, con ejemplos que puedes probar aquí mismo. Todos los nombres y montos de este manual son inventados.</p>
+<header>
+  <p class="eyebrow">Finanzas en Pareja · manual de uso</p>
+  <h1>Cómo usar la app, paso a paso</h1>
+  <p class="lede">Aprende cada pantalla con ejemplos que puedes probar aquí mismo. Todos los nombres y montos de este manual son inventados.</p>
+  <div class="legend">
+    <span><i class="sw d"></i> Ejemplo para probar: mueve los valores y mira qué pasa</span>
+  </div>
 </header>
 
-<div class="bar">
-  <input id="q" class="search" type="search" placeholder="Buscar en el manual (ej. cuota, cruce, huella)" aria-label="Buscar en el manual" autocomplete="off">
-  <ul class="toc collapsed" id="toc">
-    <li><a href="#s1">1 · Empezar</a></li>
-    <li><a href="#s2">2 · Movimientos</a></li>
-    <li><a href="#s3">3 · Cuentas y créditos</a></li>
-    <li><a href="#s4">4 · Cruce</a></li>
-    <li><a href="#s5">5 · Presupuestos y metas</a></li>
-    <li><a href="#s6">6 · Informes e IA</a></li>
-    <li><a href="#s7">7 · Captura automática</a></li>
-    <li><a href="#s8">8 · Cierre del mes</a></li>
-    <li><a href="#s9">9 · Seguridad</a></li>
-    <li><a href="#s10">10 · Preguntas y glosario</a></li>
-  </ul>
-  <button class="toggle-toc" id="tt" type="button">Ver todas las secciones</button>
-</div>
+<input id="q" class="search" type="search" placeholder="Buscar en el manual (ej. cuota, cruce, huella)" aria-label="Buscar en el manual" autocomplete="off">
+
+<div class="tbl"><table id="toc">
+  <thead><tr><th>#</th><th>Sección</th><th>Qué aprendes</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td><a href="#s1">Empezar</a><br><span class="pill p-guia">Guía</span></td><td>Instalar la app, crear el hogar, invitar a tu pareja y revisar los ajustes.</td></tr>
+    <tr><td>2</td><td><a href="#s2">Registrar movimientos</a><br><span class="pill p-ej">Con ejemplo</span></td><td>Registrar un gasto, dictarlo o usar la foto del recibo; ver, filtrar y buscar por valor.</td></tr>
+    <tr><td>3</td><td><a href="#s3">Cuentas, tarjetas y créditos</a><br><span class="pill p-ej">Con ejemplo</span></td><td>Agregar cuentas, ver las cuotas de tarjetas y créditos y pagar el total de una compra.</td></tr>
+    <tr><td>4</td><td><a href="#s4">Cruce entre los dos</a><br><span class="pill p-guia">Guía</span></td><td>Quién le debe a quién y cómo saldarlo.</td></tr>
+    <tr><td>5</td><td><a href="#s5">Presupuestos y metas</a><br><span class="pill p-ej">Con ejemplo</span></td><td>Presupuestos y alertas, metas de ahorro y el Saldo Seguro para Gastar.</td></tr>
+    <tr><td>6</td><td><a href="#s6">Informes y asistente con IA</a><br><span class="pill p-guia">Guía</span></td><td>Gastos por categoría, histórico y preguntas en lenguaje normal.</td></tr>
+    <tr><td>7</td><td><a href="#s7">Captura automática</a><br><span class="pill p-ej">Con ejemplo</span></td><td>Conectar los avisos del banco y revisar lo que llega solo.</td></tr>
+    <tr><td>8</td><td><a href="#s8">Cierre del mes</a><br><span class="pill p-ej">Con ejemplo</span></td><td>Comparar la app con el banco y marcar las partidas conciliatorias.</td></tr>
+    <tr><td>9</td><td><a href="#s9">Seguridad</a><br><span class="pill p-guia">Guía</span></td><td>Huella, verificación en dos pasos y privacidad.</td></tr>
+    <tr><td>10</td><td><a href="#s10">Preguntas y glosario</a><br><span class="pill p-guia">Guía</span></td><td>Respuestas rápidas y el significado de cada término.</td></tr>
+  </tbody>
+</table></div>
 
 <p class="empty" id="empty">No encontré nada con esa palabra. Prueba con otra.</p>
 
 <!-- 1 -->
 <details class="sec" id="s1" open>
-  <summary><span class="num-badge">1</span>Empezar</summary>
+  <summary><span class="num-tag">1</span><h2>Empezar</h2><span class="pill p-guia">Guía</span></summary>
   <div class="body">
     <h3>Instalar la app</h3>
     <div class="where"><b>Dónde lo encuentro:</b> Más → Ajustes → Instalar y manual de uso (el botón “Instalar app” solo aparece si aún no la instalaste).</div>
@@ -123,6 +227,9 @@ mark{background:var(--warn-soft);color:inherit;border-radius:3px}
       <li><b>Notificaciones y seguridad:</b> “Activar en este celular”. Llega un aviso al día, a las 8 a. m., con lo que vence. Cada persona lo activa en su celular. Aquí mismo están la huella y los dos pasos.</li>
       <li>Cuando cambies algo, abajo aparece “Tienes cambios sin guardar” con un solo botón Guardar.</li>
     </ul>
+    <h3>Recorre la app</h3>
+    <p>Esta es la pantalla de Inicio. Toca las pestañas de abajo para ir a otra pantalla y cualquier parte para saber qué hace.</p>
+    <div class="mini" data-start="inicio"></div>
     <h3>Las pestañas de abajo</h3>
     <p><b>Inicio · Movimientos · Presupuesto · Informes · Más</b>, y en el centro el botón <b>+</b> para registrar.</p>
     <h3>Qué ves en Inicio</h3>
@@ -138,8 +245,8 @@ mark{background:var(--warn-soft);color:inherit;border-radius:3px}
 </details>
 
 <!-- 2 -->
-<details class="sec" id="s2">
-  <summary><span class="num-badge">2</span>Registrar movimientos</summary>
+<details class="sec" id="s2" open>
+  <summary><span class="num-tag">2</span><h2>Registrar movimientos</h2><span class="pill p-ej">Con ejemplo</span></summary>
   <div class="body">
     <div class="where"><b>Dónde lo encuentro:</b> botón + en la barra de abajo (Registrar movimiento). El micrófono de la izquierda sirve para dictar.</div>
     <ol class="steps">
@@ -149,6 +256,8 @@ mark{background:var(--warn-soft);color:inherit;border-radius:3px}
       <li>Elige <b>¿De qué espacio es?</b> Hogar o Personal. Si lo necesitas, agrega etiquetas.</li>
       <li>Toca Guardar.</li>
     </ol>
+    <p>Así se ve la hoja para registrar. Cambia el tipo arriba y toca cada campo:</p>
+    <div class="mini" data-start="registrar"></div>
     <h3>Más formas de registrar</h3>
     <ul>
       <li><b>Dictar:</b> di “gasté 45 mil en el Éxito con Nequi” y la app llena el formulario. Si el celular no deja dictar, escribe la frase.</li>
@@ -164,6 +273,9 @@ mark{background:var(--warn-soft);color:inherit;border-radius:3px}
       <li><b>Etiquetas</b> está arriba a la derecha.</li>
       <li><b>Buscar por valor:</b> escribe un monto como 45000, $45.000, 45 mil, 45k o 1,5 millones. Salen tres grupos: <b>Valor exacto</b>, <b>Valor aproximado (±10 %)</b> y <b>Valores parecidos</b> (las mismas primeras cifras en otra escala, por ejemplo 4.500 o 450.000 si buscas 45.000).</li>
     </ul>
+
+    <p>Así se ve la pestaña Movimientos:</p>
+    <div class="mini" data-start="movimientos"></div>
 
     <div class="demo" id="d-cruce">
       <span class="tag">Ejemplo para probar</span>
@@ -183,8 +295,8 @@ mark{background:var(--warn-soft);color:inherit;border-radius:3px}
 </details>
 
 <!-- 3 -->
-<details class="sec" id="s3">
-  <summary><span class="num-badge">3</span>Cuentas, tarjetas y créditos</summary>
+<details class="sec" id="s3" open>
+  <summary><span class="num-tag">3</span><h2>Cuentas, tarjetas y créditos</h2><span class="pill p-ej">Con ejemplo</span></summary>
   <div class="body">
     <div class="where"><b>Dónde lo encuentro:</b> Más → Cuentas y cruce. Arriba hay tres pestañas: <b>Cuentas · Créditos · Cruce</b>. El título de la pantalla siempre es “Cuentas”.</div>
     <h3>Cuentas</h3>
@@ -195,6 +307,8 @@ mark{background:var(--warn-soft);color:inherit;border-radius:3px}
       <li>Elige quién puede ver la cuenta: todo, solo el saldo, o nada (privada).</li>
     </ol>
     <p>Las cuentas de tu pareja y las archivadas están plegadas: tócalas para verlas. Al final de la pestaña Cuentas está <b>Tu patrimonio</b> (activos, pasivos y neto), y “Otros activos y pasivos” sirve para deudas sin cuotas y cosas que tienes.</p>
+    <p>Así se ve la pantalla de Cuentas. Cambia entre Cuentas, Créditos y Cruce:</p>
+    <div class="mini" data-start="cuentas"></div>
     <h3>Tarjetas de crédito</h3>
     <ul>
       <li>En la tarjeta indicas el <b>día de corte</b>, el <b>día de pago</b> y la <b>tasa de interés</b> (efectiva anual). Así la app calcula qué extracto vence en cada periodo.</li>
@@ -237,8 +351,8 @@ mark{background:var(--warn-soft);color:inherit;border-radius:3px}
 </details>
 
 <!-- 4 -->
-<details class="sec" id="s4">
-  <summary><span class="num-badge">4</span>Cruce entre los dos</summary>
+<details class="sec" id="s4" open>
+  <summary><span class="num-tag">4</span><h2>Cruce entre los dos</h2><span class="pill p-guia">Guía</span></summary>
   <div class="body">
     <p>El cruce es la cuenta de “quién le debe a quién”. Se arma solo: si uno paga algo que le corresponde al otro, queda a favor del que pagó.</p>
     <div class="where"><b>Dónde lo encuentro:</b> Más → Cuentas y cruce → pestaña Cruce. También en Inicio, en el Saldo Seguro, “Lo que le debes a tu pareja”.</div>
@@ -260,8 +374,8 @@ mark{background:var(--warn-soft);color:inherit;border-radius:3px}
 </details>
 
 <!-- 5 -->
-<details class="sec" id="s5">
-  <summary><span class="num-badge">5</span>Presupuestos y metas</summary>
+<details class="sec" id="s5" open>
+  <summary><span class="num-tag">5</span><h2>Presupuestos y metas</h2><span class="pill p-ej">Con ejemplo</span></summary>
   <div class="body">
     <h3>Presupuestos</h3>
     <div class="where"><b>Dónde lo encuentro:</b> pestaña Presupuesto → Presupuestos → Crear presupuesto. Arriba hay dos pestañas: <b>Presupuestos</b> y <b>Vencimientos · n</b>.</div>
@@ -271,6 +385,7 @@ mark{background:var(--warn-soft);color:inherit;border-radius:3px}
       <li>Se repite en cada periodo. Si quieres, activa que lo que sobra pase al siguiente.</li>
     </ol>
     <p>En <b>Cuánto lleva cada uno</b> hay una sola tarjeta con una fila por persona. En Inicio, la sección <b>Presupuestos en alerta</b> muestra los que ya van desde el 80 %. Su “Ver todos” abre la pestaña <b>Vencimientos</b> de Presupuesto.</p>
+    <div class="mini" data-start="presupuesto"></div>
     <div class="demo" id="d-presu">
       <span class="tag">Ejemplo para probar</span>
       <strong>Presupuesto de Mercado: $ 800.000</strong>
@@ -308,8 +423,8 @@ mark{background:var(--warn-soft);color:inherit;border-radius:3px}
 </details>
 
 <!-- 6 -->
-<details class="sec" id="s6">
-  <summary><span class="num-badge">6</span>Informes y asistente con IA</summary>
+<details class="sec" id="s6" open>
+  <summary><span class="num-tag">6</span><h2>Informes y asistente con IA</h2><span class="pill p-guia">Guía</span></summary>
   <div class="body">
     <h3>Informes</h3>
     <div class="where"><b>Dónde lo encuentro:</b> pestaña Informes. Arriba eliges Todo, Hogar o Personal. Una explicación plegada, “Qué cuenta aquí”, te dice qué entra en cada opción. Hay dos pestañas: <b>Este periodo</b> e <b>Histórico</b>.</div>
@@ -320,6 +435,7 @@ mark{background:var(--warn-soft);color:inherit;border-radius:3px}
       <li>Descarga en CSV.</li>
       <li>En <b>Histórico</b>: la tendencia de 6 periodos y el resumen para la renta, que ahora incluye tu patrimonio de hoy.</li>
     </ul>
+    <div class="mini" data-start="informes"></div>
     <h3>Asistente con IA</h3>
     <div class="where"><b>Dónde lo encuentro:</b> Pestaña Informes → botón IA.</div>
     <ol class="steps">
@@ -331,8 +447,8 @@ mark{background:var(--warn-soft);color:inherit;border-radius:3px}
 </details>
 
 <!-- 7 -->
-<details class="sec" id="s7">
-  <summary><span class="num-badge">7</span>Captura automática</summary>
+<details class="sec" id="s7" open>
+  <summary><span class="num-tag">7</span><h2>Captura automática</h2><span class="pill p-ej">Con ejemplo</span></summary>
   <div class="body">
     <p>Tus notificaciones, SMS y correos del banco llegan solos a la app. Lo que no se puede cuadrar solo queda en <b>Por revisar</b>, en el inicio.</p>
     <div class="where"><b>Dónde lo encuentro:</b> Más → Ajustes → Captura automática (arriba hay una explicación plegada: “Cómo funciona”).</div>
@@ -362,8 +478,8 @@ mark{background:var(--warn-soft);color:inherit;border-radius:3px}
 </details>
 
 <!-- 8 -->
-<details class="sec" id="s8">
-  <summary><span class="num-badge">8</span>Cierre del mes</summary>
+<details class="sec" id="s8" open>
+  <summary><span class="num-tag">8</span><h2>Cierre del mes</h2><span class="pill p-ej">Con ejemplo</span></summary>
   <div class="body">
     <p>Una vez al mes comparas lo que dice la app con lo que dice tu banco. Se concilia al final del mes (los últimos 3 días o los primeros 5 del siguiente salen como recordatorio).</p>
     <div class="where"><b>Dónde lo encuentro:</b> Más → Cierre del mes. Arriba cambias de mes con las flechas.</div>
@@ -376,6 +492,7 @@ mark{background:var(--warn-soft);color:inherit;border-radius:3px}
     </ol>
     <p class="note">Cada cuenta trae una nota “Sobre el 4x1000” (gastos bancarios), y bajo la pestaña Créditos hay un “Cómo funciona”.</p>
     <p>En tarjetas se compara la deuda con el extracto; en créditos, el saldo de capital. Si después de conciliar alguien cambia algo de antes, la cuenta muestra “Se movió”.</p>
+    <div class="mini" data-start="cierre"></div>
     <div class="demo" id="d-cierre">
       <span class="tag">Ejemplo para probar</span>
       <strong>Conciliar una cuenta de ahorros</strong>
@@ -396,8 +513,8 @@ mark{background:var(--warn-soft);color:inherit;border-radius:3px}
 </details>
 
 <!-- 9 -->
-<details class="sec" id="s9">
-  <summary><span class="num-badge">9</span>Seguridad</summary>
+<details class="sec" id="s9" open>
+  <summary><span class="num-tag">9</span><h2>Seguridad</h2><span class="pill p-guia">Guía</span></summary>
   <div class="body">
     <div class="where"><b>Dónde lo encuentro:</b> Más → Ajustes → Notificaciones y seguridad.</div>
     <h3>Bloquear con huella</h3>
@@ -422,8 +539,8 @@ mark{background:var(--warn-soft);color:inherit;border-radius:3px}
 </details>
 
 <!-- 10 -->
-<details class="sec" id="s10">
-  <summary><span class="num-badge">10</span>Preguntas frecuentes y glosario</summary>
+<details class="sec" id="s10" open>
+  <summary><span class="num-tag">10</span><h2>Preguntas frecuentes y glosario</h2><span class="pill p-guia">Guía</span></summary>
   <div class="body">
     <h3>Preguntas frecuentes</h3>
     <div class="faq">
@@ -436,23 +553,16 @@ mark{background:var(--warn-soft);color:inherit;border-radius:3px}
       <details><summary>¿Se puede abrir este manual sin internet?</summary><p>Sí. Es un solo archivo: descárgalo desde Ajustes y ábrelo cuando quieras.</p></details>
     </div>
     <h3>Glosario</h3>
-    <dl class="gl">
-      <dt>Hogar</dt><dd>Lo que comparten los dos (en Inicio e Informes, el selector Hogar / Todo filtra lo que ves). Cada gasto o presupuesto es del Hogar o Personal.</dd>
-      <dt>Cruce</dt><dd>La cuenta de quién le debe a quién entre los dos.</dd>
-      <dt>Saldo Seguro para Gastar</dt><dd>Lo que tienes menos lo que ya está comprometido en el periodo.</dd>
-      <dt>Obligación del hogar</dt><dd>Un gasto fijo que hay que cumplir (arriendo, servicios, cuota de crédito).</dd>
-      <dt>Partida conciliatoria</dt><dd>Un movimiento que está en la app pero aún no en el banco (o al revés) y explica la diferencia del cierre.</dd>
-      <dt>Conciliar</dt><dd>Comprobar que el saldo de la app coincide con el del banco.</dd>
-      <dt>Por revisar</dt><dd>Movimiento automático que espera tu confirmación.</dd>
-      <dt>Capital</dt><dd>La parte de una cuota que baja la deuda. Lo demás son intereses y seguros.</dd>
-      <dt>Día de corte</dt><dd>El día en que la tarjeta cierra su extracto.</dd>
-      <dt>UVT</dt><dd>Unidad que se usa para el tope exento del 4x1000. Se actualiza cada enero en Ajustes → Impuestos.</dd>
-      <dt>Token</dt><dd>La llave personal con la que tu celular o Gmail envían los avisos a la app.</dd>
-    </dl>
+    <dl class="gl"><div><dt>Hogar</dt><dd>Lo que comparten los dos (en Inicio e Informes, el selector Hogar / Todo filtra lo que ves). Cada gasto o presupuesto es del Hogar o Personal.</dd></div><div><dt>Cruce</dt><dd>La cuenta de quién le debe a quién entre los dos.</dd></div><div><dt>Saldo Seguro para Gastar</dt><dd>Lo que tienes menos lo que ya está comprometido en el periodo.</dd></div><div><dt>Obligación del hogar</dt><dd>Un gasto fijo que hay que cumplir (arriendo, servicios, cuota de crédito).</dd></div><div><dt>Partida conciliatoria</dt><dd>Un movimiento que está en la app pero aún no en el banco (o al revés) y explica la diferencia del cierre.</dd></div><div><dt>Conciliar</dt><dd>Comprobar que el saldo de la app coincide con el del banco.</dd></div><div><dt>Por revisar</dt><dd>Movimiento automático que espera tu confirmación.</dd></div><div><dt>Capital</dt><dd>La parte de una cuota que baja la deuda. Lo demás son intereses y seguros.</dd></div><div><dt>Día de corte</dt><dd>El día en que la tarjeta cierra su extracto.</dd></div><div><dt>UVT</dt><dd>Unidad que se usa para el tope exento del 4x1000. Se actualiza cada enero en Ajustes → Impuestos.</dd></div><div><dt>Token</dt><dd>La llave personal con la que tu celular o Gmail envían los avisos a la app.</dd></div></dl>
   </div>
 </details>
 
-<footer>Manual de uso · Finanzas en Pareja · Versión 1.1 · Actualizado el 6 de noviembre de 2026<br>Todos los ejemplos usan datos inventados.</footer>
+<div class="next">
+  <p class="eyebrow">Por dónde empezar</p>
+  <p>Si es tu primera vez: <a href="#s1">instala la app</a>, <a href="#s2">registra tu primer gasto</a> y <a href="#s7">conecta la captura automática</a>. El <a href="#s8">cierre del mes</a> lo vas a usar una vez al mes.</p>
+</div>
+
+<footer>Manual de uso · Finanzas en Pareja · Versión 1.3 · Actualizado el 6 de noviembre de 2026<br>Todos los ejemplos usan datos inventados.</footer>
 </div>
 
 <script>
@@ -462,8 +572,7 @@ function cop(n){var s=Math.abs(Math.round(n)).toString().replace(/\B(?=(\d{3})+(
 function bind(ids,fn){ids.forEach(function(i){$(i).addEventListener("input",fn)});fn()}
 
 /* Índice y búsqueda */
-$("tt").addEventListener("click",function(){var t=$("toc");var c=t.classList.toggle("collapsed");this.textContent=c?"Ver todas las secciones":"Ocultar secciones"});
-document.querySelectorAll(".toc a").forEach(function(a){a.addEventListener("click",function(){var d=document.querySelector(a.getAttribute("href"));if(d){d.hidden=false;d.open=true}})});
+document.querySelectorAll("#toc a").forEach(function(a){a.addEventListener("click",function(){var d=document.querySelector(a.getAttribute("href"));if(d){d.hidden=false;d.open=true}})});
 var secs=[].slice.call(document.querySelectorAll("details.sec"));
 function norm(s){return s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"")}
 $("q").addEventListener("input",function(){
@@ -555,6 +664,229 @@ function ci(){
   else{o.className="result warn";o.textContent="Todavía hay "+cop(Math.abs(eq-app))+" sin explicar. Revisa las partidas o ajusta el saldo."}
 }
 $("ci-bank").addEventListener("input",ci);chks.forEach(function(c){c.addEventListener("change",ci)});ci();
+
+
+/* Pantallas de ejemplo: un mini celular que se recorre y se toca. Todo con datos inventados. */
+(function(){
+var T=function(a,b,go,label){return {a:a,b:b,go:go,label:label}};
+var H=function(a,r,tip){return {k:"h",a:a,r:r,tip:tip}};
+var PER=function(a,t){return {k:"period",a:a,tip:T("Periodo",t||"Cambia de periodo con las flechas o deslizando hacia los lados. Todo lo que ves se calcula para ese periodo (mensual o quincenal, según tus Ajustes).")}};
+var FIELD=function(a,b,tip){return {k:"field",a:a,b:b,tip:tip}};
+var NOTE=function(a){return {k:"note",a:a}};
+var FOLD=function(a,r,tip){return {k:"fold",a:a,r:r,tip:tip}};
+var SEGS=function(opts,tip){return {k:"seg",opts:opts,tip:tip}};
+
+var S={
+ inicio:{nav:"inicio",
+  intro:T("Pantalla de Inicio","Es lo primero que ves al abrir la app. Toca cualquier parte para saber qué hace, o usa las pestañas de abajo para ir a otra pantalla."),
+  pre:[
+   H("Hola, Maira","⚙",T("Ajustes","El engranaje abre Ajustes: perfil, hogar, periodos, categorías, captura automática, notificaciones y seguridad.")),
+   PER("‹  Noviembre  ›"),
+   {k:"big",a:"Saldo Seguro para Gastar",b:"$ 1.840.000",tip:T("Saldo Seguro para Gastar","Lo que de verdad puedes gastar hoy sin dejar de cumplir lo que viene: obligaciones del hogar, ahorros, tarjetas y créditos que vencen, y lo que le debes a tu pareja. En la app, “¿De dónde sale?” muestra el desglose. Siempre es el tuyo, sin importar la vista que elijas más abajo.")},
+   {k:"card",a:"Pendientes · 6",b:"Descuadre · Cierre · Crédito · Por revisar",tip:T("Pendientes","Los avisos van juntos en una sola tarjeta: saldos descuadrados, cierre del mes, créditos por confirmar y movimientos por revisar. Tócala para abrirla.")},
+   {k:"card",a:"Cruce con Luis",b:"Te debe $ 120.000",r:"Ver",tip:T("Cruce","Quién le debe a quién entre los dos. Si tú debes, aparece el botón “Pagar o abonar”; si te deben, “Ver” abre la pestaña Cruce.","cuentas","Ver Cuentas y cruce")},
+   SEGS(["Mis finanzas","Hogar","Todo"],T("Vista","Solo cambia lo de abajo (vencimientos y presupuestos). El Saldo Seguro de arriba siempre es el tuyo.")),
+   {k:"list",a:"Próximos vencimientos",r:"Ver todos",rows:[["Cuota hipoteca · 5 nov","$ 1.250.000"],["Pago tarjeta Visa · 12 nov","$ 480.000"]],tip:T("Próximos vencimientos","Los tres que vienen primero: cuotas, tarjetas y pagos con fecha. “Ver todos” abre Presupuesto → Vencimientos.","presupuesto","Ver Presupuesto")},
+   {k:"list",a:"Presupuestos en alerta",r:"Ver todos (2)",rows:[["Mercado","86 %"],["Restaurantes","92 %"]],tip:T("Presupuestos en alerta","Los presupuestos que ya van desde el 80 % del monto. Tócalos para ver sus movimientos; “Ver todos” abre Presupuesto.","presupuesto","Ver Presupuesto")}
+  ]},
+
+ movimientos:{nav:"movimientos",
+  intro:T("Pantalla de Movimientos","Aquí está todo lo que se ha registrado en el periodo. Toca cualquier parte para saber qué hace."),
+  pre:[
+   H("Movimientos","Etiquetas",T("Etiquetas","Abre la administración de etiquetas. Sirven para agrupar gastos y luego filtrar por ellas.")),
+   PER("‹  Noviembre  ›"),
+   SEGS(["Todos","Pagué yo","Cruces","Pendientes"],T("Atajos","Para ver todos los movimientos, solo los que pagaste tú, los que generaron cruce o los pendientes.")),
+   {k:"duo",l:{a:"Buscar por concepto, categoría o valor",tip:T("Búsqueda","Escribe un concepto, una categoría o un valor: 45000, $45.000, 45 mil, 45k o 1,5 millones. Salen tres grupos: valor exacto, aproximado (±10 %) y valores parecidos.")},r:{a:"Filtros · 2",tip:T("Filtros","Abre una hoja con Espacio (Todo, Hogar o Personal), categoría, tipo, cuenta, quién pagó, a cargo de quién y etiqueta. El número es cuántos hay activos.")}},
+   {k:"chips",opts:["Mercado ×","Solo hogar ×"],tip:T("Filtros activos","Cada filtro activo aparece como un chip. Toca la × para quitarlo, o “Quitar todos” para empezar de cero.")},
+   {k:"mov",a:"Mercado · Tienda El Barrio",b:"3 nov · Nequi · Hogar",r:"−$ 45.000",tip:T("Un movimiento","Muestra qué fue, cuándo, con qué cuenta y el valor. La casita indica que es del hogar y el candado que es personal. Al tocarlo puedes ver el detalle, editarlo o dejarle un comentario a tu pareja.")},
+   {k:"mov",a:"Mercado · Plaza",b:"1 nov · Nequi · Hogar",r:"−$ 120.000",tip:T("Un movimiento","Muestra qué fue, cuándo, con qué cuenta y el valor. La casita indica que es del hogar y el candado que es personal. Al tocarlo puedes ver el detalle, editarlo o dejarle un comentario a tu pareja.")}
+  ]},
+
+ registrar:{sheet:true,
+  intro:T("Registrar un movimiento","El botón + de la barra de abajo abre esta hoja; el micrófono, a su izquierda, sirve para dictar (“gasté 45 mil en el Éxito con Nequi”). Elige el tipo arriba y toca cada campo para saber qué pide."),
+  pre:[H("Registrar movimiento","✕",T("Cerrar","Cierra la hoja sin guardar.","inicio","Volver a Inicio")),{k:"amount",a:"$ 45.000",tip:T("Monto","Escribe cuánto fue.")}],
+  seg:[
+   {id:"gasto",label:"Gasto",tip:T("Gasto","Una compra o un pago. Elige la categoría y a quién le corresponde."),blocks:[
+     FIELD("Descripción","¿En qué?  ·  Mercado"),
+     FIELD("Cuenta","Nequi",T("Cuenta","De qué cuenta salió la plata. Si es una tarjeta de crédito, aparece “Cuotas” (de 1 a 48) para las compras a cuotas.")),
+     FIELD("Categoría","Mercado",T("Categoría","En qué se gastó. Si la categoría no existe, créala en Más → Ajustes → Categorías.")),
+     FIELD("¿A quién le corresponde?","Luis",T("¿A quién le corresponde?","No tiene que ser quien pagó. Si le corresponde a tu pareja, nace un cruce: lo que pagaste por ella o él queda a tu favor.")),
+     {k:"seg",label:"¿De qué espacio es?",opts:["Hogar","Personal"],tip:T("¿De qué espacio es?","Hogar lo ven los dos; Personal es solo tuyo. Más abajo puedes agregar etiquetas.")},
+     {k:"btn",a:"Guardar",tip:T("Guardar","Guarda el movimiento. Sin internet queda “por enviar” y sale solo cuando vuelve la conexión.")}]},
+   {id:"ingreso",label:"Ingreso",tip:T("Ingreso","Plata que entra. Puede ser personal o compartida."),blocks:[
+     FIELD("Descripción","¿De dónde? (salario, venta…)"),
+     FIELD("Cuenta","Bancolombia ahorros",T("Cuenta","La cuenta a la que entró la plata.")),
+     {k:"seg",label:"¿De qué espacio es?",opts:["Hogar","Personal"],tip:T("¿De qué espacio es?","Un ingreso puede ser del hogar (compartido) o personal.")},
+     {k:"btn",a:"Guardar"}]},
+   {id:"transferir",label:"Transferir",tip:T("Transferir","Mover plata entre cuentas. También sirve para pagar una tarjeta o crédito."),blocks:[
+     FIELD("Descripción","Nota (opcional)"),
+     FIELD("Cuenta","Nequi",T("Cuenta","La cuenta de la que sale la plata.")),
+     FIELD("Llega a","Tarjeta Visa",T("Llega a","Para pagar una tarjeta, elige la tarjeta como destino. Una transferencia no consume presupuesto.")),
+     {k:"btn",a:"Guardar"}]},
+   {id:"otro",label:"Otro",tip:T("Otro","Para lo que no es un gasto ni un ingreso normal: pago de una deuda, un reembolso o un ajuste de saldo."),blocks:[
+     NOTE("Aquí van los pagos de deuda, los reembolsos y los ajustes de saldo."),
+     {k:"btn",a:"Guardar"}]}
+  ]},
+
+ presupuesto:{nav:"presupuesto",
+  intro:T("Pantalla de Presupuesto","Aquí defines cuánto quieres gastar en cada categoría y ves cómo vas. Toca cualquier parte para saber qué hace, o cambia de pestaña arriba."),
+  pre:[H("Presupuesto","+",T("Crear presupuesto","El + crea un presupuesto nuevo: eliges la categoría, el monto del periodo y de quién es.")),PER("‹  Noviembre  ›")],
+  seg:[
+   {id:"presu",label:"Presupuestos",blocks:[
+     {k:"card",a:"Cuánto lleva cada uno",b:"Ana $ 1,2 M · Luis $ 0,9 M",tip:T("Cuánto lleva cada uno","Una sola tarjeta con una fila por persona: cuánto ha gastado cada una en los presupuestos del hogar.")},
+     FOLD("▾ Hogar · gastos fijos","3",T("Grupos","Los presupuestos se agrupan y cada grupo se pliega: hogar fijos, hogar variables y personales.")),
+     {k:"meter",a:"Mercado",r:"$ 500.000 de $ 800.000",pct:62,tip:T("Un presupuesto","La barra se llena con lo gastado. Pasa a color de alerta cerca del límite y a rojo cuando te pasas. Tócalo para ver sus movimientos.")},
+     {k:"meter",a:"Restaurantes",r:"$ 340.000 de $ 400.000",pct:85,cls:"warn",tip:T("Un presupuesto en alerta","Desde el 80 % aparece en “Presupuestos en alerta” del Inicio, y la barra cambia de color para avisarte antes de pasarte.")},
+     FOLD("▸ Hogar · variables","4"),
+     FOLD("▸ De varias categorías","1",T("De varias categorías","Un límite para un grupo de categorías, o un plan con fechas."))]},
+   {id:"venc",label:"Vencimientos · 3",tip:T("Vencimientos","Cuotas, administración y pagos con fecha del periodo. Si pagaste con otro valor, la app te pregunta qué pasó: abono parcial, cuota menor, abono a capital o cuota mayor."),blocks:[
+     {k:"mov",a:"Cuota hipoteca",b:"5 nov · Crédito",r:"$ 1.250.000",tip:T("Un vencimiento","Cada pago con fecha. Cuando lo pagas, queda marcado como pagado; si el valor no coincide con la cuota, la app muestra la diferencia.")},
+     {k:"mov",a:"Pago tarjeta Visa",b:"12 nov · Tarjeta",r:"$ 480.000",tip:T("Un vencimiento","Cada pago con fecha. Cuando lo pagas, queda marcado como pagado; si el valor no coincide con la cuota, la app muestra la diferencia.")},
+     {k:"mov",a:"Administración",b:"15 nov · Hogar",r:"$ 320.000",tip:T("Un vencimiento","Cada pago con fecha. Cuando lo pagas, queda marcado como pagado; si el valor no coincide con la cuota, la app muestra la diferencia.")}]}
+  ]},
+
+ informes:{nav:"informes",
+  intro:T("Pantalla de Informes","Para entender en qué se va la plata. Toca cualquier parte para saber qué hace, o cambia entre “Este periodo” e “Histórico”."),
+  pre:[H("Informes","IA",T("Asistente con IA","Abre el asistente: le preguntas en lenguaje normal (“¿cuánto gastamos en mercado en los últimos 3 meses?”). Solo usa lo que tú puedes ver.")),PER("‹  Noviembre  ›"),
+   SEGS(["Todo","Hogar","Personal"],T("Qué cuenta aquí","Elige si ves todo, solo lo del hogar o solo lo personal. La nota “Qué cuenta aquí” explica qué entra en cada opción.")),
+   {k:"two",cols:[{a:"Consumo",b:"$ 3,4 M",tip:T("Consumo","Lo que se gastó en el periodo.")},{a:"Ingresos",b:"$ 6,1 M",tip:T("Ingresos","Lo que entró en el periodo.")}]}],
+  seg:[
+   {id:"periodo",label:"Este periodo",blocks:[
+     FOLD("▾ Gastos por categoría","Mercado es la mayor",T("Gastos por categoría","Cada gráfico se pliega. Toca una categoría para ver sus movimientos; también puedes verlo por subcategoría.")),
+     FOLD("▸ Gastos por etiqueta","3",T("Por etiqueta","Un movimiento con varias etiquetas cuenta en cada una.")),
+     FOLD("▸ Por persona y hogar","",T("Por persona","Lo que asumió cada uno: gastos del hogar y personales.")),
+     FOLD("▸ Presupuesto vs real","",T("Presupuesto vs real","Lo que presupuestaste contra lo que de verdad pasó.")),
+     FOLD("▸ Fijos vs variables","",T("Fijos vs variables","Cuánto de tus gastos son fijos y cuánto cambia mes a mes.")),
+     {k:"btn",a:"Descargar CSV",tip:T("CSV","Descarga los movimientos para abrirlos en una hoja de cálculo.")}]},
+   {id:"hist",label:"Histórico",blocks:[
+     FOLD("▾ Tendencia de 6 periodos","Nov: gastos $ 3,4 M",T("Tendencia","Ingresos y consumo de los últimos 6 periodos, para ver si vas mejorando.")),
+     FOLD("▸ Resumen para la renta","",T("Resumen para la renta","Un resumen del año para la declaración de renta. Ahora incluye tu patrimonio de hoy."))]}
+  ]},
+
+ mas:{nav:"mas",
+  intro:T("Pantalla Más","Las pantallas que no necesitas todos los días. Toca una para saber qué hay adentro y abrirla."),
+  pre:[
+   H("Más","",null),
+   {k:"menu",a:"Cuentas y cruce",b:"Te debe $ 120.000",tip:T("Cuentas y cruce","Tus cuentas, tarjetas, créditos y patrimonio, y el cruce con tu pareja.","cuentas","Abrir Cuentas")},
+   {k:"menu",a:"Metas de ahorro",b:"2 activas",tip:T("Metas de ahorro","Fondo de emergencia, viajes, cuota inicial… Registras cada aporte o retiro y los aportes pendientes del periodo se descuentan del Saldo Seguro.")},
+   {k:"menu",a:"Cierre del mes",b:"2 cuentas por conciliar",tip:T("Cierre del mes","Una vez al mes comparas lo que dice la app con lo que dice tu banco.","cierre","Abrir Cierre del mes")},
+   {k:"menu",a:"Ajustes",b:"Perfil, categorías, captura automática, periodos…",tip:T("Ajustes","Perfil y apariencia, hogar, periodos, categorías, captura automática, notificaciones, seguridad, instalar la app y este manual.")}
+  ]},
+
+ cuentas:{nav:"mas",
+  intro:T("Cuentas y cruce","Tres pestañas arriba: Cuentas, Créditos y Cruce. Toca cualquier parte para saber qué hace."),
+  pre:[H("‹ Cuentas","+ Nueva",T("Agregar una cuenta","Crea una cuenta: eliges el tipo (depósito, billetera, efectivo o tarjeta de crédito), el saldo con el que empieza y quién puede verla.")),],
+  seg:[
+   {id:"cuentas",label:"Cuentas",blocks:[
+     {k:"list",a:"Mis cuentas y tarjetas",rows:[["Nequi","$ 1.200.000"],["Bancolombia ahorros","$ 3.400.000"],["Tarjeta Visa","−$ 1.150.000"]],tip:T("Una cuenta","Toca una cuenta para verla o editarla. En las tarjetas, la hoja tiene tres pestañas: Resumen (proyección de pagos), Compras (compras a cuotas, con “Pagar el total”) y Ajustes.")},
+     FOLD("▸ De tu pareja","3",T("Cuentas de tu pareja","Están plegadas: tócalas para verlas. Las privadas no se ven, y las de “solo saldo” muestran únicamente el total.")),
+     {k:"card",a:"Otros activos y pasivos",r:"+ Agregar",tip:T("Otros activos y pasivos","Para deudas sin cuotas y cosas que tienes: inversiones, bienes… Suman al patrimonio.")},
+     {k:"card",a:"Tu patrimonio",b:"Activos $ 60 M · Pasivos $ 12 M · Neto $ 48 M",tip:T("Tu patrimonio","Al final de la pestaña: lo que tienes (activos), lo que debes (pasivos) y la diferencia (neto).")},
+     FOLD("▸ Archivadas","2")]},
+   {id:"creditos",label:"Créditos",tip:T("Créditos","Hipoteca, libre inversión… Cada pago se registra una sola vez y se divide en capital, intereses y seguros."),blocks:[
+     {k:"two",cols:[{a:"Debes en total",b:"$ 148 M",tip:T("Debes en total","La suma del capital que falta pagar de todos tus créditos.")},{a:"Cuotas del mes ≈",b:"$ 1,25 M",tip:T("Cuotas del mes","Lo que se estima pagar de cuotas en el periodo.")}]},
+     {k:"list",a:"Hipoteca",r:"Cuota 38 de 240",rows:[["Pagado","18 %"],["Saldo de capital","$ 148.000.000"]],tip:T("Un crédito","Muestra en qué cuota vas y cuánto del capital ya pagaste. Al abrirlo hay dos pestañas: Cuotas y Ajustes.")},
+     {k:"btn",a:"Agregar crédito",tip:T("Agregar crédito","Escribes saldo, tasa, número de cuotas y en qué cuota vas; o subes el PDF del extracto y la IA llena los datos para que los revises.")}]},
+   {id:"cruce",label:"Cruce",tip:T("Cruce","La cuenta de quién le debe a quién. Se arma sola: si uno paga algo que le corresponde al otro, queda a favor de quien pagó."),blocks:[
+     {k:"card",a:"Luis te debe",b:"$ 120.000",tip:T("El saldo del cruce","Lo que se debe hoy entre los dos. Lo que tu pareja te debe no se suma a tu Saldo Seguro; lo que tú le debes sí se resta.")},
+     {k:"mov",a:"Mercado",b:"3 nov · pagaste tú",r:"$ 60.000",tip:T("Una deuda abierta","Cada movimiento que generó cruce. Se saldan juntos.")},
+     {k:"mov",a:"Servicios",b:"1 nov · pagaste tú",r:"$ 60.000",tip:T("Una deuda abierta","Cada movimiento que generó cruce. Se saldan juntos.")},
+     {k:"btn",a:"Liquidar",tip:T("Liquidar","Si el saldo está a tu favor, “Liquidar” lo salda. Si tú debes, el botón dice “Pagar o abonar”: puedes pagar todo o abonar una parte, y la app te dice cuánto queda pendiente.")}]}
+  ]},
+
+ cierre:{nav:"mas",
+  intro:T("Cierre del mes","Una vez al mes comparas lo que dice la app con lo que dice tu banco. Toca cualquier parte para saber qué hace."),
+  pre:[H("‹ Cierre del mes","",null),PER("‹  Octubre  ›","Cambia de mes con las flechas. Se concilia al final del mes."),
+   {k:"list",a:"¿Qué hace falta?",rows:[["Movimientos por revisar","2"],["Avisos sin reconocer","1"],["Cuentas sin conciliar","2"]],tip:T("¿Qué hace falta?","Lo que conviene resolver antes de cerrar: movimientos por revisar, avisos sin reconocer y cuentas sin conciliar.")}],
+  seg:[
+   {id:"cuentas",label:"Cuentas 0/2",blocks:[
+     {k:"field",a:"Saldo según tu banco al 31 de octubre",b:"$ 1.420.000",tip:T("Saldo según tu banco","Escribe el saldo que dice el extracto del banco al último día del mes. Con “Importar extracto” (CSV o Excel) se puede llenar solo.")},
+     FOLD("▾ Partidas conciliatorias","2 · −$ 70.000",T("Partidas conciliatorias","Movimientos que ya están en la app pero que el banco todavía no refleja. Márcalos hasta que “Igual a la app” cuadre.")),
+     {k:"list",a:"Resultado",rows:[["Banco","$ 1.420.000"],["Partidas conciliatorias","−$ 70.000"],["Igual a la app","$ 1.350.000 ✓"]],tip:T("¿Cuadra?","Si el banco más las partidas da lo mismo que la app, cuadra. Si no, puedes ajustar el saldo o guardar el cierre con la diferencia.")},
+     {k:"btn",a:"Marcar como conciliada",tip:T("Marcar como conciliada","Cierra esa cuenta para el mes. Si después alguien cambia algo de antes, la cuenta muestra “Se movió”.")},
+     FOLD("▸ Nequi","sin conciliar",T("De a una cuenta","Las cuentas se concilian de a una: abre cada una y repite.")),
+     {k:"note",a:"Sobre el 4x1000 ⓘ"}]},
+   {id:"creditos",label:"Créditos 0/1",tip:T("Créditos","En un crédito se compara el saldo de capital con el extracto."),blocks:[
+     {k:"field",a:"Saldo de capital según el extracto al 31 de octubre",b:"$ 148.000.000",tip:T("Saldo de capital","El capital que dice el extracto del banco. Si no coincide con la app, la diferencia se corrige con un ajuste de saldo (no es gasto ni ingreso).")},
+     {k:"btn",a:"Marcar como conciliada"}]}
+  ]}
+};
+
+var TABS=[["inicio","Inicio","⌂"],["movimientos","Movimientos","≡"],["registrar","Registrar","+"],["presupuesto","Presupuesto","$"],["informes","Informes","▥"],["mas","Más","⋯"]];
+
+function mk(tag,cls,txt){var e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;return e}
+function mount(root){
+  var cur=root.getAttribute("data-start"),view=0,selEl=null;
+  var cap=mk("p","eyebrow mini-cap","Pantalla de ejemplo · toca para explorar · datos inventados");
+  var grid=mk("div","mini-grid"),phone=mk("div","phone"),tip=mk("div","tip");
+  tip.setAttribute("aria-live","polite");
+  grid.appendChild(phone);grid.appendChild(tip);root.appendChild(cap);root.appendChild(grid);
+
+  function showTip(t,first){
+    tip.textContent="";
+    tip.appendChild(mk("h4","",t.a));tip.appendChild(mk("p","",t.b));
+    if(t.go){var b=mk("button","btn",t.label||"Abrir esta pantalla");b.type="button";b.addEventListener("click",function(){go(t.go)});tip.appendChild(b)}
+    if(first)tip.appendChild(mk("p","hint","Los puntos verdes marcan lo que se puede tocar."));
+  }
+  function pick(el,t){
+    if(selEl)selEl.classList.remove("sel");
+    selEl=el;el.classList.add("sel");showTip(t);
+  }
+  function hot(el,t){
+    if(!t)return el;
+    el.addEventListener("click",function(){pick(el,t)});return el;
+  }
+  function block(b){
+    var k=b.k,el;
+    var tag=b.tip?"button":"div";
+    if(k==="h"){el=mk(tag,"m h");el.appendChild(mk("span","",b.a));if(b.r)el.appendChild(mk("span","r",b.r))}
+    else if(k==="period"){el=mk(tag,"m period",b.a)}
+    else if(k==="big"){el=mk(tag,"m big");el.appendChild(mk("span","sub",b.a));el.appendChild(mk("span","num",b.b))}
+    else if(k==="amount"){el=mk(tag,"m big");el.appendChild(mk("span","sub","Monto"));el.appendChild(mk("span","num",b.a))}
+    else if(k==="card"){el=mk(tag,"m card");var l=mk("span");l.appendChild(mk("b","",b.a));if(b.b)l.appendChild(mk("span","sub",b.b));el.appendChild(l);if(b.r)el.appendChild(mk("span","r",b.r))}
+    else if(k==="menu"){el=mk(tag,"m card");var l2=mk("span");l2.appendChild(mk("b","",b.a));if(b.b)l2.appendChild(mk("span","sub",b.b));el.appendChild(l2);el.appendChild(mk("span","r","›"))}
+    else if(k==="list"){el=mk(tag,"m list");var top=mk("span","top");top.appendChild(mk("span","",b.a));if(b.r)top.appendChild(mk("span","r",b.r));el.appendChild(top);
+      b.rows.forEach(function(r){var row=mk("span","row2");row.appendChild(mk("span","",r[0]));row.appendChild(mk("span","",r[1]));el.appendChild(row)})}
+    else if(k==="mov"){el=mk(tag,"m mov");var l3=mk("span");l3.appendChild(mk("b","",b.a));l3.appendChild(mk("span","sub",b.b));el.appendChild(l3);el.appendChild(mk("b","",b.r))}
+    else if(k==="field"){el=mk(tag,"m field");el.appendChild(mk("span","sub",b.a));el.appendChild(mk("span","",b.b))}
+    else if(k==="btn"){el=mk(tag,"m btn",b.a)}
+    else if(k==="fold"){el=mk(tag,"m fold card");el.appendChild(mk("span","",b.a));if(b.r)el.appendChild(mk("span","r",b.r))}
+    else if(k==="note"){el=mk(tag,"m note",b.a)}
+    else if(k==="meter"){el=mk(tag,"m gauge "+(b.cls||""));var tp=mk("span","top card");tp.style.display="flex";tp.style.justifyContent="space-between";tp.style.gap="8px";tp.appendChild(mk("b","",b.a));tp.appendChild(mk("span","r",b.r));el.appendChild(tp);var bar=mk("span","gbar");bar.style.display="block";var fill=mk("i");fill.style.width=b.pct+"%";bar.appendChild(fill);el.appendChild(bar)}
+    else if(k==="chips"){var wrap=mk("div","chipsrow");b.opts.forEach(function(o){var c=mk(tag,"m",o);hot(c,b.tip);wrap.appendChild(c)});return wrap}
+    else if(k==="two"){var w2=mk("div","two");b.cols.forEach(function(c){var e2=mk(c.tip?"button":"div","m card");var l4=mk("span");l4.appendChild(mk("span","sub",c.a));l4.appendChild(mk("b","",c.b));e2.appendChild(l4);hot(e2,c.tip);w2.appendChild(e2)});return w2}
+    else if(k==="duo"){var w3=mk("div","duo");[b.l,b.r].forEach(function(c,i){var e3=mk("button","m",c.a);if(i===0)e3.style.color="var(--muted)";hot(e3,c.tip);w3.appendChild(e3)});return w3}
+    else if(k==="seg"){
+      var holder=mk("div");
+      var wrapSeg=holder;
+      if(b.label){holder.appendChild(mk("span","sub",b.label));holder.firstChild.style.padding="0 3px 2px";holder.firstChild.style.display="block";holder.firstChild.style.color="var(--muted)";holder.firstChild.style.fontSize="11px"}
+      var sg=mk(b.tip?"button":"div","m seg");sg.style.padding="3px";sg.style.background="var(--surface-2)";sg.style.display="flex";
+      b.opts.forEach(function(o,i){var s=mk("span",i===0?"on":"",o);s.style.flex="1";s.style.textAlign="center";s.style.padding="4px 2px";s.style.borderRadius="7px";if(i===0){s.style.background="var(--surface)";s.style.fontWeight="600"}sg.appendChild(s)});
+      hot(sg,b.tip);holder.appendChild(sg);return wrapSeg}
+    if(b.tip&&el)hot(el,b.tip);
+    return el;
+  }
+  function draw(){
+    var s=S[cur];phone.textContent="";selEl=null;
+    s.pre.forEach(function(b){var e=block(b);if(e)phone.appendChild(e)});
+    var v=null;
+    if(s.seg){
+      var sg=mk("div","seg");
+      s.seg.forEach(function(o,i){var bt=mk("button",i===view?"on":"",o.label);bt.type="button";bt.addEventListener("click",function(){view=i;draw();showTip(o.tip||s.intro)});sg.appendChild(bt)});
+      phone.appendChild(sg);v=s.seg[view];
+      v.blocks.forEach(function(b){var e=block(b);if(e)phone.appendChild(e)});
+    }
+    if(s.nav){
+      var tb=mk("div","tabbar");
+      TABS.forEach(function(t){var bt=mk("button",(t[0]===s.nav?"on ":"")+(t[0]==="registrar"?"plus":""));bt.type="button";bt.setAttribute("aria-label",t[1]);bt.appendChild(mk("i","",t[2]));if(t[0]!=="registrar")bt.appendChild(mk("span","",t[1]));bt.addEventListener("click",function(){go(t[0])});tb.appendChild(bt)});
+      phone.appendChild(tb);
+    }
+  }
+  function go(id){cur=id;view=0;draw();showTip(S[id].intro,true)}
+  draw();showTip(S[cur].intro,true);
+}
+document.querySelectorAll(".mini").forEach(mount);
+})();
 
 /* Abrir la sección del ancla al cargar */
 if(location.hash){var h=document.querySelector(location.hash);if(h&&h.tagName==="DETAILS")h.open=true}
