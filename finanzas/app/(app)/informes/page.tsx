@@ -9,6 +9,7 @@ import { PeriodSwitcher, SwipePeriods } from "@/components/PeriodSwitcher";
 import { BarList, ChartCard, GroupedColumns, StackedRows } from "@/components/charts/Charts";
 import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
+import { InfoNote } from "@/components/ui/info-note";
 import type { Member } from "@/lib/types";
 import { formatCop, formatCopShort } from "@/lib/finance/money";
 import { isWithin, periodFor, shiftPeriod, todayBogota } from "@/lib/finance/periods";
@@ -25,6 +26,7 @@ export default function InformesPage() {
   const router = useRouter();
   const members = [me, partner].filter(Boolean) as Member[];
   const [space, setSpace] = useState<ReportSpace>("all");
+  const [view, setView] = useState<"periodo" | "historico">("periodo");
   const transactions = useMemo(() => all.filter((t) => inReportSpace(t, space)), [all, space]);
   // Gastos por periodo: una compra a cuotas cuenta cada cuota en su mes (el CSV lista los movimientos tal cual)
   // y cada cuota de crédito cuenta completa: se suma el abono a capital a los intereses y seguros
@@ -75,9 +77,9 @@ export default function InformesPage() {
       </div>
       <PeriodSwitcher />
       <Segmented className="mt-3" value={space} onChange={setSpace} options={[
+        { value: "all", label: "Todo" },
         { value: "household", label: "Hogar" },
         { value: "personal", label: "Personal" },
-        { value: "all", label: "Todo" },
       ]} />
 
       <SwipePeriods>
@@ -91,16 +93,31 @@ export default function InformesPage() {
             <p className="num mt-1 font-display text-2xl">{formatCop(totalIncome)}</p>
           </div>
         </div>
-        <p className="mt-2 px-1 text-xs text-muted">
+        <InfoNote className="mt-2" label="Qué cuenta aquí">
           {space === "household" ? "Solo movimientos del hogar, pague quien pague." : space === "personal" ? "Tus movimientos personales (y los de tu pareja en los que te asignó una parte)." : "Todo lo que puedes ver: lo del hogar y lo tuyo."}
           {" "}Las transferencias, liquidaciones y ajustes no cuentan; los reembolsos restan. Las compras a cuotas cuentan solo la cuota del periodo (en Movimientos salen por su valor completo) y las cuotas de los créditos cuentan completas: capital, intereses y seguros.
-        </p>
+        </InfoNote>
         {pending.count > 0 && (
           <Link href="/movimientos?filtro=pendientes" className="mt-2 block rounded-2xl bg-warning-soft px-3 py-2 text-sm">
             Incluye {formatCop(pending.amount)} de {pending.count} movimiento{pending.count === 1 ? "" : "s"} por revisar: pueden cambiar de categoría al revisarlos. <span className="font-semibold underline">Revisar</span>
           </Link>
         )}
 
+        <Segmented className="mt-4" value={view} onChange={setView} options={[
+          { value: "periodo", label: "Este periodo" },
+          { value: "historico", label: "Histórico" },
+        ]} />
+
+        {view === "historico" ? (
+        <div className="mt-4 space-y-4">
+          <ChartCard id="tendencia" summary={trend.length ? `${shortPeriod(trend[trend.length - 1].period)}: ingresos ${formatCopShort(trend[trend.length - 1].income)} · gastos ${formatCopShort(trend[trend.length - 1].expense)}` : undefined} title="Tendencia de 6 periodos" subtitle="Ingresos y consumo por periodo (los mismos de “Este periodo”)"
+            table={{ columns: ["Periodo", "Ingresos", "Gastos"], rows: trend.map((t) => [shortPeriod(t.period), t.income, t.expense]) }}>
+            <GroupedColumns data={trend.map((t) => ({ label: shortPeriod(t.period), values: [t.income, t.expense] }))}
+              series={[{ label: "Ingresos", color: SERIES_1 }, { label: "Gastos", color: SERIES_2 }]} />
+          </ChartCard>
+          <TaxSummaryCard />
+        </div>
+        ) : (
         <div className="mt-4 space-y-4">
           <ChartCard id="categorias" summary={byCategory.length ? `${byCategory[0].name} es la mayor · ${formatCop(byCategory[0].total)}` : "Sin gastos en el periodo"} title={group === "sub" ? "Gastos por subcategoría" : "Gastos por categoría"}
             subtitle={group === "sub" ? "Cada subcategoría con su categoría al lado. Toca una para ver sus movimientos" : "Las subcategorías suman en su principal. Toca una para ver sus movimientos"}
@@ -132,16 +149,10 @@ export default function InformesPage() {
             {partner && <p className="mt-3 text-xs text-muted">Lo personal de tu pareja solo aparece si lo compartió contigo.</p>}
           </ChartCard>
 
-          <ChartCard id="tendencia" defaultOpen={false} summary={trend.length ? `${shortPeriod(trend[trend.length - 1].period)}: ingresos ${formatCopShort(trend[trend.length - 1].income)} · gastos ${formatCopShort(trend[trend.length - 1].expense)}` : undefined} title="Tendencia de 6 periodos" subtitle="Ingresos y consumo por periodo (los mismos de arriba)"
-            table={{ columns: ["Periodo", "Ingresos", "Gastos"], rows: trend.map((t) => [shortPeriod(t.period), t.income, t.expense]) }}>
-            <GroupedColumns data={trend.map((t) => ({ label: shortPeriod(t.period), values: [t.income, t.expense] }))}
-              series={[{ label: "Ingresos", color: SERIES_1 }, { label: "Gastos", color: SERIES_2 }]} />
-          </ChartCard>
-
           <BudgetVsActual space={space} />
           <FixedVsVariable consumption={consumption} period={period} />
-          <TaxSummaryCard />
         </div>
+        )}
       </SwipePeriods>
     </main>
   );
