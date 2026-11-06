@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { setInstallPrompt, type BeforeInstallPromptEvent } from "@/lib/pwa";
 
-const WARM_URLS = ["/", "/movimientos", "/presupuestos", "/informes", "/mas", "/cuentas", "/metas", "/cruce"];
+const WARM_URLS = ["/", "/movimientos", "/presupuestos", "/informes", "/mas", "/cuentas", "/metas"];
 
 /** Registra el service worker y captura el evento de instalación. */
 export function PwaBootstrap() {
