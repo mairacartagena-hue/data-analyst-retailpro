@@ -1,14 +1,16 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowDownLeft, ArrowRightLeft, ArrowUpRight, Handshake, Home, Lock, Scale, SlidersHorizontal, Tag as TagIcon, Undo2 } from "lucide-react";
+import { ArrowDownLeft, ArrowRightLeft, ArrowUpRight, Handshake, Home, Lock, Scale, SlidersHorizontal, Tag as TagIcon, Undo2, X } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { useShell } from "@/components/AppShell";
 import { PeriodSwitcher, SwipePeriods } from "@/components/PeriodSwitcher";
 import { MemberBadge } from "@/components/MemberBadge";
 import { TagManager } from "@/components/TagManager";
 import { Card } from "@/components/ui/card";
-import { Input, Select } from "@/components/ui/input";
+import { Field, Input, Select } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Sheet } from "@/components/ui/sheet";
 import { Segmented } from "@/components/ui/segmented";
 import type { Space, Transaction, TxKind } from "@/lib/types";
 import { TX_KIND_LABEL } from "@/lib/types";
@@ -20,6 +22,7 @@ import { filteredPaid, matchesFilter } from "@/lib/finance/reports";
 import { CategoryOptions } from "@/components/CategoryPicker";
 import { categoryPath, consumptionSign, creditBudgetMap, hasSplits, withDescendants } from "@/lib/finance/spaces";
 import { hasTag } from "@/lib/finance/tags";
+import { amountMatch, parseAmountQuery, type AmountMatch } from "@/lib/finance/amountSearch";
 
 type Filter = "all" | "mine" | "cross" | "pending";
 
@@ -35,14 +38,13 @@ export default function MovimientosPage() {
   const [responsibleId, setResponsibleId] = useState("");
   const [tagId, setTagId] = useState("");
   const [manageTags, setManageTags] = useState(false);
-  const [moreFilters, setMoreFilters] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
     if (q.get("filtro") === "pendientes") setFilter("pending");
     setCategoryId(q.get("categoria") ?? "");
     setAccountId(q.get("cuenta") ?? "");
     setTagId(q.get("etiqueta") ?? "");
-    if (q.get("etiqueta")) setMoreFilters(true);
   }, []);
   const activeFilters = [categoryId, accountId, kind, space, payerId, responsibleId, tagId].filter(Boolean).length;
   const categoryIds = useMemo(() => (categoryId ? withDescendants(categories, [categoryId]) : undefined), [categories, categoryId]);
@@ -59,6 +61,9 @@ export default function MovimientosPage() {
     window.history.replaceState(null, "", "/movimientos");
   }
 
+  // Si lo escrito es un monto, se busca por valor (exacto, aproximado o parecido) y no por texto
+  const amountTarget = useMemo(() => parseAmountQuery(query), [query]);
+
   const list = useMemo(() => {
     const q = query.trim().toLowerCase();
     return transactions.filter((t) => {
@@ -71,13 +76,24 @@ export default function MovimientosPage() {
         categoryIds, accountId: accountId || undefined, kind: kind || undefined, scope: space || undefined,
         payerId: payerId || undefined, responsibleId: responsibleId || undefined, creditBudgets,
       })) return false;
-      if (q) {
+      if (amountTarget !== null) {
+        if (!amountMatch(t.amount, amountTarget)) return false;
+      } else if (q) {
         const text = [t.description, t.merchant, ...t.splits.map((s) => categoryPath(categories, s.category_id) || categoryLabel(categories, s.category_id).name)].join(" ").toLowerCase();
         if (!text.includes(q)) return false;
       }
       return true;
     });
-  }, [transactions, period, filter, me.user_id, query, categories, categoryIds, creditBudgets, accountId, kind, space, payerId, responsibleId, tagId, txTags]);
+  }, [transactions, period, filter, me.user_id, query, amountTarget, categories, categoryIds, creditBudgets, accountId, kind, space, payerId, responsibleId, tagId, txTags]);
+
+  // Búsqueda por valor: primero los exactos, luego los aproximados y al final los parecidos
+  const byAmount = useMemo(() => {
+    if (amountTarget === null) return null;
+    const order: AmountMatch[] = ["exact", "approx", "similar"];
+    const buckets = new Map<AmountMatch, Transaction[]>(order.map((m) => [m, []]));
+    for (const t of list) buckets.get(amountMatch(t.amount, amountTarget)!)!.push(t);
+    return order.map((m) => [m, buckets.get(m)!] as const).filter(([, txs]) => txs.length > 0);
+  }, [list, amountTarget]);
 
   const groups = useMemo(() => {
     const map = new Map<string, Transaction[]>();
@@ -89,9 +105,25 @@ export default function MovimientosPage() {
   const totalExpense = categoryIds ? filteredPaid(list, creditBudgets) : list.reduce((a, t) => a + consumptionSign(t.kind) * t.amount, 0);
   const totalIncome = list.filter((t) => t.kind === "INCOME").reduce((a, t) => a + t.amount, 0);
 
+  // Chips de los filtros activos: se quitan con la ×
+  const chips: { key: string; label: string; clear: () => void }[] = [
+    categoryId && { key: "cat", label: categoryPath(categories, categoryId) || categoryLabel(categories, categoryId).name, clear: () => setCategoryId("") },
+    space && { key: "space", label: space === "HOUSEHOLD" ? "Hogar" : "Personal", clear: () => setSpace("") },
+    kind && { key: "kind", label: TX_KIND_LABEL[kind], clear: () => setKind("") },
+    accountId && { key: "acc", label: accountLabel(labels, accountId), clear: () => setAccountId("") },
+    payerId && { key: "payer", label: `Pagó: ${people.find((p) => p.id === payerId)?.name ?? ""}`, clear: () => setPayerId("") },
+    responsibleId && { key: "resp", label: `A cargo: ${people.find((p) => p.id === responsibleId)?.name ?? ""}`, clear: () => setResponsibleId("") },
+    tagId && { key: "tag", label: `#${tags.find((t) => t.id === tagId)?.name ?? "etiqueta"}`, clear: () => setTagId("") },
+  ].filter((c): c is { key: string; label: string; clear: () => void } => !!c);
+
   return (
     <main className="px-4 pt-[calc(12px+env(safe-area-inset-top))]">
-      <h1 className="py-2 font-display text-3xl">Movimientos</h1>
+      <div className="flex items-center justify-between py-2">
+        <h1 className="font-display text-3xl">Movimientos</h1>
+        <button className="flex items-center gap-1.5 rounded-full px-3 py-2 text-sm font-medium text-olive hover:bg-surface-2" onClick={() => setManageTags(true)}>
+          <TagIcon size={16} /> Etiquetas{tags.length > 0 ? ` (${tags.length})` : ""}
+        </button>
+      </div>
       <PeriodSwitcher />
       <Segmented className="mt-3" value={filter} onChange={setFilter} options={[
         { value: "all", label: "Todos" },
@@ -99,55 +131,23 @@ export default function MovimientosPage() {
         { value: "cross", label: "Cruces" },
         { value: "pending", label: "Pendientes" },
       ]} />
-      <Input className="mt-3" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar por concepto o categoría" aria-label="Buscar" />
-      <div className="mt-3 grid grid-cols-2 gap-2">
-        <Select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} aria-label="Filtrar por categoría" className={cn("h-10 px-3 text-sm", categoryId && "border-olive bg-olive-soft")}>
-          <option value="">Categoría</option>
-          <CategoryOptions categories={categories.filter((c) => !c.archived)} />
-        </Select>
-        <Select value={space} onChange={(e) => setSpace(e.target.value as Space | "")} aria-label="Filtrar por espacio" className={cn("h-10 px-3 text-sm", space && "border-olive bg-olive-soft")}>
-          <option value="">Hogar y personal</option>
-          <option value="HOUSEHOLD">Solo hogar</option>
-          <option value="PERSONAL">Solo personal</option>
-        </Select>
-      </div>
-      <div className="mt-2 flex items-center justify-between">
-        <button className="flex items-center gap-1 px-1 text-xs font-medium text-muted" onClick={() => setMoreFilters(!moreFilters)}>
-          <SlidersHorizontal size={13} /> {moreFilters ? "Menos filtros" : "Más filtros"}
-        </button>
-        <button className="flex items-center gap-1 px-1 text-xs font-medium text-olive" onClick={() => setManageTags(true)}>
-          <TagIcon size={13} /> Etiquetas{tags.length > 0 ? ` (${tags.length})` : ""}
+      <div className="mt-3 flex gap-2">
+        <Input className="min-w-0 flex-1" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar por concepto, categoría o valor" aria-label="Buscar" />
+        <button onClick={() => setFiltersOpen(true)} aria-label="Filtros"
+          className={cn("flex shrink-0 items-center gap-1.5 rounded-2xl border px-3.5 text-sm font-medium", activeFilters ? "border-olive bg-olive-soft" : "border-border bg-surface")}>
+          <SlidersHorizontal size={16} /> Filtros{activeFilters ? ` · ${activeFilters}` : ""}
         </button>
       </div>
-      {moreFilters && (
-        <div className="mt-2 grid grid-cols-2 gap-2">
-          <Select value={kind} onChange={(e) => setKind(e.target.value as TxKind | "")} aria-label="Filtrar por tipo" className={cn("h-10 px-3 text-sm", kind && "border-olive bg-olive-soft")}>
-            <option value="">Tipo</option>
-            {(Object.keys(TX_KIND_LABEL) as TxKind[]).map((k) => <option key={k} value={k}>{TX_KIND_LABEL[k]}</option>)}
-          </Select>
-          <Select value={accountId} onChange={(e) => setAccountId(e.target.value)} aria-label="Filtrar por cuenta" className={cn("h-10 px-3 text-sm", accountId && "border-olive bg-olive-soft")}>
-            <option value="">Cuenta</option>
-            {accountId && !accountOptions.some((o) => o.id === accountId) && <option value={accountId}>{accountLabel(labels, accountId)}</option>}
-            {accountOptions.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
-          </Select>
-          <Select value={payerId} onChange={(e) => setPayerId(e.target.value)} aria-label="Filtrar por quién pagó" className={cn("h-10 px-3 text-sm", payerId && "border-olive bg-olive-soft")}>
-            <option value="">Pagó</option>
-            {people.map((p) => <option key={p.id} value={p.id}>Pagó: {p.name}</option>)}
-          </Select>
-          <Select value={responsibleId} onChange={(e) => setResponsibleId(e.target.value)} aria-label="Filtrar por responsable" className={cn("h-10 px-3 text-sm", responsibleId && "border-olive bg-olive-soft")}>
-            <option value="">Responsable</option>
-            {people.map((p) => <option key={p.id} value={p.id}>A cargo: {p.name}</option>)}
-          </Select>
-          <Select value={tagId} onChange={(e) => setTagId(e.target.value)} aria-label="Filtrar por etiqueta" className={cn("h-10 px-3 text-sm", tagId && "border-olive bg-olive-soft")}>
-            <option value="">Etiqueta</option>
-            {tags.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-          </Select>
+      {chips.length > 0 && (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          {chips.map((c) => (
+            <button key={c.key} onClick={c.clear} aria-label={`Quitar filtro ${c.label}`}
+              className="inline-flex max-w-full items-center gap-1 rounded-full border border-olive bg-olive-soft px-2.5 py-1 text-xs">
+              <span className="truncate">{c.label}</span> <X size={12} className="shrink-0" />
+            </button>
+          ))}
+          {chips.length > 1 && <button className="px-1 text-xs text-muted underline" onClick={clearFilters}>Quitar todos</button>}
         </div>
-      )}
-      {activeFilters > 0 && (
-        <button className="mt-2 px-1 text-xs text-olive underline" onClick={clearFilters}>
-          Quitar filtros ({activeFilters})
-        </button>
       )}
 
       <SwipePeriods>
@@ -155,7 +155,20 @@ export default function MovimientosPage() {
           {list.length} movimiento{list.length === 1 ? "" : "s"} · pagos {formatCop(totalExpense)}
           {totalIncome > 0 ? ` · ingresos ${formatCop(totalIncome)}` : ""}
         </p>
-        {groups.length === 0 ? (
+        {byAmount ? (
+          byAmount.length === 0 ? (
+            <Card className="mt-4 text-center text-[15px] text-muted">Ningún movimiento de este periodo tiene un valor parecido a {formatCop(amountTarget!)}.</Card>
+          ) : (
+            byAmount.map(([match, txs]) => (
+              <section key={match} className="mt-4">
+                <h2 className="mb-1.5 px-1 text-xs font-semibold uppercase tracking-wider text-muted">{AMOUNT_MATCH_LABEL[match]} · {txs.length}</h2>
+                <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface">
+                  {txs.map((t) => <TxRow key={t.id} tx={t} showDate />)}
+                </div>
+              </section>
+            ))
+          )
+        ) : groups.length === 0 ? (
           <Card className="mt-4 text-center text-[15px] text-muted">No hay movimientos en este periodo.</Card>
         ) : (
           groups.map(([day, txs]) => (
@@ -168,12 +181,76 @@ export default function MovimientosPage() {
           ))
         )}
       </SwipePeriods>
+
+      <Sheet open={filtersOpen} onOpenChange={setFiltersOpen} title="Filtros"
+        footer={<div className="flex gap-3">
+          <Button variant="secondary" className="flex-1" size="lg" onClick={clearFilters} disabled={!activeFilters}>Quitar filtros</Button>
+          <Button className="flex-1" size="lg" onClick={() => setFiltersOpen(false)}>Ver {list.length}</Button>
+        </div>}>
+        <div className="space-y-4 pb-2">
+          <Field label="Espacio">
+            <Segmented value={space || "ALL"} onChange={(v) => setSpace(v === "ALL" ? "" : v)} options={[
+              { value: "ALL", label: "Todo" },
+              { value: "HOUSEHOLD", label: "Hogar" },
+              { value: "PERSONAL", label: "Personal" },
+            ]} />
+          </Field>
+          <Field label="Categoría" htmlFor="f-cat">
+            <Select id="f-cat" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+              <option value="">Todas</option>
+              <CategoryOptions categories={categories.filter((c) => !c.archived)} />
+            </Select>
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Tipo" htmlFor="f-kind">
+              <Select id="f-kind" value={kind} onChange={(e) => setKind(e.target.value as TxKind | "")}>
+                <option value="">Todos</option>
+                {(Object.keys(TX_KIND_LABEL) as TxKind[]).map((k) => <option key={k} value={k}>{TX_KIND_LABEL[k]}</option>)}
+              </Select>
+            </Field>
+            <Field label="Cuenta" htmlFor="f-acc">
+              <Select id="f-acc" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+                <option value="">Todas</option>
+                {accountId && !accountOptions.some((o) => o.id === accountId) && <option value={accountId}>{accountLabel(labels, accountId)}</option>}
+                {accountOptions.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+              </Select>
+            </Field>
+            <Field label="Pagó" htmlFor="f-payer">
+              <Select id="f-payer" value={payerId} onChange={(e) => setPayerId(e.target.value)}>
+                <option value="">Cualquiera</option>
+                {people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </Select>
+            </Field>
+            <Field label="A cargo de" htmlFor="f-resp">
+              <Select id="f-resp" value={responsibleId} onChange={(e) => setResponsibleId(e.target.value)}>
+                <option value="">Cualquiera</option>
+                {people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </Select>
+            </Field>
+          </div>
+          {tags.length > 0 && (
+            <Field label="Etiqueta" htmlFor="f-tag">
+              <Select id="f-tag" value={tagId} onChange={(e) => setTagId(e.target.value)}>
+                <option value="">Todas</option>
+                {tags.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </Select>
+            </Field>
+          )}
+          <p className="text-xs text-muted">Para buscar por valor escribe el monto en la búsqueda (ej. 45000, $45.000 o 45 mil): salen los de valor exacto, los aproximados (±10 %) y los parecidos.</p>
+        </div>
+      </Sheet>
       <TagManager open={manageTags} onOpenChange={setManageTags} />
     </main>
   );
 }
 
-function TxRow({ tx }: { tx: Transaction }) {
+const AMOUNT_MATCH_LABEL: Record<AmountMatch, string> = {
+  exact: "Valor exacto",
+  approx: "Valor aproximado (±10 %)",
+  similar: "Valores parecidos",
+};
+
+function TxRow({ tx, showDate = false }: { tx: Transaction; showDate?: boolean }) {
   const { me, categories, labels, memberById, tags, txTags } = useFinance();
   const { openTransaction } = useShell();
   const rowTags = (txTags[tx.id] ?? []).map((id) => tags.find((t) => t.id === id)).filter((t): t is NonNullable<typeof t> => !!t);
@@ -216,6 +293,7 @@ function TxRow({ tx }: { tx: Transaction }) {
     sign = tx.counterparty_user_id === me.user_id ? "+" : tx.payer_user_id === me.user_id ? "−" : "";
   }
   if ((tx.installments ?? 1) > 1 && tx.kind === "EXPENSE") subtitle = `${subtitle} · ${tx.installments} cuotas`;
+  if (showDate) subtitle = `${formatDay(tx.occurred_on)} · ${subtitle}`;
 
   return (
     <button onClick={() => openTransaction(tx)} className="flex w-full items-center gap-3 px-3.5 py-3 text-left hover:bg-surface-2">
