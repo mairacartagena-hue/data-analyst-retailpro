@@ -5,7 +5,7 @@ import { Pencil, Plus, Store, Trash2 } from "lucide-react";
 import { useHousehold } from "@/components/HouseholdProvider";
 import { ImportarCompras } from "@/components/ImportarCompras";
 import { PantryCards, diasTexto, usePantrySoon } from "@/components/PantrySoon";
-import { Avatar, Checkbox, Empty, ErrorText, JUNTOS, PageHeader, Pills, SectionHeader, Sheet, errMsg } from "@/components/ui";
+import { Avatar, Checkbox, Empty, ErrorText, JUNTOS, PageHeader, Pills, SectionHeader, Sheet, Switch, errMsg } from "@/components/ui";
 import { Loading } from "@/components/Loading";
 import { getSupabase } from "@/lib/supabase/client";
 import { normalizar } from "@/lib/csv";
@@ -730,6 +730,7 @@ function PantrySheet({
   const tiendasConocidas = tiendasUnicas([...itemsTiendas.map((x) => x.tienda), ...pantryTiendas.map((x) => x.tienda)]);
   const [diasExtra, setDiasExtra] = useState(0);
   const [tiendaP, setTiendaP] = useState("");
+  const [auto, setAuto] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const editando = producto && producto !== "nuevo" ? producto : null;
   const esMascota = paraMascotas || !!petId || !!editando?.es_mascotas;
@@ -747,6 +748,7 @@ function PantrySheet({
     setUltima(editando?.fecha_ultima_compra ?? todayStr());
     setDiasExtra(editando?.dias_extra ?? 0);
     setTiendaP(editando?.tienda ?? "");
+    setAuto(editando?.auto ?? true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [producto]);
 
@@ -770,6 +772,7 @@ function PantrySheet({
       marca: esMascota && marca.trim() ? marca.trim() : null,
       tipo_comida: esMascota && tipoComida.trim() ? tipoComida.trim() : null,
       tienda: tiendaP.trim() || null,
+      auto,
     };
     const sb = getSupabase();
     const { data, error } = editando
@@ -913,6 +916,19 @@ function PantrySheet({
             </label>
             <input id="p-ult" type="date" className="input" value={ultima} onChange={(e) => setUltima(e.target.value)} />
           </div>
+        </div>
+        <div className="flex items-center justify-between gap-3 rounded-[10px] border-2 border-vino px-3 py-2.5">
+          <div>
+            <p className="flex items-center gap-2 text-[15px] font-semibold">
+              <span className="tag tag-oscuro">Auto</span> Agregar solo a la lista
+            </p>
+            <p className="text-xs text-sec">
+              {auto
+                ? `Cuando le quede el 20% o menos, se agrega solo a ${esMascota ? "Mascotas" : "Mercado"}.`
+                : "Apagado: no se agrega solo; lo agregas tú cuando quieras."}
+            </p>
+          </div>
+          <Switch checked={auto} onChange={setAuto} label="Agregar solo a la lista (AUTO)" />
         </div>
         {diasExtra > 0 && (
           <div className="flex items-center justify-between gap-3 rounded-[10px] bg-rosa-claro px-3 py-2 text-sm">
@@ -1075,6 +1091,7 @@ function PantryRow({ producto: p, onAbrir }: { producto: PantryProduct; onAbrir:
     p.marca,
     p.tipo_comida,
     separarTiendas(p.tienda).join(" · ") || null,
+    p.auto === false ? "Sin AUTO" : null,
     `Dura ${p.duracion_dias} ${p.duracion_dias === 1 ? "día" : "días"}` +
       ((p.dias_extra ?? 0) > 0 ? ` (+${p.dias_extra} por compra extra)` : ""),
     p.rota ? "Responsable: rotar" : p.responsable_id ? `Responsable: ${memberById(p.responsable_id)?.nombre ?? ""}` : null,

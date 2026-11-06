@@ -75,6 +75,7 @@ export async function construirRespaldo(d: DatosHogar): Promise<Blob> {
       p.tipo_comida ?? "",
       p.rota ? "Rotar" : nombrePersona(p.responsable_id),
       separarTiendas(p.tienda).join(", "),
+      si(p.auto !== false),
     ];
   });
 
@@ -112,7 +113,7 @@ export async function construirRespaldo(d: DatosHogar): Promise<Blob> {
 
   const zip = new JSZip();
   zip.file("tareas.csv", plantillaCsv(["titulo", "frecuencia", "dias", "responsable", "hora", "fecha_inicio", "activa"], tareas));
-  zip.file("despensa.csv", plantillaCsv(["nombre", "lista", "categoria", "dias", "ultima_compra", "mascota", "marca", "tipo_comida", "responsable", "tienda"], despensa));
+  zip.file("despensa.csv", plantillaCsv(["nombre", "lista", "categoria", "dias", "ultima_compra", "mascota", "marca", "tipo_comida", "responsable", "tienda", "auto"], despensa));
   zip.file("lista_compras.csv", plantillaCsv(["producto", "lista", "cantidad", "categoria", "dias", "mascota", "pedido_por", "tienda", "comprado"], lista));
   zip.file("mascotas_vacunas.csv", plantillaCsv(["mascota", "especie", "evento", "tipo", "fecha", "repeticion", "aviso_previo_dias", "responsable", "nota"], mascotas));
   zip.file("recordatorios.csv", plantillaCsv(["titulo", "fecha", "hora", "para", "repeticion", "aviso_previo_dias", "nota"], recordatorios));

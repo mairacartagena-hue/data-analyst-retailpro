@@ -138,6 +138,8 @@ export interface PantryProduct {
   dias_extra?: number;
   /** Tienda donde se compra (opcional) */
   tienda?: string | null;
+  /** AUTO: al quedar el 20% o menos se agrega solo a la lista (por defecto, sí) */
+  auto?: boolean;
 }
 
 export interface Reminder {
