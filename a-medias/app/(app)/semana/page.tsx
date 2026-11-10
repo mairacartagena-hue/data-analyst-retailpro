@@ -134,9 +134,9 @@ export default function SemanaPage() {
                   {delDia.length === 0 && <span className="self-center text-xs text-sec">Libre</span>}
                   {delDia.map((o) => {
                     const t = todas.get(o.task_id)!;
-                    // Si ya está hecha, el color es de quien la hizo; si no, de a quien le toca
+                    // El color siempre es de a quien le tocaba; quien la hizo va en el título
                     const quienHizo = o.completada ? memberById(o.completada_por) : undefined;
-                    const m = quienHizo ?? memberById(o.responsable_id);
+                    const m = memberById(o.responsable_id);
                     const pet = pets.find((p) => p.id === t.pet_id);
                     const texto =
                       t.tipo === "medicamento" ? `${pet?.nombre ?? ""} · ${t.titulo} ${formatHora(o.hora)}` : t.titulo;
@@ -146,7 +146,7 @@ export default function SemanaPage() {
                         className={`inline-flex max-w-full items-center gap-1.5 rounded-full border-2 border-vino py-1 text-[12px] font-medium ${
                           m ? `px-2.5 ${personColors(m)}` : "bg-rosa-claro pl-1 pr-2.5 text-vino"
                         } ${o.completada ? "line-through opacity-60" : ""} ${o.omitida ? "opacity-40" : ""}`}
-                        title={quienHizo ? `Lo hizo ${quienHizo.nombre}` : m ? m.nombre : JUNTOS}
+                        title={`Le tocaba a ${m ? m.nombre : JUNTOS}${quienHizo ? ` · Lo hizo ${quienHizo.nombre}` : ""}`}
                       >
                         {!m && <Avatar juntos size={18} />}
                         <span className="truncate">{texto}</span>
