@@ -11,6 +11,7 @@ import { Loading } from "@/components/Loading";
 import { getSupabase } from "@/lib/supabase/client";
 import { DIAS_CORTOS, formatHora, todayStr } from "@/lib/dates";
 import type { Frecuencia, Occurrence, Task } from "@/lib/types";
+import { taskPetIds } from "@/lib/logic";
 
 type Filtro = "todas" | "mias" | "otro" | "juntos" | "rotan" | "mascotas";
 
@@ -61,7 +62,7 @@ export default function TareasPage() {
         case "rotan":
           return t.modo === "rota";
         case "mascotas":
-          return !!t.pet_id;
+          return taskPetIds(t).length > 0;
         default:
           return true;
       }
@@ -123,6 +124,7 @@ export default function TareasPage() {
                 {lista.map((t) => {
                   const resp = memberById(t.responsable_fijo);
                   const pet = pets.find((p) => p.id === t.pet_id);
+                  const nombresMascotas = pets.filter((p) => taskPetIds(t).includes(p.id)).map((p) => p.nombre);
                   const pr = t.tipo === "tarea" ? proxima(t.id) : undefined;
                   const prMed = t.tipo === "medicamento" ? proxima(t.id) : undefined;
                   const quien = pr ? memberById(pr.responsable_id) : memberById(t.responsable_fijo);
@@ -140,9 +142,11 @@ export default function TareasPage() {
                             {t.modo === "rota" && <span className="tag tag-oscuro">Rota</span>}
                           </p>
                           <p className="mt-0.5 flex items-center gap-1.5 text-xs text-sec">
-                            {pet && <PawPrint size={12} />}
+                            {nombresMascotas.length > 0 && <PawPrint size={12} />}
                             {t.tipo === "tarea" && t.hora_recordatorio && <Bell size={12} />}
-                            {detalle(t) || (t.frecuencia === "diaria" ? "Todos los días" : "")}
+                            {[t.tipo === "tarea" ? nombresMascotas.join(", ") : "", detalle(t) || (t.frecuencia === "diaria" ? "Todos los días" : "")]
+                              .filter(Boolean)
+                              .join(" · ")}
                           </p>
                         </div>
                         {!pr &&

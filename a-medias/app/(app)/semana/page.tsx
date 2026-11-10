@@ -6,6 +6,7 @@ import { useHousehold } from "@/components/HouseholdProvider";
 import { sortOccurrences } from "@/components/OccurrenceRow";
 import { Avatar, ErrorText, JUNTOS, PageHeader, Pills, errMsg, personColors } from "@/components/ui";
 import { Loading } from "@/components/Loading";
+import { SemanaResumen } from "@/components/SemanaResumen";
 import { getSupabase } from "@/lib/supabase/client";
 import { addDays, dayNum, formatHora, formatShort, mondayOf, monthShort, todayStr, weekDays, weekdayName, weekdayShort } from "@/lib/dates";
 import { findSuggestion } from "@/lib/logic";
@@ -70,6 +71,8 @@ export default function SemanaPage() {
         value={persona}
         onChange={setPersona}
       />
+
+      {ready && <SemanaResumen lunes={lunes} />}
 
       {sugerencia && (
         <section className="card mb-4 bg-rosa-claro!">

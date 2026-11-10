@@ -46,7 +46,10 @@ export interface Task {
   household_id: string;
   titulo: string;
   tipo: "tarea" | "medicamento";
+  /** Solo medicamentos: la mascota del tratamiento */
   pet_id: string | null;
+  /** Tareas del hogar: las mascotas a las que corresponde (puede ser más de una) */
+  pet_ids?: string[];
   dosis: string | null;
   frecuencia: Frecuencia;
   dias_semana: number[];

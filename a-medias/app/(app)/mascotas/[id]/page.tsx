@@ -11,7 +11,7 @@ import { PetEventSheet, PetSheet } from "@/components/RecordarSheets";
 import { Avatar, Empty, SectionHeader } from "@/components/ui";
 import { Loading } from "@/components/Loading";
 import { dayNum, formatAge, formatDateLong, formatHora, formatShort, monthShort, monthYear, todayStr } from "@/lib/dates";
-import { medProgress, nextPetEventDate } from "@/lib/logic";
+import { medProgress, nextPetEventDate, taskPetIds } from "@/lib/logic";
 import type { Member, Occurrence, PetEvent, Task } from "@/lib/types";
 
 export default function MascotaPage() {
@@ -38,7 +38,7 @@ export default function MascotaPage() {
   const meds = tasks.filter((t) => t.pet_id === pet.id && t.tipo === "medicamento");
   const activos = meds.filter((t) => t.activa).sort((a, b) => a.fecha_inicio.localeCompare(b.fecha_inicio));
   const historial = [...meds].sort((a, b) => b.fecha_inicio.localeCompare(a.fecha_inicio));
-  const otrasTareas = tasks.filter((t) => t.pet_id === pet.id && t.tipo === "tarea" && t.activa);
+  const otrasTareas = tasks.filter((t) => t.tipo === "tarea" && t.activa && taskPetIds(t).includes(pet.id));
   const eventos = petEvents
     .filter((e) => e.pet_id === pet.id)
     .map((e) => ({ e, proxima: nextPetEventDate(e) }))

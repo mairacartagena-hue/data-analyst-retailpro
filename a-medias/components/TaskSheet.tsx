@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowRight, Trash2 } from "lucide-react";
 import { getSupabase } from "@/lib/supabase/client";
 import { DIAS_CORTOS, DIAS_NOMBRE, formatShort, horaInput, isoDow, todayStr } from "@/lib/dates";
-import { previewTurns } from "@/lib/logic";
+import { previewTurns, taskPetIds } from "@/lib/logic";
 import type { Frecuencia, Modo, Task } from "@/lib/types";
 import { useHousehold } from "./HouseholdProvider";
 import { Avatar, ErrorText, JUNTOS, Pills, Sheet, Switch, errMsg, quienOptions } from "./ui";
@@ -28,7 +28,7 @@ export function TaskSheet({ open, onClose, task }: { open: boolean; onClose: () 
   const [fechaInicio, setFechaInicio] = useState(todayStr());
   const [conRecordatorio, setConRecordatorio] = useState(false);
   const [hora, setHora] = useState("19:00");
-  const [petId, setPetId] = useState<string>("");
+  const [petIds, setPetIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState(false);
 
@@ -44,7 +44,7 @@ export function TaskSheet({ open, onClose, task }: { open: boolean; onClose: () 
       setFechaInicio(task.fecha_inicio);
       setConRecordatorio(!!task.hora_recordatorio);
       setHora(horaInput(task.hora_recordatorio) || "19:00");
-      setPetId(task.pet_id ?? "");
+      setPetIds(taskPetIds(task));
     } else {
       setTitulo("");
       setQuien("rota");
@@ -54,7 +54,7 @@ export function TaskSheet({ open, onClose, task }: { open: boolean; onClose: () 
       setFechaInicio(todayStr());
       setConRecordatorio(false);
       setHora("19:00");
-      setPetId("");
+      setPetIds([]);
     }
     // solo al abrir: que un cambio en tiempo real no borre lo que estás escribiendo
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -91,7 +91,8 @@ export function TaskSheet({ open, onClose, task }: { open: boolean; onClose: () 
       household_id: household!.id,
       titulo: titulo.trim(),
       tipo: "tarea" as const,
-      pet_id: petId || null,
+      pet_id: null,
+      pet_ids: pets.filter((p) => petIds.includes(p.id)).map((p) => p.id),
       ...borrador,
       hora_recordatorio: conRecordatorio ? hora : null,
     };
@@ -185,17 +186,23 @@ export function TaskSheet({ open, onClose, task }: { open: boolean; onClose: () 
 
         {pets.length > 0 && (
           <div>
-            <label className="label" htmlFor="mascota">
-              ¿Es de una mascota? (opcional)
-            </label>
-            <select id="mascota" className="input" value={petId} onChange={(e) => setPetId(e.target.value)}>
-              <option value="">No</option>
-              {pets.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.nombre}
-                </option>
-              ))}
-            </select>
+            <span className="label">¿Es de alguna mascota? (opcional, puedes marcar varias)</span>
+            <div className="flex flex-wrap gap-2">
+              {pets.map((p) => {
+                const on = petIds.includes(p.id);
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    aria-pressed={on}
+                    className={`pill ${on ? "pill-on" : ""}`}
+                    onClick={() => setPetIds(on ? petIds.filter((x) => x !== p.id) : [...petIds, p.id])}
+                  >
+                    {p.nombre}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         )}
 
