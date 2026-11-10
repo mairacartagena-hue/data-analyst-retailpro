@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Bell, PawPrint } from "lucide-react";
+import { Bell, PawPrint, Search, X } from "lucide-react";
 import { useHousehold } from "@/components/HouseholdProvider";
 import { TaskSheet } from "@/components/TaskSheet";
 import { MedSheet } from "@/components/MedSheet";
@@ -12,6 +12,7 @@ import { getSupabase } from "@/lib/supabase/client";
 import { DIAS_CORTOS, formatHora, todayStr } from "@/lib/dates";
 import type { Frecuencia, Occurrence, Task } from "@/lib/types";
 import { taskPetIds } from "@/lib/logic";
+import { normalizar } from "@/lib/csv";
 
 type Filtro = "todas" | "mias" | "otro" | "juntos" | "rotan" | "mascotas";
 
@@ -30,6 +31,8 @@ export default function TareasPage() {
   const [editarMed, setEditarMed] = useState<Task | null>(null);
   const [turnoDe, setTurnoDe] = useState<Task | null>(null);
   const [importar, setImportar] = useState(false);
+  const [buscando, setBuscando] = useState(false);
+  const [busqueda, setBusqueda] = useState("");
   const [errorTurno, setErrorTurno] = useState<string | null>(null);
 
   /** La próxima ocurrencia pendiente de una tarea: ahí se cambia quién la hace */
@@ -67,6 +70,12 @@ export default function TareasPage() {
           return true;
       }
     })
+    .filter((t) => {
+      const q = normalizar(busqueda);
+      if (!q) return true;
+      const mascotas = pets.filter((p) => taskPetIds(t).includes(p.id)).map((p) => p.nombre);
+      return normalizar([t.titulo, t.dosis ?? "", ...mascotas].join(" ")).includes(q);
+    })
     .sort((a, b) => a.titulo.localeCompare(b.titulo, "es"));
 
   function detalle(t: Task) {
@@ -87,11 +96,45 @@ export default function TareasPage() {
         title="Tareas"
         subtitle="Todo lo que hay que hacer en la casa"
         right={
-          <button className="btn btn-secondary btn-sm mt-1" onClick={() => setImportar(true)}>
-            Importar
-          </button>
+          <div className="mt-1 flex gap-2">
+            <button
+              className={`btn btn-sm ${buscando ? "btn-primary" : "btn-secondary"}`}
+              onClick={() => (buscando ? (setBuscando(false), setBusqueda("")) : setBuscando(true))}
+              aria-label={buscando ? "Cerrar búsqueda" : "Buscar tarea"}
+              aria-pressed={buscando}
+            >
+              <Search size={16} />
+            </button>
+            <button className="btn btn-secondary btn-sm" onClick={() => setImportar(true)}>
+              Importar
+            </button>
+          </div>
         }
       />
+      {buscando && (
+        <div className="relative mb-3">
+          <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sec" />
+          <input
+            className="input pl-9! pr-9!"
+            type="text"
+            enterKeyHint="search"
+            value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)}
+            placeholder="Buscar tarea, medicamento o mascota"
+            aria-label="Buscar tarea"
+            autoFocus
+          />
+          {busqueda && (
+            <button
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-sec"
+              onClick={() => setBusqueda("")}
+              aria-label="Borrar búsqueda"
+            >
+              <X size={16} />
+            </button>
+          )}
+        </div>
+      )}
       <Pills<Filtro>
         options={[
           { value: "todas", label: "Todas" },
@@ -111,7 +154,9 @@ export default function TareasPage() {
         </div>
       ) : visibles.length === 0 ? (
         <div className="mt-6">
-          <Empty>No hay tareas aquí todavía. Toca + para crear la primera.</Empty>
+          <Empty>
+            {busqueda.trim() ? `No encontramos tareas con "${busqueda.trim()}".` : "No hay tareas aquí todavía. Toca + para crear la primera."}
+          </Empty>
         </div>
       ) : (
         GRUPOS.map(({ f, titulo }) => {
