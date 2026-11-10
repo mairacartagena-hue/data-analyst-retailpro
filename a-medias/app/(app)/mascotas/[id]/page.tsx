@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ArrowLeft, Cake, Cat, Dog, Pencil, Plus, Repeat, Syringe, Stethoscope } from "lucide-react";
+import { ArrowLeft, Cake, Cat, ChevronDown, ChevronUp, Dog, Pencil, Plus, Repeat, Syringe, Stethoscope } from "lucide-react";
 import { useHousehold } from "@/components/HouseholdProvider";
 import { OccurrenceRow, sortOccurrences } from "@/components/OccurrenceRow";
 import { MedSheet } from "@/components/MedSheet";
@@ -12,7 +12,7 @@ import { Avatar, Empty, SectionHeader } from "@/components/ui";
 import { Loading } from "@/components/Loading";
 import { dayNum, formatAge, formatDateLong, formatHora, formatShort, monthShort, monthYear, todayStr } from "@/lib/dates";
 import { medProgress, nextPetEventDate } from "@/lib/logic";
-import type { PetEvent, Task } from "@/lib/types";
+import type { Member, Occurrence, PetEvent, Task } from "@/lib/types";
 
 export default function MascotaPage() {
   const { id } = useParams<{ id: string }>();
@@ -37,7 +37,7 @@ export default function MascotaPage() {
   const Icon = pet.especie === "gato" ? Cat : Dog;
   const meds = tasks.filter((t) => t.pet_id === pet.id && t.tipo === "medicamento");
   const activos = meds.filter((t) => t.activa).sort((a, b) => a.fecha_inicio.localeCompare(b.fecha_inicio));
-  const terminados = meds.filter((t) => !t.activa).sort((a, b) => (b.fecha_fin ?? "").localeCompare(a.fecha_fin ?? ""));
+  const historial = [...meds].sort((a, b) => b.fecha_inicio.localeCompare(a.fecha_inicio));
   const otrasTareas = tasks.filter((t) => t.pet_id === pet.id && t.tipo === "tarea" && t.activa);
   const eventos = petEvents
     .filter((e) => e.pet_id === pet.id)
@@ -51,7 +51,7 @@ export default function MascotaPage() {
           <ArrowLeft size={18} /> Recordar
         </Link>
         <button className="btn btn-secondary btn-sm" onClick={() => setEditarPet(true)}>
-          <Pencil size={14} /> Editar
+          <Pencil size={14} /> Editar mascota
         </button>
       </div>
 
@@ -117,8 +117,8 @@ export default function MascotaPage() {
                       member={t.modo === "fija" ? memberById(t.responsable_fijo) : t.modo === "rota" ? memberById(deHoy[0]?.responsable_id) : null}
                       juntos={t.modo === "juntos" || (t.modo === "rota" && !!deHoy[0] && !deHoy[0].responsable_id)} size={28} />
                   )}
-                  <button aria-label={`Editar ${t.titulo}`} className="rounded-[10px] border-2 border-vino p-1.5" onClick={() => setMed(t)}>
-                    <Pencil size={14} />
+                  <button aria-label={`Editar ${t.titulo}`} className="btn btn-secondary btn-sm" onClick={() => setMed(t)}>
+                    <Pencil size={14} /> Editar
                   </button>
                 </div>
               </div>
@@ -163,27 +163,20 @@ export default function MascotaPage() {
         })}
       </div>
 
-      {terminados.length > 0 && (
+      {historial.length > 0 && (
         <>
-          <SectionHeader title="Historial" small />
+          <SectionHeader title="Historial de tratamientos" small />
           <ul className="card p-0!">
-            {terminados.map((t) => {
-              const p = medProgress(t, occurrences, hoy);
-              return (
-                <li key={t.id} className="flex items-center gap-3 border-b-2 border-rosa-claro px-4 py-3 last:border-b-0">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[15px] font-semibold">
-                      {t.titulo} {t.dosis && <span className="text-sec">{t.dosis}</span>}
-                    </p>
-                    <p className="text-xs text-sec">
-                      {formatShort(t.fecha_inicio)} – {t.fecha_fin ? formatShort(t.fecha_fin) : "sin fin"}
-                      {p.total !== null && ` · ${p.hechas} de ${p.total} tomas`}
-                    </p>
-                  </div>
-                  <span className="tag tag-oscuro">Terminado</span>
-                </li>
-              );
-            })}
+            {historial.map((t) => (
+              <HistorialTratamiento
+                key={t.id}
+                task={t}
+                occurrences={occurrences}
+                hoy={hoy}
+                memberById={memberById}
+                onEditar={() => setMed(t)}
+              />
+            ))}
           </ul>
         </>
       )}
@@ -250,5 +243,88 @@ export default function MascotaPage() {
       <MedSheet open={!!med} petId={pet.id} task={med === "nuevo" ? null : med} onClose={() => setMed(null)} />
       <PetEventSheet open={!!evento} petId={pet.id} event={evento === "nuevo" ? null : evento} onClose={() => setEvento(null)} />
     </>
+  );
+}
+
+/** Un tratamiento en el historial: resumen y, al abrirlo, cada toma con quién la dio */
+function HistorialTratamiento({
+  task: t,
+  occurrences,
+  hoy,
+  memberById,
+  onEditar,
+}: {
+  task: Task;
+  occurrences: Occurrence[];
+  hoy: string;
+  memberById: (id: string | null | undefined) => Member | undefined;
+  onEditar: () => void;
+}) {
+  const [abierto, setAbierto] = useState(false);
+  const tomas = occurrences
+    .filter((o) => o.task_id === t.id && o.fecha <= hoy)
+    .sort((a, b) => b.fecha.localeCompare(a.fecha) || b.hora.localeCompare(a.hora));
+  const dadas = tomas.filter((o) => o.completada).length;
+  const noSeHizo = tomas.filter((o) => !o.completada && o.omitida).length;
+  const porDia = new Map<string, Occurrence[]>();
+  for (const o of tomas) porDia.set(o.fecha, [...(porDia.get(o.fecha) ?? []), o]);
+
+  return (
+    <li className="border-b-2 border-rosa-claro px-4 py-3 last:border-b-0">
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-[15px] font-semibold">
+            {t.titulo} {t.dosis && <span className="text-sec">{t.dosis}</span>}
+          </p>
+          <p className="text-xs text-sec">
+            {formatShort(t.fecha_inicio)} – {t.fecha_fin ? formatShort(t.fecha_fin) : "sin fin"}
+          </p>
+          <p className="text-xs text-sec">
+            {dadas} dadas{noSeHizo > 0 && ` · ${noSeHizo} no se dieron`}
+          </p>
+        </div>
+        <span className={`tag ${t.activa ? "" : "tag-oscuro"}`}>{t.activa ? "En curso" : "Terminado"}</span>
+      </div>
+      <div className="mt-2 flex gap-2">
+        <button className="btn btn-secondary btn-sm" onClick={onEditar}>
+          <Pencil size={14} /> Editar
+        </button>
+        {tomas.length > 0 && (
+          <button className="btn btn-secondary btn-sm" onClick={() => setAbierto(!abierto)} aria-expanded={abierto}>
+            {abierto ? <ChevronUp size={14} /> : <ChevronDown size={14} />} {abierto ? "Ocultar tomas" : "Ver tomas"}
+          </button>
+        )}
+      </div>
+      {abierto && (
+        <div className="mt-3 space-y-2">
+          {[...porDia.entries()].map(([fecha, delDia]) => (
+            <div key={fecha}>
+              <p className="text-xs font-semibold first-letter:uppercase">{formatShort(fecha)}</p>
+              <ul className="text-sm">
+                {delDia
+                  .slice()
+                  .sort((a, b) => a.hora.localeCompare(b.hora))
+                  .map((o) => {
+                    const quien = memberById(o.completada_por);
+                    const estado = o.completada
+                      ? `Se la dio ${quien?.nombre ?? "alguien"}`
+                      : o.omitida
+                        ? "No se dio"
+                        : o.fecha === hoy
+                          ? "Por dar"
+                          : "Sin marcar";
+                    return (
+                      <li key={o.id} className="flex justify-between gap-3 py-0.5">
+                        <span className="text-sec">{formatHora(o.hora)}</span>
+                        <span className={o.completada ? "" : o.omitida ? "font-semibold text-accion" : "text-sec"}>{estado}</span>
+                      </li>
+                    );
+                  })}
+              </ul>
+            </div>
+          ))}
+        </div>
+      )}
+    </li>
   );
 }

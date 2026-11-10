@@ -36,15 +36,19 @@ export function useToggleOccurrence() {
 export function OccurrenceRow({
   occurrence: o,
   showDate = false,
+  pasado,
   onNoSeHizo,
 }: {
   occurrence: Occurrence;
   showDate?: boolean;
+  /** Día ya pasado: muestra "No se hizo" / "Deshacer". Por defecto, igual que showDate */
+  pasado?: boolean;
   /** Se llama después de marcarla como "No se hizo" (para ofrecer Deshacer) */
   onNoSeHizo?: (o: Occurrence) => void;
 }) {
   const { tasks, pets, memberById, members, optimistic } = useHousehold();
   const toggle = useToggleOccurrence();
+  const esPasado = pasado ?? showDate;
 
   /** Para pendientes de días anteriores: se cierra sin marcarla como hecha */
   async function cambiarOmitida(omitida: boolean) {
@@ -86,12 +90,12 @@ export function OccurrenceRow({
           {task.modo === "rota" && <span className="tag">Rota</span>}
           {pendiente && <span className="tag tag-alerta">Pendiente</span>}
           {o.completada && quien && <span>Lo hizo {quien.nombre}</span>}
-          {showDate && !o.completada && !o.omitida && (
+          {esPasado && !o.completada && !o.omitida && (
             <button className="font-semibold text-accion" onClick={() => (cambiarOmitida(true), onNoSeHizo?.(o))}>
               No se hizo
             </button>
           )}
-          {showDate && !o.completada && o.omitida && (
+          {esPasado && !o.completada && o.omitida && (
             <span className="flex items-center gap-1.5">
               <span className="font-semibold">No se hizo</span> ·
               <button className="font-semibold text-accion" onClick={() => cambiarOmitida(false)}>
