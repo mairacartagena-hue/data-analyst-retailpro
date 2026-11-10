@@ -17,9 +17,15 @@ export default function SemanaPage() {
   const [lunes, setLunes] = useState(mondayOf(hoy));
   const [error, setError] = useState<string | null>(null);
   const [persona, setPersona] = useState<string>("todas");
+  // Persona elegida en "Quién hizo qué": la semana muestra solo lo que ella marcó como hecho
+  const [hizo, setHizo] = useState<string | null>(null);
   const dias = weekDays(lunes);
+  const todas = new Map(tasks.map((t) => [t.id, t]));
   const activas = new Map(tasks.filter((t) => t.activa || t.tipo === "medicamento").map((t) => [t.id, t]));
-  const semana = occurrences.filter((o) => o.fecha >= dias[0] && o.fecha <= dias[6] && activas.has(o.task_id));
+  // Lo ya hecho se muestra aunque la tarea esté desactivada, para que cuadre con el resumen
+  const semana = occurrences.filter(
+    (o) => o.fecha >= dias[0] && o.fecha <= dias[6] && (activas.has(o.task_id) || (o.completada && todas.has(o.task_id))),
+  );
   const sugerencia = ready ? findSuggestion(semana, tasks, members, dismissals, lunes, hoy) : null;
 
   async function mover() {
@@ -69,10 +75,12 @@ export default function SemanaPage() {
         className="mb-4"
         options={[{ value: "todas", label: "Todas" }, ...members.map((m) => ({ value: m.id, label: m.nombre }))]}
         value={persona}
-        onChange={setPersona}
+        onChange={(v) => (setPersona(v), setHizo(null))}
       />
 
-      {ready && <SemanaResumen lunes={lunes} />}
+      {ready && (
+        <SemanaResumen lunes={lunes} seleccion={hizo} onSeleccion={(id) => (setHizo(id), id && setPersona("todas"))} />
+      )}
 
       {sugerencia && (
         <section className="card mb-4 bg-rosa-claro!">
@@ -103,7 +111,13 @@ export default function SemanaPage() {
         <div className="card p-0!">
           {dias.map((d) => {
             const delDia = sortOccurrences(
-              semana.filter((o) => o.fecha === d && (persona === "todas" || o.responsable_id === persona)),
+              semana.filter(
+                (o) =>
+                  o.fecha === d &&
+                  (hizo
+                    ? o.completada && o.completada_por === hizo
+                    : persona === "todas" || o.responsable_id === persona),
+              ),
               tasks,
             );
             const esHoy = d === hoy;
@@ -119,8 +133,10 @@ export default function SemanaPage() {
                 <div className="flex min-w-0 flex-wrap content-start gap-1.5">
                   {delDia.length === 0 && <span className="self-center text-xs text-sec">Libre</span>}
                   {delDia.map((o) => {
-                    const t = activas.get(o.task_id)!;
-                    const m = memberById(o.responsable_id);
+                    const t = todas.get(o.task_id)!;
+                    // Si ya está hecha, el color es de quien la hizo; si no, de a quien le toca
+                    const quienHizo = o.completada ? memberById(o.completada_por) : undefined;
+                    const m = quienHizo ?? memberById(o.responsable_id);
                     const pet = pets.find((p) => p.id === t.pet_id);
                     const texto =
                       t.tipo === "medicamento" ? `${pet?.nombre ?? ""} · ${t.titulo} ${formatHora(o.hora)}` : t.titulo;
@@ -130,7 +146,7 @@ export default function SemanaPage() {
                         className={`inline-flex max-w-full items-center gap-1.5 rounded-full border-2 border-vino py-1 text-[12px] font-medium ${
                           m ? `px-2.5 ${personColors(m)}` : "bg-rosa-claro pl-1 pr-2.5 text-vino"
                         } ${o.completada ? "line-through opacity-60" : ""} ${o.omitida ? "opacity-40" : ""}`}
-                        title={m ? m.nombre : JUNTOS}
+                        title={quienHizo ? `Lo hizo ${quienHizo.nombre}` : m ? m.nombre : JUNTOS}
                       >
                         {!m && <Avatar juntos size={18} />}
                         <span className="truncate">{texto}</span>

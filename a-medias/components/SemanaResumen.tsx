@@ -11,7 +11,16 @@ import { Avatar } from "./ui";
 const DIAS_CARGADOS = 21;
 
 /** Semana → consolidado: cuántas tareas hizo cada persona en la semana */
-export function SemanaResumen({ lunes }: { lunes: string }) {
+export function SemanaResumen({
+  lunes,
+  seleccion,
+  onSeleccion,
+}: {
+  lunes: string;
+  /** Persona cuyas tareas hechas se están mostrando en la semana */
+  seleccion: string | null;
+  onSeleccion: (id: string | null) => void;
+}) {
   const { occurrences, tasks, members, household, optimistic } = useHousehold();
   const hoy = todayStr();
   const domingo = addDays(lunes, 6);
@@ -66,8 +75,15 @@ export function SemanaResumen({ lunes }: { lunes: string }) {
           <ul className="mt-2 space-y-2">
             {members.map((m) => {
               const c = contar(m.id);
+              const on = seleccion === m.id;
               return (
-                <li key={m.id} className="flex items-center gap-3">
+                <li key={m.id}>
+                  <button
+                    className={`flex w-full items-center gap-3 rounded-[10px] border-2 px-2 py-1.5 text-left ${on ? "border-vino bg-rosa-claro" : "border-transparent"}`}
+                    onClick={() => onSeleccion(on ? null : m.id)}
+                    aria-pressed={on}
+                    aria-label={`Ver lo que hizo ${m.nombre}`}
+                  >
                   <Avatar member={m} size={28} />
                   <span className="flex-1 text-[15px] font-semibold">{m.nombre}</span>
                   <span className="text-right text-sm">
@@ -80,10 +96,14 @@ export function SemanaResumen({ lunes }: { lunes: string }) {
                       </span>
                     )}
                   </span>
+                  </button>
                 </li>
               );
             })}
           </ul>
+          <p className="mt-2 text-xs text-sec">
+            {seleccion ? "Toca de nuevo para ver toda la semana." : "Toca a una persona para ver en la semana lo que hizo."}
+          </p>
           {(noSeHicieron > 0 || sinMarcar > 0) && (
             <p className="mt-3 text-xs text-sec">
               {[noSeHicieron > 0 && `${noSeHicieron} no se hicieron`, sinMarcar > 0 && `${sinMarcar} quedaron sin marcar`]
