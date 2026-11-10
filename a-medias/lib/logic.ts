@@ -276,3 +276,9 @@ export function tiendasUnicas(textos: (string | null | undefined)[]): string[] {
   }
   return [...vistas.values()].sort((a, b) => a.localeCompare(b, "es"));
 }
+
+/** Mascotas de una tarea o medicamento */
+export function taskPetIds(t: Pick<Task, "pet_id" | "pet_ids">): string[] {
+  const ids = t.pet_ids ?? [];
+  return ids.length ? ids : t.pet_id ? [t.pet_id] : [];
+}
