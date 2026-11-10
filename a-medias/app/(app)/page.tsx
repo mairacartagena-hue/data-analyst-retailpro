@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Settings } from "lucide-react";
 import { useHousehold } from "@/components/HouseholdProvider";
 import { BalanceBar } from "@/components/BalanceBar";
+import { DiasAnteriores } from "@/components/DiasAnteriores";
 import { OccurrenceRow, sortOccurrences } from "@/components/OccurrenceRow";
 import { PantrySoonCard } from "@/components/PantrySoon";
 import { PushButton } from "@/components/PushButton";
@@ -110,6 +111,8 @@ export default function HoyPage() {
               </button>
             </div>
           )}
+
+          <DiasAnteriores persona={persona} />
 
           <PantrySoonCard />
 
