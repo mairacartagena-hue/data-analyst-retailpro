@@ -9,7 +9,7 @@ import { Avatar, Checkbox, Empty, ErrorText, JUNTOS, PageHeader, Pills, SectionH
 import { Loading } from "@/components/Loading";
 import { getSupabase } from "@/lib/supabase/client";
 import { normalizar } from "@/lib/csv";
-import { todayStr } from "@/lib/dates";
+import { addDays, todayStr } from "@/lib/dates";
 import { diasExtraPorCompra, formatCantidad, pantryDaysLeft, parseCantidad, separarTiendas, sumarCantidades, tiendasUnicas } from "@/lib/logic";
 import { CATEGORIAS, CATEGORIAS_MASCOTAS, LISTAS, type Categoria, type NombreLista, type PantryProduct, type ShoppingItem, type ShoppingList, type Task } from "@/lib/types";
 
@@ -289,6 +289,29 @@ export default function ComprasPage() {
       return setError(errMsg(error));
     }
     if (it) optimistic("items", it as ShoppingItem);
+  }
+
+  /**
+   * "Todavía hay": el producto no se ha acabado. Se cuenta de nuevo desde hoy
+   * con los días que todavía alcanza, y se quita de la lista (si ya no está por acabarse).
+   */
+  async function todaviaHay(i: ShoppingItem, prod: PantryProduct, dias: number) {
+    const hoy = todayStr();
+    const dur = prod.duracion_dias;
+    // días que quedan = duración + extra - (hoy - fecha - 1)
+    const cambios =
+      dias >= dur
+        ? { fecha_ultima_compra: hoy, dias_extra: dias - dur }
+        : { fecha_ultima_compra: addDays(hoy, -(dur - dias) - 1), dias_extra: 0 };
+    setError(null);
+    optimistic("pantry", { ...prod, ...cambios });
+    const sb = getSupabase();
+    const { error } = await sb.from("pantry_products").update(cambios).eq("id", prod.id);
+    if (error) {
+      optimistic("pantry", { ...prod });
+      return setError(errMsg(error));
+    }
+    if (dias > dur * 0.2 && !i.comprado) await borrar(i);
   }
 
   async function borrarComprados() {
@@ -643,6 +666,12 @@ export default function ComprasPage() {
         }}
         diasBase={diasBaseDe(parcial)}
         onClose={() => setParcial(null)}
+        onTodaviaHay={async (dias) => {
+          const i = parcial;
+          const prod = i ? despensaDe(i) : undefined;
+          setParcial(null);
+          if (i && prod) await todaviaHay(i, prod, dias);
+        }}
         tiendasUsadas={tiendasUsadas}
         onCantidad={async (cambios) => {
           const i = parcial;
@@ -922,11 +951,14 @@ function PantrySheet({
           </div>
           <div>
             <label className="label" htmlFor="p-ult">
-              Última compra
+              Se empezó a usar
             </label>
             <input id="p-ult" type="date" className="input" value={ultima} onChange={(e) => setUltima(e.target.value)} />
           </div>
         </div>
+        <p className="-mt-2 text-xs text-sec">
+          Los días se cuentan desde esta fecha. Si lo compraron antes pero lo abrieron después, pon el día en que lo empezaron a usar.
+        </p>
         {diasExtra > 0 && (
           <div className="flex items-center justify-between gap-3 rounded-[10px] bg-rosa-claro px-3 py-2 text-sm">
             <span>
@@ -961,11 +993,14 @@ function ItemSheet({
   tiendasUsadas = [],
   despensa = null,
   onAuto,
+  onTodaviaHay,
 }: {
   item: ShoppingItem | null;
   /** Producto de la despensa del que viene (para encender o apagar AUTO) */
   despensa?: PantryProduct | null;
   onAuto?: (producto: PantryProduct, valor: boolean) => void;
+  /** El producto no se ha acabado: cuántos días más alcanza */
+  onTodaviaHay?: (dias: number) => void;
   tiendasUsadas?: string[];
   /** Para cuántos días alcanza la cantidad pedida (si se sabe) */
   diasBase?: number | null;
@@ -977,7 +1012,9 @@ function ItemSheet({
   const [valor, setValor] = useState("");
   const [cantidad, setCantidad] = useState("");
   const [tiendaItem, setTiendaItem] = useState("");
+  const [diasQuedan, setDiasQuedan] = useState("");
   useEffect(() => {
+    setDiasQuedan(despensa ? String(despensa.duracion_dias) : "");
     setValor("");
     setCantidad(item?.cantidad ?? "");
     setTiendaItem(item?.tienda ?? "");
@@ -1018,6 +1055,38 @@ function ItemSheet({
               onChange={(v) => onAuto(despensa, v)}
               lista={despensa.es_mascotas ? "Mascotas" : "Mercado"}
             />
+          )}
+          {pendiente && despensa && onTodaviaHay && (
+            <div className="space-y-2 rounded-[10px] bg-rosa-claro p-3">
+              <p className="text-[15px] font-semibold">¿Todavía hay?</p>
+              <p className="text-xs text-sec">
+                Si no se ha acabado (por ejemplo, lo empezaron a usar después o no se usa todos los días), dinos para cuántos días más
+                alcanza: se cuenta de nuevo desde hoy y sale de la lista.
+              </p>
+              <div className="flex items-center gap-2">
+                <label className="text-sm" htmlFor="dias-quedan">
+                  Alcanza para
+                </label>
+                <input
+                  id="dias-quedan"
+                  className="input w-20! text-center"
+                  inputMode="numeric"
+                  value={diasQuedan}
+                  onChange={(e) => setDiasQuedan(e.target.value.replace(/[^0-9]/g, ""))}
+                />
+                <span className="text-sm">días más</span>
+              </div>
+              {Number(diasQuedan) > 0 && Number(diasQuedan) <= despensa.duracion_dias * 0.2 && (
+                <p className="text-xs text-sec">Con tan pocos días se queda en la lista, porque ya está por acabarse.</p>
+              )}
+              <button
+                className="btn btn-secondary w-full"
+                disabled={!(Number(diasQuedan) > 0)}
+                onClick={() => onTodaviaHay(Number(diasQuedan))}
+              >
+                Todavía hay
+              </button>
+            </div>
           )}
           {pendiente && total && (
             <div className="space-y-3">
