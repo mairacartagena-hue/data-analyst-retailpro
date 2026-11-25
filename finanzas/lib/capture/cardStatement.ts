@@ -8,8 +8,10 @@ export interface CardStatementPurchase {
   installments: number;
   paidInstallments: number;
   remainingBalance: number;
-  /** Cargo del mes por esta compra: la cuota que el extracto factura (capital e intereses). */
+  /** Cargo del mes por esta compra, tal como lo imprime el extracto: en unos bancos es la cuota con intereses y en otros (BBVA) solo el capital. */
   monthlyCharge?: number;
+  /** "Saldo a corte" de la compra: lo que debía antes de la cuota de este mes (el saldo diferido es lo que queda después). */
+  balanceAtCut?: number;
   rateEa?: number;
 }
 
@@ -61,9 +63,13 @@ export function sanitizeCardStatement(raw: Record<string, unknown>, today: strin
     const rate = typeof it.rate_ea === "number" && it.rate_ea >= 0 && it.rate_ea < 200 ? Math.round(it.rate_ea * 100) / 100 : undefined;
     // El cargo del mes de una compra no puede pasar de su valor; si viene raro se ignora (no se descarta la compra)
     const charge = money(it.monthly_charge);
+    // El saldo a corte no puede ser menor que lo que queda ni mayor que la compra (con $1 de redondeo)
+    const atCut = money(it.balance_at_cut);
     r.purchases.push({
       description, purchaseDate: date(it.purchase_date) ?? r.statementDate ?? today, amount, installments, paidInstallments: paid, remainingBalance: remaining,
-      ...(charge !== undefined && charge <= amount ? { monthlyCharge: charge } : {}), ...(rate !== undefined ? { rateEa: rate } : {}),
+      ...(charge !== undefined && charge <= amount ? { monthlyCharge: charge } : {}),
+      ...(atCut !== undefined && atCut >= remaining && atCut <= amount + 1 ? { balanceAtCut: atCut } : {}),
+      ...(rate !== undefined ? { rateEa: rate } : {}),
     });
   }
   for (const k of Object.keys(r) as (keyof CardStatementData)[]) if (r[k] === undefined) delete r[k];

@@ -82,13 +82,13 @@ export function registeredTx(p: PurchaseLike, txs: Transaction[], accountId: str
 // ───────────────────── Cuotas: extracto vs. app ─────────────────────
 
 /** Compra a cuotas tal como la lee el extracto. `paidInstallments` es el número de la cuota que se factura en ese extracto. */
-export type ExtractPurchase = Pick<CardStatementPurchase, "description" | "purchaseDate" | "amount" | "installments" | "paidInstallments" | "remainingBalance" | "monthlyCharge">;
+export type ExtractPurchase = Pick<CardStatementPurchase, "description" | "purchaseDate" | "amount" | "installments" | "paidInstallments" | "remainingBalance" | "monthlyCharge" | "balanceAtCut">;
 
 export type InstallmentVerdict = "OK" | "DIFFERS" | "ONLY_EXTRACT" | "ONLY_APP";
 /**
  * installments: total de cuotas · amount: valor de la compra (solo se compara en compras vinculadas a mano; las demás se emparejan
  * justamente por tener el mismo valor) · current: cuota que se factura en este extracto · charge: cargo del mes por esa compra
- * (cuota con intereses) · balance: saldo diferido pendiente después de esa cuota.
+ * (cuota con intereses; algunos bancos imprimen solo el capital: ver `compareWith`) · balance: saldo diferido pendiente después de esa cuota.
  */
 export type InstallmentField = "installments" | "amount" | "current" | "charge" | "balance";
 
@@ -121,20 +121,30 @@ export interface InstallmentCheck {
   diffs: InstallmentDiff[];
 }
 
+/** Lo que la app espera de una compra a cuotas en el extracto: cuota que se factura, saldo diferido después de ella y cargo del mes. */
+interface Expected {
+  current: number | null;
+  balance: number | null;
+  charge: number | null;
+  /** Saldo y cargo esperados si el extracto estuviera en la cuota `k` (para el periodo de gracia del banco). */
+  at?: (k: number) => { balance: number | null; charge: number | null };
+}
+
 /** Cuota que se factura en el extracto que corta `cut` y saldo diferido que queda después, según el movimiento de la app. */
-function expectedForTx(t: Transaction, account: Account, cut: string | null): { n: number; current: number | null; balance: number | null; charge: number | null } {
+function expectedForTx(t: Transaction, account: Account, cut: string | null): Expected & { n: number } {
   const n = installmentsOf(t);
   const sd = account.statement_day ?? null;
   if (!sd || !cut) return { n, current: null, balance: null, charge: null };
   const current = Math.min(n, cutsBetween(sd, addDays(billingCut(sd, t.occurred_on), -1), cut));
-  const balance = installmentPlan(t.amount, n, t.occurred_on, null).slice(current).reduce((a, c) => a + c.capital, 0);
+  const flat = installmentPlan(t.amount, n, t.occurred_on, null);
   // Cargo del mes = cuota (capital fijo) + intereses sobre el saldo, con la tasa de la compra o, si no, la de la tarjeta
-  const charge = current >= 1 ? installmentPlan(t.amount, n, t.occurred_on, rateOf(t, account))[current - 1]?.total ?? null : null;
-  return { n, current, balance, charge };
+  const rated = installmentPlan(t.amount, n, t.occurred_on, rateOf(t, account));
+  const at = (k: number) => ({ balance: flat.slice(k).reduce((a, c) => a + c.capital, 0), charge: k >= 1 ? rated[k - 1]?.total ?? null : null });
+  return { n, current, ...at(current), at };
 }
 
 /** Lo mismo para una compra del extracto que ya está guardada en la tarjeta: cada corte desde su extracto factura una cuota. */
-function expectedForItem(it: CardStatementItem, account: Account, cut: string | null): { current: number | null; balance: number | null; charge: number | null } {
+function expectedForItem(it: CardStatementItem, account: Account, cut: string | null): Expected {
   const sd = account.statement_day ?? null;
   const from = it.as_of ?? account.opening_at?.slice(0, 10) ?? null;
   if (!sd || !cut || !from) return { current: null, balance: null, charge: null };
@@ -145,8 +155,27 @@ function expectedForItem(it: CardStatementItem, account: Account, cut: string | 
   return { current: Math.min(it.installments, it.paid_installments + cuts), balance: statementItemsAfter([it], cuts).later, charge: charge !== null && charge > 0 ? charge : null };
 }
 
-/** Diferencias de una compra del extracto con lo que espera la app. Si el total de cuotas no coincide solo se informa eso: lo demás es consecuencia. */
-function compareWith(p: ExtractPurchase, appInstallments: number, e: { current: number | null; balance: number | null; charge: number | null }, appAmount?: number): InstallmentDiff[] {
+/**
+ * El extracto de unos bancos (BBVA) imprime en "cargos del mes" solo el CAPITAL de la cuota: los intereses se cobran aparte y el saldo
+ * diferido baja justo ese capital (saldo a corte − cargo = diferido). Se reconoce cuando eso se cumple y, además, el cargo queda por
+ * debajo de lo que la app espera con intereses: sin intereses de por medio el cargo y la cuota son lo mismo y se compara de frente.
+ */
+function capitalOnlyCharge(p: ExtractPurchase, expectedCharge: number | null): boolean {
+  if (p.monthlyCharge === undefined || expectedCharge === null) return false;
+  if (p.monthlyCharge >= expectedCharge - chargeTolerance(p.monthlyCharge)) return false;
+  if (p.balanceAtCut !== undefined) return Math.abs(p.balanceAtCut - p.remainingBalance - p.monthlyCharge) <= STATEMENT_TOLERANCE;
+  // Sin el saldo a corte: una cuota con intereses nunca baja de valor/n (y el capital de las primeras cuotas siempre queda por debajo de eso)
+  return p.monthlyCharge < p.amount / p.installments - 1;
+}
+
+/**
+ * Diferencias de una compra del extracto con lo que espera la app. Si el total de cuotas no coincide solo se informa eso: lo demás es consecuencia.
+ * Del banco se perdonan dos costumbres que no son errores de la app: el periodo de gracia (planes de 3 o más cuotas que en el primer corte
+ * traen "00 DE nn" y empiezan a cobrar capital en el siguiente) y el cargo con solo el capital (`capitalOnlyCharge`), cuyo saldo sigue la
+ * amortización del banco y no la de cuota fija de la app: ahí el saldo solo se marca si queda por debajo de lo que la app ya habría amortizado
+ * (cuotas de más pagadas) o por encima del valor de la compra.
+ */
+function compareWith(p: ExtractPurchase, appInstallments: number, e: Expected, appAmount?: number): InstallmentDiff[] {
   if (appInstallments !== p.installments) return [{ field: "installments", app: appInstallments, extract: p.installments }];
   const diffs: InstallmentDiff[] = [];
   // Vinculada a mano con otro valor: el cargo y el saldo de la app salen de ese valor, así que serían consecuencia y no se comparan
@@ -155,10 +184,18 @@ function compareWith(p: ExtractPurchase, appInstallments: number, e: { current: 
     if (e.current !== null && e.current !== p.paidInstallments) diffs.push({ field: "current", app: e.current, extract: p.paidInstallments });
     return diffs;
   }
-  if (e.current !== null && e.current !== p.paidInstallments) diffs.push({ field: "current", app: e.current, extract: p.paidInstallments });
+  // Periodo de gracia: la app ya factura la 1 y el banco trae la 0 → se espera lo que corresponde a la cuota 0 (saldo completo, sin cargo)
+  const grace = e.at !== undefined && p.installments >= 3 && p.paidInstallments === 0 && e.current === 1;
+  const x: Expected = grace && e.at ? { current: 0, ...e.at(0) } : e;
+  if (x.current !== null && x.current !== p.paidInstallments) diffs.push({ field: "current", app: x.current, extract: p.paidInstallments });
   // El cargo del mes solo se compara si es la misma cuota: con otra cuota la diferencia sería consecuencia, no un dato nuevo
-  else if (e.charge !== null && p.monthlyCharge !== undefined && Math.abs(e.charge - p.monthlyCharge) > chargeTolerance(p.monthlyCharge)) diffs.push({ field: "charge", app: e.charge, extract: p.monthlyCharge });
-  if (e.balance !== null && Math.abs(e.balance - p.remainingBalance) > STATEMENT_TOLERANCE) diffs.push({ field: "balance", app: e.balance, extract: p.remainingBalance });
+  else if (x.charge !== null && p.monthlyCharge !== undefined && Math.abs(x.charge - p.monthlyCharge) > chargeTolerance(p.monthlyCharge) && !capitalOnlyCharge(p, x.charge)) diffs.push({ field: "charge", app: x.charge, extract: p.monthlyCharge });
+  if (x.balance !== null) {
+    const bad = capitalOnlyCharge(p, x.charge)
+      ? p.remainingBalance < x.balance - STATEMENT_TOLERANCE || p.remainingBalance > p.amount + STATEMENT_TOLERANCE
+      : Math.abs(x.balance - p.remainingBalance) > STATEMENT_TOLERANCE;
+    if (bad) diffs.push({ field: "balance", app: x.balance, extract: p.remainingBalance });
+  }
   return diffs;
 }
 

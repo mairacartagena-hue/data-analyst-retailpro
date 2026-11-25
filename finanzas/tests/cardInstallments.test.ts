@@ -355,3 +355,82 @@ describe("cruce por valor: la app la dejó en una fecha y el extracto en otra", 
     expect(byIndex[0]).toBe("ONLY_EXTRACT");
   });
 });
+
+describe("extracto de BBVA: cargo solo con el capital y periodo de gracia", () => {
+  // Tarjeta con la tasa real de BBVA y las filas tal como las trae el extracto del 20-nov (corte − cargo = diferido)
+  const bbva: Account = { ...account, interest_rate_ea: 28.56 };
+  const row = (over: Partial<ExtractPurchase>): ExtractPurchase => ({ description: "", purchaseDate: "2026-10-24", amount: 0, installments: 2, paidInstallments: 1, remainingBalance: 0, ...over });
+  const cda = tx({ id: "cda", description: "Cda motos carrera", amount: 247_590, installments: 2, occurred_on: "2026-10-24" });
+  const cdaRow = row({ description: "CDA MOTOS CARRERA PRIMERA", amount: 247_590, monthlyCharge: 122_610.27, remainingBalance: 124_979.73, balanceAtCut: 247_590 });
+  const restItem = item({ id: "rest", description: "REST CAFE NIN", purchase_date: "2026-08-23", amount: 75_982.87, installments: 36, paid_installments: 1, remaining_balance: 74_484.93, rate_ea: 29.63 });
+  const restRow = row({ description: "REST CAFE NIN", purchaseDate: "2026-08-23", amount: 75_982.87, installments: 36, paidInstallments: 2, monthlyCharge: 1_487.57, remainingBalance: 72_997.36, balanceAtCut: 74_484.93 });
+
+  it("el cargo con solo el capital no se toma por un cargo distinto ni el saldo del banco por uno equivocado", () => {
+    const [c] = checkInstallments(bbva, [cda], [], [cdaRow], "2026-11-20");
+    expect(c).toMatchObject({ verdict: "OK", source: "APP", diffs: [] });
+    const [r] = checkInstallments(bbva, [], [restItem], [restRow], "2026-11-20");
+    expect(r).toMatchObject({ verdict: "OK", source: "ITEM", diffs: [] });
+  });
+
+  it("también se reconoce si el extracto no trae el saldo a corte", () => {
+    const sinCorte = { ...restRow, balanceAtCut: undefined };
+    const cdaSin = { ...cdaRow, balanceAtCut: undefined };
+    expect(checkInstallments(bbva, [], [restItem], [sinCorte], "2026-11-20")[0].diffs).toEqual([]);
+    expect(checkInstallments(bbva, [cda], [], [cdaSin], "2026-11-20")[0].diffs).toEqual([]);
+  });
+
+  it("aun con solo capital se marca un saldo que ya bajó más de lo que la app amortizó, o un cargo mayor al esperado", () => {
+    // 100.000 de saldo cuando la app espera 123.795 (cuota de más pagada) y el cargo cuadra con el capital descontado
+    const [a] = checkInstallments(bbva, [cda], [], [{ ...cdaRow, remainingBalance: 100_000, balanceAtCut: 222_610.27 }], "2026-11-20");
+    expect(a.diffs).toEqual([{ field: "balance", app: 123_795, extract: 100_000 }]);
+    // Un cargo por encima de lo que la app espera con intereses no es un "solo capital": se marca
+    const esperado = installmentPlan(247_590, 2, "2026-10-24", 28.56)[0].total;
+    const [b] = checkInstallments(bbva, [cda], [], [{ ...cdaRow, monthlyCharge: esperado + 20_000, remainingBalance: 247_590 - esperado - 20_000, balanceAtCut: undefined }], "2026-11-20");
+    expect(b.diffs.map((d) => d.field)).toContain("charge");
+  });
+
+  it("sin intereses de por medio el cargo y el saldo se comparan de frente (no hay nada que perdonar)", () => {
+    const [ok] = checkInstallments(account, [tv], [], [p({ monthlyCharge: 100_000, balanceAtCut: 300_000 })], "2026-11-20");
+    expect(ok.verdict).toBe("OK");
+    const [d] = checkInstallments(account, [tv], [], [p({ monthlyCharge: 100_000, balanceAtCut: 250_000, remainingBalance: 150_000 })], "2026-11-20");
+    expect(d.diffs).toEqual([{ field: "balance", app: 200_000, extract: 150_000 }]);
+  });
+
+  it("periodo de gracia: plan de 3 o más cuotas que en el primer corte trae 00 DE nn", () => {
+    const viveros = tx({ id: "viv", description: "Mercado pago", amount: 116_361, installments: 3, occurred_on: "2026-10-30" });
+    const gracia = row({ description: "MERCADO PAGO*VIVEROS", purchaseDate: "2026-10-30", amount: 116_361, installments: 3, paidInstallments: 0, remainingBalance: 116_361 });
+    expect(checkInstallments(bbva, [viveros], [], [gracia], "2026-11-20")[0]).toMatchObject({ verdict: "OK", diffs: [] });
+    // En gracia el saldo sigue siendo el valor completo: si el banco trae otro, se marca
+    const [d] = checkInstallments(bbva, [viveros], [], [{ ...gracia, remainingBalance: 80_000 }], "2026-11-20");
+    expect(d.diffs).toEqual([{ field: "balance", app: 116_361, extract: 80_000 }]);
+    // Dos cortes después la cuota 0 ya no es gracia
+    const [e] = checkInstallments(bbva, [viveros], [], [gracia], "2026-12-20");
+    expect(e.diffs[0]).toEqual({ field: "current", app: 2, extract: 0 });
+  });
+
+  it("el periodo de gracia no aplica a planes de 2 cuotas: ahí el primer corte ya cobra la cuota 1", () => {
+    const ikea = tx({ id: "ikea", description: "Ikea cali", amount: 170_950, installments: 2, occurred_on: "2026-10-24" });
+    const [c] = checkInstallments(bbva, [ikea], [], [row({ description: "IKEA CALI", purchaseDate: "2026-10-24", amount: 170_950, paidInstallments: 0, remainingBalance: 170_950 })], "2026-11-20");
+    expect(c.diffs).toEqual([{ field: "current", app: 1, extract: 0 }, { field: "balance", app: 85_475, extract: 170_950 }]);
+  });
+
+  it("una compra registrada con 1 cuota que el banco difirió a 2 sigue marcándose (error real de la app)", () => {
+    const pontificia = tx({ id: "pont", description: "Pontificia univerdulidad", amount: 167_000, installments: 1, occurred_on: "2026-11-11" });
+    const [c] = checkInstallments(bbva, [pontificia], [], [row({ description: "PONTIFICIA UNIVERS JAVERI", purchaseDate: "2026-11-11", amount: 167_000, monthlyCharge: 43_528.03, remainingBalance: 123_471.97, balanceAtCut: 167_000 })], "2026-11-20");
+    expect(c.diffs).toEqual([{ field: "installments", app: 1, extract: 2 }]);
+  });
+});
+
+describe("lectura del saldo a corte", () => {
+  const raw = (v: unknown) => ({ statement_date: "2026-11-20", purchases: [{ description: "CDA", purchase_date: "2026-10-24", amount: 247_590, installments: 2, paid_installments: 1, remaining_balance: 124_979.73, monthly_charge: 122_610.27, balance_at_cut: v }] });
+  it("se conserva si queda entre el saldo diferido y el valor de la compra", () => {
+    expect(sanitizeCardStatement(raw(247_590), "2026-11-24").purchases[0].balanceAtCut).toBe(247_590);
+  });
+  it("si falta o no tiene sentido se ignora, pero la compra se conserva", () => {
+    for (const v of [null, 0, 10_000, 900_000, "247.590"]) {
+      const out = sanitizeCardStatement(raw(v), "2026-11-24").purchases;
+      expect(out).toHaveLength(1);
+      expect(out[0].balanceAtCut).toBeUndefined();
+    }
+  });
+});
