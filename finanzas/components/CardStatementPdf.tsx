@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FileUp } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { useShell } from "@/components/AppShell";
@@ -116,7 +116,13 @@ function InstallmentChecks({ account, checks, fixing, onLink, onUnlink, onSepara
  * Las compras que ya están (como compra del extracto o registradas en la app con las mismas cuotas) no se repiten.
  */
 /** `crossCheck`: en el Cierre del mes muestra los valores del extracto y su cruce; en la tarjeta solo las compras a cuotas. */
-export function CardStatementPdf({ account, onBalance, onStatus, crossCheck = false }: { account: Account; onBalance?: (v: number) => void; onStatus?: (s: string | null) => void; crossCheck?: boolean }) {
+export function CardStatementPdf({ account, onBalance, onStatus, crossCheck = false, incoming = null, onFile }: {
+  account: Account; onBalance?: (v: number) => void; onStatus?: (s: string | null) => void; crossCheck?: boolean;
+  /** Extracto que la persona subió en el otro paso: se lee aquí también, sin pedirlo otra vez. */
+  incoming?: File | null;
+  /** Avisa que se subió un extracto para que el otro paso lo lea también. */
+  onFile?: (file: File) => void;
+}) {
   const { cardItems, transactions, supabase, reload, me } = useFinance();
   const [busy, setBusy] = useState(false);
   const [fixing, setFixing] = useState(false);
@@ -130,6 +136,8 @@ export function CardStatementPdf({ account, onBalance, onStatus, crossCheck = fa
   const [links, setLinks] = useState<Record<number, string>>({});
   // Parejas por valor con fechas muy distintas que la persona separó (`posición|movimiento`)
   const [apart, setApart] = useState<string[]>([]);
+  /** Último archivo leído, para volver a leerlo si la lectura vino incompleta. */
+  const lastFile = useRef<File | null>(null);
 
   const purchases = read?.purchases ?? [];
   const inCard = (p: CardStatementPurchase) => !!knownItem(p, cardItems, account.id);
@@ -140,13 +148,22 @@ export function CardStatementPdf({ account, onBalance, onStatus, crossCheck = fa
   const fresh = purchases.filter((p) => !inCard(p) && !inApp(p));
   const already = purchases.length - fresh.length;
   const cutDate = /^\d{4}-\d{2}-\d{2}$/.test(draft.cut) ? draft.cut : null;
+  // Sin compras leídas no hay con qué comparar: la lista "solo en la app" sería falsa (la lectura falló, no es que falten)
   const checks = useMemo(
-    () => (crossCheck && read ? checkInstallments(account, transactions, cardItems, extracted, cutDate, links, apart) : []),
+    () => (crossCheck && read && extracted.length > 0 ? checkInstallments(account, transactions, cardItems, extracted, cutDate, links, apart) : []),
     [crossCheck, read, account, transactions, cardItems, extracted, cutDate, links, apart],
   );
+  const noPurchasesRead = crossCheck && !!read && extracted.length === 0;
 
-  async function pick(file: File | undefined) {
+  // El extracto que se subió en el otro paso: se lee aquí también
+  useEffect(() => {
+    if (incoming) void pick(incoming, true);
+  }, [incoming]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function pick(file: File | undefined, fromOtherStep = false) {
     if (!file) return;
+    lastFile.current = file;
+    if (!fromOtherStep) onFile?.(file);
     setErr(null);
     setNotice(null);
     setRead(null);
@@ -228,6 +245,16 @@ export function CardStatementPdf({ account, onBalance, onStatus, crossCheck = fa
               <p className="font-medium">Lo que leí (puedes corregirlo; no se guarda):</p>
               <StatementFields value={draft} onChange={setDraft} />
               <StatementCrossCheck account={account} draft={draft} />
+              {noPurchasesRead && (
+                <div className="space-y-1.5 rounded-xl bg-warning-soft px-3 py-2">
+                  <p className="font-medium">No pude leer ninguna compra a cuotas de este extracto.</p>
+                  <p className="text-muted">
+                    {read.rawPurchases ? `La IA devolvió ${read.rawPurchases} fila${read.rawPurchases === 1 ? "" : "s"}, pero ninguna pasó la validación.` : "La IA no devolvió ninguna compra."}
+                    {" "}Es un fallo de la lectura, no que falten en el extracto, así que no comparo las cuotas (saldrían todas como “solo en la app”). Vuelve a leerlo.
+                  </p>
+                  <Button size="sm" variant="outline" disabled={busy || !lastFile.current} onClick={() => void pick(lastFile.current ?? undefined, true)}>Volver a leer el extracto</Button>
+                </div>
+              )}
               {checks.length > 0 && (
                 <InstallmentChecks account={account} checks={checks} fixing={fixing} onFix={(f) => void fixInstallments(f)}
                   onLink={(index, txId) => setLinks((l) => ({ ...l, [index]: txId }))}

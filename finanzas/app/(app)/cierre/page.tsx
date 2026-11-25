@@ -184,6 +184,8 @@ function AccountClose({ account, month, open, onToggle }: { account: Account; mo
   const [bank, setBank] = useState("");
   const [movesStatus, setMovesStatus] = useState<string | null>(null);
   const [pdfStatus, setPdfStatus] = useState<string | null>(null);
+  // Un solo extracto para los dos pasos de la tarjeta: el que se sube en uno lo lee también el otro
+  const [shared, setShared] = useState<{ file: File; from: "moves" | "debt"; month: string } | null>(null);
   useEffect(() => { setMovesStatus(null); setPdfStatus(null); }, [month]);
   const [fee, setFee] = useState<FeeKey | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -394,14 +396,16 @@ function AccountClose({ account, month, open, onToggle }: { account: Account; mo
           {isCard && <p className="text-xs text-muted">Puedes revisar la tarjeta contra el banco de dos formas. Son independientes: haz solo la que necesites, las dos, o en el orden que quieras. No hace falta el paso 1 para hacer el paso 2.</p>}
           {!isCredit && (
             <ReconcileStep step={isCard ? 1 : undefined} icon={<ListChecks size={15} />} title="Revisar los movimientos" done={movesStatus}
-              question={`¿Están todas tus ${isCard ? "compras y pagos" : "entradas y salidas"}? Sube el Excel o CSV de movimientos del banco y te digo cuáles faltan en la app o están repetidos.`}>
-              <StatementImport key={month} account={account} month={month} onBalance={(v) => setBank(String(v))} onStatus={setMovesStatus} carryOver={prevItems} />
+              question={isCard ? "¿Están todas tus compras y pagos? Sube el PDF o la foto del extracto (o el Excel o CSV) y te digo cuáles faltan en la app o están repetidos. Si ya lo subiste en el paso 2, lo leo de ahí." : "¿Están todas tus entradas y salidas? Sube el Excel o CSV de movimientos del banco y te digo cuáles faltan en la app o están repetidos."}>
+              <StatementImport key={month} account={account} month={month} onBalance={(v) => setBank(String(v))} onStatus={setMovesStatus} carryOver={prevItems}
+                incoming={shared?.from === "debt" && shared.month === month ? shared.file : null} onFile={(file) => setShared({ file, from: "moves", month })} />
             </ReconcileStep>
           )}
           {isCard && (
             <ReconcileStep step={2} icon={<FileText size={15} />} title="Revisar la deuda y las cuotas" done={pdfStatus}
-              question="¿Coincide la deuda con la del banco? Sube el PDF o una foto del extracto mensual y leo la deuda, el pago mínimo y las compras a cuotas. No necesitas haber hecho el paso 1.">
-              <CardStatementPdf key={month} account={account} onBalance={(v) => setBank(String(v))} onStatus={setPdfStatus} crossCheck />
+              question="¿Coincide la deuda con la del banco? Sube el PDF o una foto del extracto mensual y leo la deuda, el pago mínimo y las compras a cuotas; el mismo archivo se usa en el paso 1 para revisar los movimientos.">
+              <CardStatementPdf key={month} account={account} onBalance={(v) => setBank(String(v))} onStatus={setPdfStatus} crossCheck
+                incoming={shared?.from === "moves" && shared.month === month ? shared.file : null} onFile={(file) => setShared({ file, from: "debt", month })} />
               <ManualCrossCheck key={month} account={account} month={month} />
             </ReconcileStep>
           )}

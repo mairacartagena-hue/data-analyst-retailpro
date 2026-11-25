@@ -31,6 +31,8 @@ export interface CardStatementData {
   rateEa?: number;
   /** Compras diferidas a cuotas que siguen pendientes. */
   purchases: CardStatementPurchase[];
+  /** Cuántas filas de compras devolvió la IA antes de validarlas (para distinguir "no vio ninguna" de "ninguna pasó la validación"). */
+  rawPurchases?: number;
 }
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -52,6 +54,7 @@ export function sanitizeCardStatement(raw: Record<string, unknown>, today: strin
   r.creditLimit = money(raw.credit_limit);
   r.rateEa = typeof raw.rate_ea === "number" && raw.rate_ea > 0 && raw.rate_ea < 200 ? Math.round(raw.rate_ea * 100) / 100 : undefined;
   const items = Array.isArray(raw.purchases) ? (raw.purchases as Record<string, unknown>[]) : [];
+  r.rawPurchases = items.length;
   for (const it of items.slice(0, 200)) {
     const description = typeof it?.description === "string" ? it.description.trim().slice(0, 80) : "";
     const amount = money(it?.amount);
@@ -179,32 +182,52 @@ export function sanitizeCardLines(raw: Record<string, unknown>, today: string): 
 }
 
 /**
- * Lee los movimientos probando los modelos en orden y se queda con la primera lectura que SÍ trae movimientos: un modelo
- * saturado o liviano a veces responde bien pero con la lista vacía. Si ninguno trae movimientos devuelve la primera lectura
- * válida (vacía); si ninguna se pudo leer, relanza el último error. `read` recibe el modelo y los ms que quedan del presupuesto
- * (Vercel corta a los 60 s); con menos de `minMs` no se prueba otro modelo.
+ * Lee con los modelos en orden y se queda con la primera lectura que SÍ trae lo importante (`good`): un modelo saturado o liviano
+ * a veces responde bien pero con la lista vacía. Si ninguno la trae devuelve la primera lectura válida (vacía); si ninguna se
+ * pudo leer, relanza el último error. `read` recibe el modelo y los ms que quedan del presupuesto (Vercel corta a los 60 s);
+ * con menos de `minMs` no se prueba otro modelo.
  */
-export async function firstReadWithLines(
+export async function firstGoodRead<T>(
   models: string[],
-  read: (model: string, leftMs: number) => Promise<CardLinesData>,
+  read: (model: string, leftMs: number) => Promise<T>,
+  good: (data: T) => boolean,
+  noRead: string,
   budgetMs = 57_000,
   minMs = 8_000,
   now: () => number = Date.now,
-): Promise<CardLinesData> {
+): Promise<T> {
   const started = now();
-  let empty: CardLinesData | null = null;
+  let empty: { data: T } | null = null;
   let lastError: unknown = null;
   for (const model of models) {
     const left = budgetMs - (now() - started);
     if (left < minMs) break;
     try {
       const data = await read(model, left);
-      if (data.lines.length > 0) return data;
-      empty ??= data;
+      if (good(data)) return data;
+      empty ??= { data };
     } catch (e) {
       lastError = e;
     }
   }
-  if (empty) return empty;
-  throw lastError ?? new Error("No se pudo leer la lista de movimientos del extracto.");
+  if (empty) return empty.data;
+  throw lastError ?? new Error(noRead);
 }
+
+/** Lee los movimientos probando los modelos en orden: se queda con la primera lectura que SÍ trae movimientos. */
+export const firstReadWithLines = (
+  models: string[],
+  read: (model: string, leftMs: number) => Promise<CardLinesData>,
+  budgetMs = 57_000,
+  minMs = 8_000,
+  now: () => number = Date.now,
+): Promise<CardLinesData> => firstGoodRead(models, read, (d) => d.lines.length > 0, "No se pudo leer la lista de movimientos del extracto.", budgetMs, minMs, now);
+
+/** Lee los totales y las compras a cuotas probando los modelos en orden: se queda con la primera lectura que SÍ trae compras. */
+export const firstReadWithPurchases = (
+  models: string[],
+  read: (model: string, leftMs: number) => Promise<CardStatementData>,
+  budgetMs = 57_000,
+  minMs = 8_000,
+  now: () => number = Date.now,
+): Promise<CardStatementData> => firstGoodRead(models, read, (d) => d.purchases.length > 0, "No se pudo leer el extracto.", budgetMs, minMs, now);
