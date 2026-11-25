@@ -6,7 +6,7 @@ import type { Account, CardStatement, CardStatementItem, Transaction } from "@/l
 import type { CardStatementPurchase } from "@/lib/capture/cardStatement";
 import { accountStatement } from "./reconcile";
 import { addDays } from "./periods";
-import { billingCut, cutsBetween, installmentPlan, installmentsOf, isCardAdvance, matchedWithItems, payoffDates, projectCard, statementItemsAfter } from "./installments";
+import { billingCut, cutsBetween, installmentPlan, installmentsOf, isCardAdvance, matchedWithItems, payoffDates, projectCard, rateOf, statementItemsAfter } from "./installments";
 
 /** Diferencias de hasta $1.000 se toman como iguales (redondeos e intereses de centavos). */
 export const STATEMENT_TOLERANCE = 1000;
@@ -81,11 +81,18 @@ export function registeredTx(p: PurchaseLike, txs: Transaction[], accountId: str
 // ───────────────────── Cuotas: extracto vs. app ─────────────────────
 
 /** Compra a cuotas tal como la lee el extracto. `paidInstallments` es el número de la cuota que se factura en ese extracto. */
-export type ExtractPurchase = Pick<CardStatementPurchase, "description" | "purchaseDate" | "amount" | "installments" | "paidInstallments" | "remainingBalance">;
+export type ExtractPurchase = Pick<CardStatementPurchase, "description" | "purchaseDate" | "amount" | "installments" | "paidInstallments" | "remainingBalance" | "monthlyCharge">;
 
 export type InstallmentVerdict = "OK" | "DIFFERS" | "ONLY_EXTRACT" | "ONLY_APP";
-/** installments: total de cuotas · current: cuota que se factura en este extracto · balance: saldo diferido pendiente después de esa cuota. */
-export type InstallmentField = "installments" | "current" | "balance";
+/**
+ * installments: total de cuotas · current: cuota que se factura en este extracto · charge: cargo del mes por esa compra
+ * (cuota con intereses) · balance: saldo diferido pendiente después de esa cuota.
+ */
+export type InstallmentField = "installments" | "current" | "charge" | "balance";
+
+/** El banco calcula el interés por días y la app por mes: el cargo del mes se perdona hasta este % (y nunca menos de $1.000). */
+export const CHARGE_TOLERANCE_PCT = 0.03;
+export const chargeTolerance = (extractCharge: number) => Math.max(STATEMENT_TOLERANCE, Math.round(extractCharge * CHARGE_TOLERANCE_PCT));
 
 export interface InstallmentDiff {
   field: InstallmentField;
@@ -107,25 +114,44 @@ export interface InstallmentCheck {
 }
 
 /** Cuota que se factura en el extracto que corta `cut` y saldo diferido que queda después, según el movimiento de la app. */
-function expectedForTx(t: Transaction, sd: number | null, cut: string | null): { n: number; current: number | null; balance: number | null } {
+function expectedForTx(t: Transaction, account: Account, cut: string | null): { n: number; current: number | null; balance: number | null; charge: number | null } {
   const n = installmentsOf(t);
-  if (!sd || !cut) return { n, current: null, balance: null };
+  const sd = account.statement_day ?? null;
+  if (!sd || !cut) return { n, current: null, balance: null, charge: null };
   const current = Math.min(n, cutsBetween(sd, addDays(billingCut(sd, t.occurred_on), -1), cut));
   const balance = installmentPlan(t.amount, n, t.occurred_on, null).slice(current).reduce((a, c) => a + c.capital, 0);
-  return { n, current, balance };
+  // Cargo del mes = cuota (capital fijo) + intereses sobre el saldo, con la tasa de la compra o, si no, la de la tarjeta
+  const charge = current >= 1 ? installmentPlan(t.amount, n, t.occurred_on, rateOf(t, account))[current - 1]?.total ?? null : null;
+  return { n, current, balance, charge };
 }
 
 /** Lo mismo para una compra del extracto que ya está guardada en la tarjeta: cada corte desde su extracto factura una cuota. */
-function expectedForItem(it: CardStatementItem, sd: number | null, cut: string | null, openingAt: string | null | undefined): { current: number | null; balance: number | null } {
-  const from = it.as_of ?? openingAt?.slice(0, 10) ?? null;
-  if (!sd || !cut || !from) return { current: null, balance: null };
+function expectedForItem(it: CardStatementItem, account: Account, cut: string | null): { current: number | null; balance: number | null; charge: number | null } {
+  const sd = account.statement_day ?? null;
+  const from = it.as_of ?? account.opening_at?.slice(0, 10) ?? null;
+  if (!sd || !cut || !from) return { current: null, balance: null, charge: null };
   const cuts = cutsBetween(sd, from, cut);
-  return { current: Math.min(it.installments, it.paid_installments + cuts), balance: statementItemsAfter([it], cuts).later };
+  // El cargo de este corte es lo que suma la proyección con una cuota más que la anterior (capital + intereses)
+  const upTo = (k: number) => { const s = statementItemsAfter([it], k, account.interest_rate_ea); return s.capitalDue + s.interest; };
+  const charge = cuts >= 1 && it.paid_installments + cuts <= it.installments ? upTo(cuts) - upTo(cuts - 1) : null;
+  return { current: Math.min(it.installments, it.paid_installments + cuts), balance: statementItemsAfter([it], cuts).later, charge: charge !== null && charge > 0 ? charge : null };
+}
+
+/** Diferencias de una compra del extracto con lo que espera la app. Si el total de cuotas no coincide solo se informa eso: lo demás es consecuencia. */
+function compareWith(p: ExtractPurchase, appInstallments: number, e: { current: number | null; balance: number | null; charge: number | null }): InstallmentDiff[] {
+  if (appInstallments !== p.installments) return [{ field: "installments", app: appInstallments, extract: p.installments }];
+  const diffs: InstallmentDiff[] = [];
+  if (e.current !== null && e.current !== p.paidInstallments) diffs.push({ field: "current", app: e.current, extract: p.paidInstallments });
+  // El cargo del mes solo se compara si es la misma cuota: con otra cuota la diferencia sería consecuencia, no un dato nuevo
+  else if (e.charge !== null && p.monthlyCharge !== undefined && Math.abs(e.charge - p.monthlyCharge) > chargeTolerance(p.monthlyCharge)) diffs.push({ field: "charge", app: e.charge, extract: p.monthlyCharge });
+  if (e.balance !== null && Math.abs(e.balance - p.remainingBalance) > STATEMENT_TOLERANCE) diffs.push({ field: "balance", app: e.balance, extract: p.remainingBalance });
+  return diffs;
 }
 
 /**
  * Cruza las compras a cuotas del extracto con la app, compra por compra:
- *  · Cuadra (OK) o difiere (DIFFERS) en el total de cuotas, la cuota que se factura y el saldo diferido pendiente.
+ *  · Cuadra (OK) o difiere (DIFFERS) en el total de cuotas, la cuota que se factura, el cargo del mes (cuota con intereses,
+ *    con tolerancia: ver `chargeTolerance`) y el saldo diferido pendiente.
  *    Si el total de cuotas no es el mismo, solo se informa eso: lo demás es consecuencia.
  *  · ONLY_EXTRACT: está en el extracto y no en la app ni en las compras guardadas de la tarjeta.
  *  · ONLY_APP: la app tiene una compra a cuotas que ya debería venir en este extracto (y todavía no es su última cuota) y no viene.
@@ -143,13 +169,7 @@ export function checkInstallments(account: Account, txs: Transaction[], items: C
   for (const p of purchases) {
     const item = knownItem(p, myItems, account.id);
     if (item) {
-      const e = expectedForItem(item, sd, cut, account.opening_at);
-      const diffs: InstallmentDiff[] = [];
-      if (item.installments !== p.installments) diffs.push({ field: "installments", app: item.installments, extract: p.installments });
-      else {
-        if (e.current !== null && e.current !== p.paidInstallments) diffs.push({ field: "current", app: e.current, extract: p.paidInstallments });
-        if (e.balance !== null && Math.abs(e.balance - p.remainingBalance) > STATEMENT_TOLERANCE) diffs.push({ field: "balance", app: e.balance, extract: p.remainingBalance });
-      }
+      const diffs = compareWith(p, item.installments, expectedForItem(item, account, cut));
       out.push({ verdict: diffs.length ? "DIFFERS" : "OK", purchase: p, source: "ITEM", item, diffs });
       for (const t of mine) if (Math.abs(t.amount - item.amount) <= 1 && daysApart(t.occurred_on, item.purchase_date) <= 1) used.add(t.id);
       continue;
@@ -159,13 +179,8 @@ export function checkInstallments(account: Account, txs: Transaction[], items: C
       .sort((a, b) => daysApart(a.occurred_on, p.purchaseDate) - daysApart(b.occurred_on, p.purchaseDate) || Math.abs(a.amount - p.amount) - Math.abs(b.amount - p.amount))[0];
     if (!tx) { out.push({ verdict: "ONLY_EXTRACT", purchase: p, diffs: [] }); continue; }
     used.add(tx.id);
-    const e = expectedForTx(tx, sd, cut);
-    const diffs: InstallmentDiff[] = [];
-    if (e.n !== p.installments) diffs.push({ field: "installments", app: e.n, extract: p.installments });
-    else {
-      if (e.current !== null && e.current !== p.paidInstallments) diffs.push({ field: "current", app: e.current, extract: p.paidInstallments });
-      if (e.balance !== null && Math.abs(e.balance - p.remainingBalance) > STATEMENT_TOLERANCE) diffs.push({ field: "balance", app: e.balance, extract: p.remainingBalance });
-    }
+    const e = expectedForTx(tx, account, cut);
+    const diffs = compareWith(p, e.n, e);
     out.push({ verdict: diffs.length ? "DIFFERS" : "OK", purchase: p, source: "APP", tx, diffs });
   }
 
@@ -180,7 +195,7 @@ export function checkInstallments(account: Account, txs: Transaction[], items: C
       if ((open && t.occurred_on <= open) || t.occurred_on > cut) continue;
       const paidOff = payoffs.get(t.id);
       if (paidOff && paidOff <= cut) continue;
-      const e = expectedForTx(t, sd, cut);
+      const e = expectedForTx(t, account, cut);
       // Aún no se factura, o ya es su última cuota (el extracto solo lista las que tienen saldo pendiente)
       if (e.current === null || e.current < 1 || e.current >= e.n) continue;
       out.push({ verdict: "ONLY_APP", source: "APP", tx: t, diffs: [] });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { billingCut } from "@/lib/finance/installments";
-import { checkInstallments, type ExtractPurchase } from "@/lib/finance/cardStatements";
+import { billingCut, installmentPlan } from "@/lib/finance/installments";
+import { checkInstallments, chargeTolerance, type ExtractPurchase } from "@/lib/finance/cardStatements";
+import { sanitizeCardStatement } from "@/lib/capture/cardStatement";
 import type { Account, CardStatementItem, Transaction } from "@/lib/types";
 
 // Tarjeta con corte el 20 y pago el 5, registrada con el extracto del 20-oct.
@@ -128,5 +129,89 @@ describe("cuotas del extracto contra la app", () => {
   it("ordena primero lo que difiere", () => {
     const out = checkInstallments(account, [tv], [], [p(), p({ description: "OTRA", amount: 77_000, purchaseDate: "2026-10-26" }), p({ installments: 6, amount: 300_000 })], "2026-11-20");
     expect(out.map((c) => c.verdict)).toEqual(["DIFFERS", "ONLY_EXTRACT", "OK"]);
+  });
+});
+
+
+describe("cargo del mes: la cuota que factura el extracto por cada compra", () => {
+  const withRate = (ea: number): Account => ({ ...account, interest_rate_ea: ea });
+
+  it("sin intereses el cargo es la cuota: cuadra", () => {
+    const [c] = checkInstallments(account, [tv], [], [p({ monthlyCharge: 100_000 })], "2026-11-20");
+    expect(c).toMatchObject({ verdict: "OK", diffs: [] });
+  });
+
+  it("un cargo distinto al que espera la app se marca con los dos valores", () => {
+    const [c] = checkInstallments(account, [tv], [], [p({ monthlyCharge: 112_000 })], "2026-11-20");
+    expect(c.verdict).toBe("DIFFERS");
+    expect(c.diffs).toEqual([{ field: "charge", app: 100_000, extract: 112_000 }]);
+  });
+
+  it("tolera el 3 % del cargo (el banco calcula el interés por días) y nunca menos de $1.000", () => {
+    expect(chargeTolerance(100_000)).toBe(3_000);
+    expect(chargeTolerance(10_000)).toBe(1_000);
+    expect(checkInstallments(account, [tv], [], [p({ monthlyCharge: 102_900 })], "2026-11-20")[0].verdict).toBe("OK");
+    expect(checkInstallments(account, [tv], [], [p({ monthlyCharge: 103_100 })], "2026-11-20")[0].verdict).toBe("DIFFERS");
+  });
+
+  it("con tasa en la tarjeta, la app espera cuota más intereses", () => {
+    const plan = installmentPlan(300_000, 3, "2026-10-24", 28);
+    expect(plan[0].interest).toBeGreaterThan(5_000);
+    const [ok] = checkInstallments(withRate(28), [tv], [], [p({ monthlyCharge: plan[0].total })], "2026-11-20");
+    expect(ok.verdict).toBe("OK");
+    // El extracto cobra solo la cuota sin intereses → la app tiene los intereses de más (o el banco no los cobró)
+    const [d] = checkInstallments(withRate(28), [tv], [], [p({ monthlyCharge: 100_000 })], "2026-11-20");
+    expect(d.diffs).toEqual([{ field: "charge", app: plan[0].total, extract: 100_000 }]);
+  });
+
+  it("la tasa de la compra manda sobre la de la tarjeta", () => {
+    const plan = installmentPlan(300_000, 3, "2026-10-24", 0);
+    const conTasa = tx({ id: "tv", description: "TV", amount: 300_000, installments: 3, occurred_on: "2026-10-24", interest_rate_ea: 0 });
+    const [c] = checkInstallments(withRate(28), [conTasa], [], [p({ monthlyCharge: plan[0].total })], "2026-11-20");
+    expect(c.verdict).toBe("OK");
+  });
+
+  it("si el extracto no trae el cargo no se compara", () => {
+    const [c] = checkInstallments(account, [tv], [], [p()], "2026-11-20");
+    expect(c.diffs).toEqual([]);
+  });
+
+  it("con otra cuota o distinto total de cuotas el cargo no se compara: sería consecuencia", () => {
+    const [a] = checkInstallments(account, [tv], [], [p({ paidInstallments: 2, remainingBalance: 100_000, monthlyCharge: 250_000 })], "2026-11-20");
+    expect(a.diffs.map((d) => d.field)).toEqual(["current", "balance"]);
+    const [b] = checkInstallments(account, [tv], [], [p({ installments: 6, monthlyCharge: 250_000 })], "2026-11-20");
+    expect(b.diffs.map((d) => d.field)).toEqual(["installments"]);
+  });
+
+  it("sin fecha de corte no hay cuota esperada y no se compara", () => {
+    const [c] = checkInstallments(account, [tv], [], [p({ monthlyCharge: 250_000 })], null);
+    expect(c.diffs).toEqual([]);
+  });
+
+  it("compras guardadas de la tarjeta: el cargo del siguiente corte sale del saldo que quedaba", () => {
+    // NEVERA: 7 cuotas, 1 pagada, saldo 600.000 → 6 cuotas de 100.000; el corte del 20-nov factura la 2
+    const nevera: ExtractPurchase = { description: "NEVERA", purchaseDate: "2026-08-25", amount: 700_000, installments: 7, paidInstallments: 2, remainingBalance: 500_000 };
+    expect(checkInstallments(account, [], [item()], [{ ...nevera, monthlyCharge: 100_000 }], "2026-11-20")[0]).toMatchObject({ verdict: "OK", source: "ITEM", diffs: [] });
+    const [d] = checkInstallments(account, [], [item()], [{ ...nevera, monthlyCharge: 130_000 }], "2026-11-20");
+    expect(d.diffs).toEqual([{ field: "charge", app: 100_000, extract: 130_000 }]);
+  });
+
+  it("compra guardada en su propio extracto: no hay cargo que comparar", () => {
+    const nevera: ExtractPurchase = { description: "NEVERA", purchaseDate: "2026-08-25", amount: 700_000, installments: 7, paidInstallments: 1, remainingBalance: 600_000, monthlyCharge: 100_000 };
+    expect(checkInstallments(account, [], [item({ as_of: "2026-10-20" })], [nevera], "2026-10-20")[0].diffs).toEqual([]);
+  });
+});
+
+describe("lectura del cargo del mes", () => {
+  const raw = (charge: unknown) => ({ statement_date: "2026-11-20", purchases: [{ description: "TV", purchase_date: "2026-10-24", amount: 300_000, installments: 3, paid_installments: 1, remaining_balance: 200_000, monthly_charge: charge }] });
+  it("se conserva si es un valor razonable", () => {
+    expect(sanitizeCardStatement(raw(100_000), "2026-11-24").purchases[0].monthlyCharge).toBe(100_000);
+  });
+  it("si falta, es cero, negativo o mayor que la compra se ignora, pero la compra se conserva", () => {
+    for (const v of [null, 0, -5, 400_000, "100.000"]) {
+      const out = sanitizeCardStatement(raw(v), "2026-11-24").purchases;
+      expect(out).toHaveLength(1);
+      expect(out[0].monthlyCharge).toBeUndefined();
+    }
   });
 });

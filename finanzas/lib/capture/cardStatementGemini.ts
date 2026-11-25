@@ -30,6 +30,7 @@ const schema = {
           installments: { type: "INTEGER" },
           paid_installments: { type: "INTEGER" },
           remaining_balance: { type: "NUMBER" },
+          monthly_charge: { type: "NUMBER", nullable: true },
           rate_ea: { type: "NUMBER", nullable: true },
         },
       },
@@ -47,7 +48,7 @@ const INSTRUCTIONS = `Lees el extracto o estado de cuenta de una tarjeta de cré
 - minimum_payment: pago mínimo del mes (lo mínimo a pagar en la fecha límite).
 - credit_limit: cupo total.
 - rate_ea: tasa efectiva anual cobrada en porcentaje (si solo hay mensual MV, conviértela: ((1+mv/100)^12-1)*100).
-- purchases: TODAS las compras diferidas a 2 o más cuotas que aún tienen saldo por pagar, una por fila, aunque sean muchas (pueden ser más de 70; revisa todas las páginas). Para cada una: description (comercio), purchase_date (AAAA-MM-DD), amount (valor original de la compra), installments (total de cuotas), paid_installments (número de la cuota que se factura en este extracto: "cuota 3 de 12" o "3/12" → 3), remaining_balance (saldo diferido pendiente después de esta cuota), rate_ea si aparece. No incluyas compras a 1 cuota ni agrupes compras.
+- purchases: TODAS las compras diferidas a 2 o más cuotas que aún tienen saldo por pagar, una por fila, aunque sean muchas (pueden ser más de 70; revisa todas las páginas). Para cada una: description (comercio), purchase_date (AAAA-MM-DD), amount (valor original de la compra), installments (total de cuotas), paid_installments (número de la cuota que se factura en este extracto: "cuota 3 de 12" o "3/12" → 3), remaining_balance (saldo diferido pendiente después de esta cuota), monthly_charge (el cargo del mes de esa compra: lo que el extracto factura este mes por ella, capital más intereses; si trae capital e intereses en columnas separadas, súmalos; null si no aparece), rate_ea si aparece. No incluyas compras a 1 cuota ni agrupes compras.
 Los montos van en pesos como número: en Colombia "2.405.745,56" o "2,405,745.56" es 2405745.56. Si algo no aparece, usa null. No inventes.`;
 
 export async function readCardStatement(file: { data: string; mime: string }, today: string): Promise<CardStatementData> {

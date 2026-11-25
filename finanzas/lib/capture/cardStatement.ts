@@ -8,6 +8,8 @@ export interface CardStatementPurchase {
   installments: number;
   paidInstallments: number;
   remainingBalance: number;
+  /** Cargo del mes por esta compra: la cuota que el extracto factura (capital e intereses). */
+  monthlyCharge?: number;
   rateEa?: number;
 }
 
@@ -57,7 +59,12 @@ export function sanitizeCardStatement(raw: Record<string, unknown>, today: strin
     // Solo compras realmente diferidas (2+ cuotas, con cuotas por pagar y saldo)
     if (!description || !amount || installments < 2 || installments > 48 || paid < 0 || paid >= installments || remaining === undefined || remaining <= 0 || remaining > amount) continue;
     const rate = typeof it.rate_ea === "number" && it.rate_ea >= 0 && it.rate_ea < 200 ? Math.round(it.rate_ea * 100) / 100 : undefined;
-    r.purchases.push({ description, purchaseDate: date(it.purchase_date) ?? r.statementDate ?? today, amount, installments, paidInstallments: paid, remainingBalance: remaining, ...(rate !== undefined ? { rateEa: rate } : {}) });
+    // El cargo del mes de una compra no puede pasar de su valor; si viene raro se ignora (no se descarta la compra)
+    const charge = money(it.monthly_charge);
+    r.purchases.push({
+      description, purchaseDate: date(it.purchase_date) ?? r.statementDate ?? today, amount, installments, paidInstallments: paid, remainingBalance: remaining,
+      ...(charge !== undefined && charge <= amount ? { monthlyCharge: charge } : {}), ...(rate !== undefined ? { rateEa: rate } : {}),
+    });
   }
   for (const k of Object.keys(r) as (keyof CardStatementData)[]) if (r[k] === undefined) delete r[k];
   return r;

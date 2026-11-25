@@ -17,8 +17,8 @@ import { shrink, toBase64 } from "@/lib/capture/file";
 import { cn, errMsg } from "@/lib/utils";
 
 const VERDICT_LABEL: Record<Exclude<InstallmentVerdict, "OK">, string> = { DIFFERS: "Difiere", ONLY_EXTRACT: "Solo en el extracto", ONLY_APP: "Solo en la app" };
-const FIELD_LABEL: Record<InstallmentDiff["field"], string> = { installments: "Total de cuotas", current: "Cuota de este extracto", balance: "Saldo pendiente" };
-const diffValue = (field: InstallmentDiff["field"], n: number) => (field === "balance" ? formatCop(n) : String(n));
+const FIELD_LABEL: Record<InstallmentDiff["field"], string> = { installments: "Total de cuotas", current: "Cuota de este extracto", charge: "Cargo del mes", balance: "Saldo pendiente" };
+const diffValue = (field: InstallmentDiff["field"], n: number) => (field === "balance" || field === "charge" ? formatCop(n) : String(n));
 
 /** Cuotas: lo que dice el extracto contra lo que tiene la app, compra por compra. No guarda ni cambia nada. */
 function InstallmentChecks({ checks }: { checks: InstallmentCheck[] }) {
