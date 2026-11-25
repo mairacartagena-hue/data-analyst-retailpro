@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, FileUp, HelpCircle, History, Landmark, PlusCircle, Trash2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, FileUp, HelpCircle, History, Landmark, Link2, PlusCircle, Trash2 } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { useShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
+import { LinkSelect } from "@/components/LinkSelect";
 import { ErrorText, Select } from "@/components/ui/input";
 import { Sheet } from "@/components/ui/sheet";
 import { SwitchRow } from "@/components/ui/switch";
@@ -19,8 +20,8 @@ import { shrink, toBase64 } from "@/lib/capture/file";
 import type { CardLinesData } from "@/lib/capture/cardStatement";
 import { parsedFromCardLines } from "@/lib/finance/cardLines";
 import {
-  BANK_CATEGORY, INTEREST_CATEGORY, UNKNOWN_CATEGORY, bankCharges, carryOverStatus, closingBalance, coveredRange, isBankLine, parseStatementRows, reconcileStatement, registerPayload,
-  type AppEntry, type CarryStatus, type ColumnMap, type LineKind, type StatementLine,
+  BANK_CATEGORY, INTEREST_CATEGORY, UNKNOWN_CATEGORY, appCandidatesFor, bankCharges, carryOverStatus, closingBalance, coveredRange, isBankLine, lineCandidatesFor, parseStatementRows, reconcileStatement, registerPayload, withManualLinks,
+  type AppEntry, type CarryStatus, type ColumnMap, type LineKind, type ManualLink, type StatementLine,
 } from "@/lib/finance/statement";
 import { cn, errMsg } from "@/lib/utils";
 
@@ -62,6 +63,8 @@ export function StatementImport({ account, month, onBalance, onStatus, carryOver
   const [reading, setReading] = useState(false);
   /** Movimientos leídos del PDF o la foto con la IA (solo tarjetas); reemplaza a las filas del CSV. */
   const [pdf, setPdf] = useState<CardLinesData | null>(null);
+  /** Vínculos hechos a mano entre una línea del extracto y un movimiento de la app que no se unieron solos. Valen mientras el extracto está abierto. */
+  const [links, setLinks] = useState<ManualLink[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -70,7 +73,11 @@ export function StatementImport({ account, month, onBalance, onStatus, carryOver
   // Tarjetas: el ciclo del extracto recortado a lo que cubre el archivo (si trae el mes calendario, solo la parte que se cruza con el ciclo)
   const range = useMemo(() => (byCycle && parsed ? coveredRange(base, parsed.lines, parsed.period) : base), [byCycle, parsed, base.start, base.end]); // eslint-disable-line react-hooks/exhaustive-deps
   const inMonth = useMemo(() => (parsed?.lines ?? []).filter((l) => l.date >= range.start && l.date <= range.end), [parsed, range.start, range.end]);
-  const rec = useMemo(() => (parsed ? reconcileStatement(account, transactions, parsed.lines, range) : null), [parsed, account, transactions, range.start, range.end]); // eslint-disable-line react-hooks/exhaustive-deps
+  const auto = useMemo(() => (parsed ? reconcileStatement(account, transactions, parsed.lines, range) : null), [parsed, account, transactions, range.start, range.end]); // eslint-disable-line react-hooks/exhaustive-deps
+  // El resultado con los vínculos manuales: todo lo de abajo (totales, estado, partidas del cierre anterior) parte de este
+  const rec = useMemo(() => (auto ? withManualLinks(auto, links, account, transactions) : null), [auto, links, account, transactions]);
+  const accountTxs = useMemo(() => transactions.filter((t) => t.account_id === account.id || t.to_account_id === account.id), [transactions, account.id]);
+  const manual = (rec?.matched ?? []).filter((m) => m.manual && m.entry);
   const charges = useMemo(() => bankCharges(account, inMonth, uvt), [account, inMonth, uvt]);
   const closing = useMemo(() => (parsed ? closingBalance(parsed.raw.filter((l) => l.date >= range.start && l.date <= range.end)) : null), [parsed, range.start, range.end]);
   const inflow = inMonth.filter((l) => l.amount > 0).reduce((a, l) => a + l.amount, 0);
@@ -99,6 +106,7 @@ export function StatementImport({ account, month, onBalance, onStatus, carryOver
     try {
       setRows(await readStatementFile(file));
       setPdf(null);
+      setLinks([]);
       setFileName(file.name);
       setMap({});
       setFlip(false);
@@ -120,6 +128,7 @@ export function StatementImport({ account, month, onBalance, onStatus, carryOver
       const body = (await res.json().catch(() => ({}))) as { ok?: boolean; result?: CardLinesData; error?: string };
       if (!body.ok || !body.result) throw new Error(body.error ?? "No se pudo leer el extracto.");
       setPdf(body.result);
+      setLinks([]);
       setRows(null);
       setFileName(file.name);
     } catch (e) {
@@ -300,10 +309,29 @@ export function StatementImport({ account, month, onBalance, onStatus, carryOver
                 </p>
               )}
 
+              {manual.length > 0 && (
+                <section className="space-y-1">
+                  <h3 className="flex items-center gap-1.5 text-sm font-semibold"><Link2 size={15} /> Vinculados a mano ({manual.length})</h3>
+                  <p className="text-xs text-muted">Los uniste tú porque la app no los reconoció solos. Valen mientras tengas este extracto abierto.</p>
+                  <div className="divide-y divide-border">
+                    {manual.map((m) => (
+                      <div key={m.line.id} className="flex items-center gap-2 py-2 text-sm">
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate font-medium">{m.line.description || "Sin descripción"}</span>
+                          <span className="block truncate text-xs text-muted">{formatDay(m.line.date)} · en la app: {m.entry!.tx.description || m.entry!.tx.merchant || "Movimiento"} {formatDay(m.entry!.date)}</span>
+                        </span>
+                        <span className="num shrink-0 text-right text-xs">{signed(m.line.amount)}<span className="block text-muted">app {signed(m.entry!.amount)}</span></span>
+                        <Button size="sm" variant="outline" onClick={() => setLinks((l) => l.filter((k) => k.lineId !== m.line.id))}>Deshacer</Button>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
               {rec.missing.length > 0 && (
                 <section className="space-y-1">
                   <h3 className="flex items-center gap-1.5 text-sm font-semibold"><PlusCircle size={15} /> Faltan en la app ({rec.missing.length})</h3>
-                  <p className="text-xs text-muted">Están en el extracto y no los encontré en la app (mismo valor, hasta 3 días de diferencia).</p>
+                  <p className="text-xs text-muted">Están en el extracto y no los encontré en la app (mismo valor, hasta 3 días de diferencia). Si alguno sí está en la app con otro valor o nombre, vincúlalo con su movimiento.</p>
                   {bankMissing.length > 0 && (
                     <Button size="sm" className="w-full" onClick={registerBankLines} disabled={busy}>
                       {busy ? "Registrando…" : `Registrar los ${bankMissing.length} del banco (4x1000, intereses, cuotas)`}
@@ -311,13 +339,20 @@ export function StatementImport({ account, month, onBalance, onStatus, carryOver
                   )}
                   <div className="divide-y divide-border">
                     {rec.missing.map((l) => (
-                      <div key={l.id} className="flex items-center gap-2 py-2 text-sm">
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate font-medium">{l.description || "Sin descripción"}</span>
-                          <span className="block text-xs text-muted">{formatDay(l.date)}{KIND_LABEL[l.kind] ? ` · ${KIND_LABEL[l.kind]}` : ""}</span>
-                        </span>
-                        <span className={cn("num shrink-0 font-semibold", l.amount > 0 && "text-olive")}>{signed(l.amount)}</span>
-                        {l.kind === "OTHER" && <Button size="sm" variant="outline" onClick={() => registerManually(l)}>Registrar</Button>}
+                      <div key={l.id} className="py-2 text-sm">
+                        <div className="flex items-center gap-2">
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate font-medium">{l.description || "Sin descripción"}</span>
+                            <span className="block text-xs text-muted">{formatDay(l.date)}{KIND_LABEL[l.kind] ? ` · ${KIND_LABEL[l.kind]}` : ""}</span>
+                          </span>
+                          <span className={cn("num shrink-0 font-semibold", l.amount > 0 && "text-olive")}>{signed(l.amount)}</span>
+                          {l.kind === "OTHER" && <Button size="sm" variant="outline" onClick={() => registerManually(l)}>Registrar</Button>}
+                        </div>
+                        {!l.id.startsWith("G:") && (
+                          <LinkSelect label="Ya está en la app: elegir cuál"
+                            options={appCandidatesFor(l, account, accountTxs, rec).map((e) => ({ value: e.tx.id, label: `${formatDay(e.date)} · ${(e.tx.description || e.tx.merchant || "Movimiento").slice(0, 28)} · ${signed(e.amount)}` }))}
+                            onPick={(txId) => setLinks((k) => [...k, { lineId: l.id, txId }])} />
+                        )}
                       </div>
                     ))}
                   </div>
@@ -339,8 +374,17 @@ export function StatementImport({ account, month, onBalance, onStatus, carryOver
               {onlyInApp.length > 0 && (
                 <section className="space-y-1">
                   <h3 className="flex items-center gap-1.5 text-sm font-semibold"><HelpCircle size={15} /> En la app, no en el extracto ({onlyInApp.length})</h3>
-                  <p className="text-xs text-muted">Puede que el banco los registre otro día o que no se hayan hecho. Revísalos.</p>
-                  <div className="divide-y divide-border">{onlyInApp.map((e) => appRow(e))}</div>
+                  <p className="text-xs text-muted">Puede que el banco los registre otro día o que no se hayan hecho. Si alguno sí está en el extracto con otro valor o nombre, vincúlalo.</p>
+                  <div className="divide-y divide-border">
+                    {onlyInApp.map((e) => (
+                      <div key={e.tx.id}>
+                        {appRow(e)}
+                        <LinkSelect label="Está en el extracto: elegir cuál"
+                          options={lineCandidatesFor(e, rec).map((l) => ({ value: l.id, label: `${formatDay(l.date)} · ${(l.description || "Sin descripción").slice(0, 28)} · ${signed(l.amount)}` }))}
+                          onPick={(lineId) => setLinks((k) => [...k, { lineId, txId: e.tx.id }])} />
+                      </div>
+                    ))}
+                  </div>
                 </section>
               )}
 

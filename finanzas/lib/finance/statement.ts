@@ -372,7 +372,7 @@ export interface AppEntry {
 
 export interface StatementReconciliation {
   /** `entry` es null cuando el cobro es tan pequeño que no hace falta registrarlo (menos de la tolerancia). */
-  matched: { line: StatementLine; entry: AppEntry | null; /** Coincide con una diferencia pequeña (comisión de cambio en compras internacionales). */ approx?: boolean }[];
+  matched: { line: StatementLine; entry: AppEntry | null; /** Coincide con una diferencia pequeña (comisión de cambio en compras internacionales). */ approx?: boolean; /** La persona la vinculó a mano. */ manual?: boolean }[];
   /** En el extracto y no en la app. */
   missing: StatementLine[];
   /** En la app y no en el extracto (del mes). */
@@ -483,6 +483,69 @@ export function reconcileStatement(account: Account, txs: Transaction[], lines: 
     if (twin) duplicates.push({ entry, twin });
   }
   return { matched, missing, extra, duplicates, outOfRange: lines.length - inRange.length };
+}
+
+// ───────────────────── Vínculos hechos a mano ─────────────────────
+
+/** "Esta línea del extracto es este movimiento de la app", cuando el cruce automático no los unió (otro valor, otro nombre, otra fecha). */
+export interface ManualLink { lineId: string; txId: string }
+
+/** Las líneas "agrupadas" (intereses, 4x1000) se comparan por total del mes: no se vinculan una a una. */
+const linkable = (l: StatementLine) => !l.id.startsWith("G:");
+
+/** Aplica los vínculos manuales: cada pareja pasa a "emparejada" y sale de "faltan en la app" y de "en la app, no en el extracto". */
+export function withManualLinks(rec: StatementReconciliation, links: ManualLink[], account: Account, txs: Transaction[]): StatementReconciliation {
+  if (links.length === 0) return rec;
+  const lines = new Map(rec.missing.filter(linkable).map((l) => [l.id, l]));
+  const byId = new Map(txs.map((t) => [t.id, t]));
+  const matched = [...rec.matched];
+  const doneLines = new Set<string>();
+  const doneTxs = new Set<string>();
+  for (const k of links) {
+    const line = lines.get(k.lineId);
+    const tx = byId.get(k.txId);
+    if (!line || !tx || doneLines.has(line.id) || doneTxs.has(tx.id)) continue;
+    const amount = effectOn(account.id, tx);
+    if (amount === 0) continue;
+    matched.push({ line, entry: { tx, amount, date: tx.occurred_on }, manual: true });
+    doneLines.add(line.id);
+    doneTxs.add(tx.id);
+  }
+  if (doneLines.size === 0) return rec;
+  return {
+    ...rec,
+    matched,
+    missing: rec.missing.filter((l) => !doneLines.has(l.id)),
+    extra: rec.extra.filter((e) => !doneTxs.has(e.tx.id)),
+    duplicates: rec.duplicates.filter((d) => !doneTxs.has(d.entry.tx.id)),
+  };
+}
+
+const closeness = (amount: number, date: string, ref: { amount: number; date: string }) => [Math.abs(Math.abs(amount) - Math.abs(ref.amount)), dayDiff(date, ref.date)] as const;
+
+/**
+ * Movimientos de la app que pueden ser esta línea del extracto: mismo sentido (entra o sale), hasta 10 días de diferencia y que
+ * todavía no tengan pareja. Los de valor y fecha más parecidos primero. Incluye los de fuera del mes (el banco puede fecharlo en otro).
+ */
+export function appCandidatesFor(line: StatementLine, account: Account, txs: Transaction[], rec: StatementReconciliation, limit = 8): AppEntry[] {
+  const taken = new Set(rec.matched.flatMap((m) => (m.entry ? [m.entry.tx.id] : [])));
+  const out: AppEntry[] = [];
+  for (const tx of txs) {
+    const amount = effectOn(account.id, tx);
+    if (amount === 0 || taken.has(tx.id) || Math.sign(amount) !== Math.sign(line.amount) || dayDiff(tx.occurred_on, line.date) > 10) continue;
+    out.push({ tx, amount, date: tx.occurred_on });
+  }
+  const key = (e: AppEntry) => closeness(e.amount, e.date, line);
+  return out.sort((a, b) => key(a)[0] - key(b)[0] || key(a)[1] - key(b)[1]).slice(0, limit);
+}
+
+/** Lo mismo al revés: líneas del extracto que faltan en la app y pueden ser este movimiento. */
+export function lineCandidatesFor(entry: AppEntry, rec: StatementReconciliation, limit = 8): StatementLine[] {
+  const key = (l: StatementLine) => closeness(l.amount, l.date, entry);
+  return rec.missing
+    .filter((l) => linkable(l) && Math.sign(l.amount) === Math.sign(entry.amount) && dayDiff(l.date, entry.date) <= 10)
+    .sort((a, b) => key(a)[0] - key(b)[0] || key(a)[1] - key(b)[1])
+    .slice(0, limit);
 }
 
 /**

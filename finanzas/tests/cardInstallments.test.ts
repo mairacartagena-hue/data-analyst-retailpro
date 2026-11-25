@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { billingCut, installmentPlan } from "@/lib/finance/installments";
-import { checkInstallments, chargeTolerance, type ExtractPurchase } from "@/lib/finance/cardStatements";
+import { checkInstallments, chargeTolerance, onlyExtractCandidates, purchaseLinkCandidates, type ExtractPurchase } from "@/lib/finance/cardStatements";
 import { sanitizeCardStatement } from "@/lib/capture/cardStatement";
 import type { Account, CardStatementItem, Transaction } from "@/lib/types";
 
@@ -213,5 +213,75 @@ describe("lectura del cargo del mes", () => {
       expect(out).toHaveLength(1);
       expect(out[0].monthlyCharge).toBeUndefined();
     }
+  });
+});
+
+
+describe("vincular a mano una compra del extracto con la de la app", () => {
+  // El banco la fechó 5 días después: el cruce automático (±1 día) no las une
+  const late = p({ purchaseDate: "2026-10-29" });
+  const cut = "2026-11-20";
+
+  it("sin vínculo quedan como dos pendientes; con vínculo se comparan de verdad", () => {
+    const auto = checkInstallments(account, [tv], [], [late], cut);
+    expect(auto.map((c) => c.verdict).sort()).toEqual(["ONLY_APP", "ONLY_EXTRACT"]);
+    const linked = checkInstallments(account, [tv], [], [late], cut, { 0: "tv" });
+    expect(linked).toHaveLength(1);
+    expect(linked[0]).toMatchObject({ verdict: "OK", linked: true, index: 0, source: "APP", diffs: [] });
+    expect(linked[0].tx?.id).toBe("tv");
+  });
+
+  it("vinculada con otro valor: avisa el valor y no suma diferencias que serían consecuencia", () => {
+    const [c] = checkInstallments(account, [tv], [], [p({ amount: 310_000, remainingBalance: 210_000, monthlyCharge: 103_333 })], cut, { 0: "tv" });
+    expect(c.verdict).toBe("DIFFERS");
+    expect(c.diffs).toEqual([{ field: "amount", app: 300_000, extract: 310_000 }]);
+  });
+
+  it("vinculada con otra cuota: informa valor y cuota, sin cargo ni saldo", () => {
+    const [c] = checkInstallments(account, [tv], [], [p({ amount: 310_000, paidInstallments: 2, monthlyCharge: 99_000, remainingBalance: 1 })], cut, { 0: "tv" });
+    expect(c.diffs.map((d) => d.field)).toEqual(["amount", "current"]);
+  });
+
+  it("vinculada con otro total de cuotas: solo eso", () => {
+    const [c] = checkInstallments(account, [tv], [], [p({ installments: 6, amount: 310_000 })], cut, { 0: "tv" });
+    expect(c.diffs).toEqual([{ field: "installments", app: 3, extract: 6 }]);
+  });
+
+  it("el vínculo manda sobre el cruce automático y nadie más se lleva ese movimiento", () => {
+    const tv2 = tx({ id: "tv2", description: "TV", amount: 300_000, installments: 3, occurred_on: "2026-10-24" });
+    // Dos compras iguales en la app, una del extracto vinculada a la segunda; la otra compra del extracto no puede quedarse con esa
+    const out = checkInstallments(account, [tv, tv2], [], [p(), p()], cut, { 1: "tv2" });
+    const byIndex = Object.fromEntries(out.filter((c) => c.index !== undefined).map((c) => [c.index, c.tx?.id]));
+    expect(byIndex).toEqual({ 0: "tv", 1: "tv2" });
+    expect(out.every((c) => c.verdict === "OK")).toBe(true);
+  });
+
+  it("un vínculo a un movimiento que ya no existe se ignora y vuelve el cruce automático", () => {
+    const [c] = checkInstallments(account, [tv], [], [p()], cut, { 0: "borrado" });
+    expect(c).toMatchObject({ verdict: "OK", linked: undefined });
+  });
+
+  it("índices: cada compra del extracto sabe su posición aunque el resultado se reordene", () => {
+    const out = checkInstallments(account, [tv], [], [p({ description: "OTRA", amount: 999_000 }), p()], cut);
+    expect(out.find((c) => c.purchase?.description === "OTRA")?.index).toBe(0);
+    expect(out.find((c) => c.verdict === "OK")?.index).toBe(1);
+    expect(out.find((c) => c.verdict === "ONLY_APP")?.index).toBeUndefined();
+  });
+
+  it("candidatos: los más parecidos primero, sin los ya emparejados, de otra tarjeta ni de otros meses", () => {
+    const near = tx({ id: "near", amount: 305_000, occurred_on: "2026-10-27" });
+    const far = tx({ id: "far", amount: 300_000, occurred_on: "2026-12-30" });
+    const other = tx({ id: "otra", amount: 300_000, occurred_on: "2026-10-24", account_id: "otra-tarjeta" });
+    const taken = tx({ id: "taken", amount: 300_000, occurred_on: "2026-10-24" });
+    const ingreso = tx({ id: "pago", kind: "INCOME", amount: 300_000, occurred_on: "2026-10-24" });
+    const exact = tx({ id: "exact", amount: 300_000, occurred_on: "2026-10-20" });
+    const out = purchaseLinkCandidates(account, [near, far, other, taken, ingreso, exact], { purchaseDate: "2026-10-29", amount: 300_000 }, new Set(["taken"]));
+    expect(out.map((t) => t.id)).toEqual(["exact", "near"]);
+  });
+
+  it("candidatos al revés: las compras del extracto sin pareja, la de valor más cercano primero", () => {
+    const checks = checkInstallments(account, [], [], [p({ description: "A", amount: 900_000 }), p({ description: "B", amount: 310_000 }), p({ description: "C", amount: 300_000, installments: 3 })], cut);
+    const out = onlyExtractCandidates(checks, { amount: 305_000, occurred_on: "2026-10-24" });
+    expect(out.map((c) => c.purchase?.description)).toEqual(["B", "C", "A"]);
   });
 });

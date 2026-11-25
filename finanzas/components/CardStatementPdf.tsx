@@ -5,33 +5,49 @@ import { FileUp } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { useShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
+import { LinkSelect } from "@/components/LinkSelect";
 import { StatementCrossCheck, StatementFields, emptyDraft, type StatementDraft } from "@/components/CardStatements";
 import type { Account } from "@/lib/types";
 import type { CardStatementData, CardStatementPurchase } from "@/lib/capture/cardStatement";
-import { checkInstallments, knownItem, registeredTx, type InstallmentCheck, type InstallmentDiff, type InstallmentVerdict } from "@/lib/finance/cardStatements";
-import { installmentsOf } from "@/lib/finance/installments";
+import { checkInstallments, knownItem, onlyExtractCandidates, purchaseLinkCandidates, registeredTx, type InstallmentCheck, type InstallmentDiff, type InstallmentVerdict } from "@/lib/finance/cardStatements";
+import { installmentsOf, matchedWithItems } from "@/lib/finance/installments";
 import { openingDay } from "@/lib/finance/cardBudget";
 import { formatCop } from "@/lib/finance/money";
-import { todayBogota } from "@/lib/finance/periods";
+import { formatDay, todayBogota } from "@/lib/finance/periods";
 import { shrink, toBase64 } from "@/lib/capture/file";
 import { cn, errMsg } from "@/lib/utils";
 
 const VERDICT_LABEL: Record<Exclude<InstallmentVerdict, "OK">, string> = { DIFFERS: "Difiere", ONLY_EXTRACT: "Solo en el extracto", ONLY_APP: "Solo en la app" };
-const FIELD_LABEL: Record<InstallmentDiff["field"], string> = { installments: "Total de cuotas", current: "Cuota de este extracto", charge: "Cargo del mes", balance: "Saldo pendiente" };
-const diffValue = (field: InstallmentDiff["field"], n: number) => (field === "balance" || field === "charge" ? formatCop(n) : String(n));
+const FIELD_LABEL: Record<InstallmentDiff["field"], string> = { installments: "Total de cuotas", amount: "Valor de la compra", current: "Cuota de este extracto", charge: "Cargo del mes", balance: "Saldo pendiente" };
+const diffValue = (field: InstallmentDiff["field"], n: number) => (field === "balance" || field === "charge" || field === "amount" ? formatCop(n) : String(n));
 
-/** Cuotas: lo que dice el extracto contra lo que tiene la app, compra por compra. No guarda ni cambia nada. */
-function InstallmentChecks({ checks }: { checks: InstallmentCheck[] }) {
+/**
+ * Cuotas: lo que dice el extracto contra lo que tiene la app, compra por compra. No guarda ni cambia nada en la base.
+ * Si el cruce automático no unió una compra que sí es la misma (valor o fecha distintos), se vincula a mano desde aquí:
+ * el vínculo vale mientras tengas el extracto abierto y deja ver en qué se diferencian.
+ */
+function InstallmentChecks({ account, checks, onLink, onUnlink }: { account: Account; checks: InstallmentCheck[]; onLink: (index: number, txId: string) => void; onUnlink: (index: number) => void }) {
   const { openTransaction } = useShell();
-  const bad = checks.filter((c) => c.verdict !== "OK");
-  const ok = checks.length - bad.length;
+  const { transactions, cardItems } = useFinance();
+  const needs = checks.filter((c) => c.verdict !== "OK");
+  // Las vinculadas se muestran aunque cuadren, para poder deshacer el vínculo
+  const bad = checks.filter((c) => c.verdict !== "OK" || c.linked);
+  const ok = checks.length - needs.length;
+  // Movimientos que ya tienen su pareja: no se ofrecen para vincular
+  const taken = useMemo(() => {
+    const mine = transactions.filter((t) => t.account_id === account.id);
+    const ids = new Set(matchedWithItems(mine, cardItems.filter((i) => i.account_id === account.id)));
+    for (const c of checks) if (c.tx && c.verdict !== "ONLY_APP") ids.add(c.tx.id);
+    return ids;
+  }, [transactions, cardItems, checks, account.id]);
+  const txLabel = (t: { occurred_on: string; merchant?: string | null; description?: string | null; amount: number }) => `${formatDay(t.occurred_on)} · ${(t.merchant || t.description || "Movimiento").slice(0, 28)} · ${formatCop(t.amount)}`;
   return (
     <div className="space-y-1.5">
       <p className="font-medium">Cuotas: extracto vs. app</p>
-      <p className={cn("rounded-lg px-2 py-1", bad.length === 0 ? "bg-olive-soft" : "bg-warning-soft")}>
-        {bad.length === 0
-          ? `Las ${ok} compra${ok === 1 ? "" : "s"} a cuotas cuadran: total de cuotas, cuota de este extracto y saldo pendiente.`
-          : `${bad.length} para revisar · ${ok} cuadra${ok === 1 ? "" : "n"}`}
+      <p className={cn("rounded-lg px-2 py-1", needs.length === 0 ? "bg-olive-soft" : "bg-warning-soft")}>
+        {needs.length === 0
+          ? `Las ${ok} compra${ok === 1 ? "" : "s"} a cuotas cuadran con la app.`
+          : `${needs.length} para revisar · ${ok} cuadra${ok === 1 ? "" : "n"}`}
       </p>
       {bad.length > 0 && (
         <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-surface">
@@ -39,14 +55,34 @@ function InstallmentChecks({ checks }: { checks: InstallmentCheck[] }) {
             <li key={c.purchase ? `${c.purchase.description}|${c.purchase.purchaseDate}|${c.purchase.amount}|${i}` : `app-${c.tx?.id ?? i}`} className="space-y-0.5 px-3 py-1.5">
               <div className="flex items-center justify-between gap-2">
                 <span className="min-w-0 truncate font-medium">{c.purchase?.description ?? c.tx?.merchant ?? c.tx?.description ?? "Compra"}</span>
-                <span className="shrink-0 text-warning">{VERDICT_LABEL[c.verdict as Exclude<InstallmentVerdict, "OK">]}</span>
+                {c.verdict === "OK"
+                  ? <span className="shrink-0 text-olive">Cuadra</span>
+                  : <span className="shrink-0 text-warning">{VERDICT_LABEL[c.verdict as Exclude<InstallmentVerdict, "OK">]}</span>}
               </div>
+              {c.linked && c.tx && (
+                <p className="text-muted">
+                  Vinculada a mano con {txLabel(c.tx)} de la app.{" "}
+                  <button className="text-olive underline" onClick={() => onUnlink(c.index!)}>Deshacer</button>
+                </p>
+              )}
               {c.diffs.map((d) => (
                 <p key={d.field} className="text-muted">{FIELD_LABEL[d.field]}: la app {diffValue(d.field, d.app)} · el extracto {diffValue(d.field, d.extract)}</p>
               ))}
-              {c.verdict === "ONLY_EXTRACT" && <p className="text-muted">No está en la app ni en las compras guardadas de la tarjeta: puedes agregarla abajo.</p>}
+              {c.verdict === "ONLY_EXTRACT" && c.purchase && c.index !== undefined && (
+                <>
+                  <p className="text-muted">No la encontré en la app ni en las compras guardadas de la tarjeta (se busca con el mismo valor y fecha a ±1 día). Si ya está en la app con otro valor o fecha, vincúlala; si no, puedes agregarla abajo.</p>
+                  <LinkSelect label="Ya está en la app: elegir cuál"
+                    options={purchaseLinkCandidates(account, transactions, c.purchase, taken).map((t) => ({ value: t.id, label: txLabel(t) }))}
+                    onPick={(txId) => onLink(c.index!, txId)} />
+                </>
+              )}
               {c.verdict === "ONLY_APP" && c.tx && (
-                <p className="text-muted">Compra del {c.tx.occurred_on} a {c.tx.installments} cuotas ({formatCop(c.tx.amount)}): ya debería venir en este extracto y no viene.</p>
+                <>
+                  <p className="text-muted">Compra del {c.tx.occurred_on} a {c.tx.installments} cuotas ({formatCop(c.tx.amount)}): ya debería venir en este extracto y no la encontré. Si sí viene con otro valor o fecha, vincúlala.</p>
+                  <LinkSelect label="Está en el extracto: elegir cuál"
+                    options={onlyExtractCandidates(checks, c.tx).map((o) => ({ value: String(o.index), label: `${(o.purchase!.description || "Compra").slice(0, 28)} · ${formatCop(o.purchase!.amount)} · ${formatDay(o.purchase!.purchaseDate)}` }))}
+                    onPick={(index) => onLink(Number(index), c.tx!.id)} />
+                </>
               )}
               {c.tx && <button className="text-olive underline" onClick={() => openTransaction(c.tx!)}>Abrir el movimiento</button>}
             </li>
@@ -73,6 +109,8 @@ export function CardStatementPdf({ account, onBalance, onStatus, crossCheck = fa
   const [notice, setNotice] = useState<string | null>(null);
   // Compras a cuotas tal como las leyó el extracto (se conservan después de agregarlas a la proyección para seguir comparándolas)
   const [extracted, setExtracted] = useState<CardStatementPurchase[]>([]);
+  // Vínculos hechos a mano: posición de la compra en el extracto → movimiento de la app. Valen mientras el extracto está abierto.
+  const [links, setLinks] = useState<Record<number, string>>({});
 
   const purchases = read?.purchases ?? [];
   const inCard = (p: CardStatementPurchase) => !!knownItem(p, cardItems, account.id);
@@ -84,8 +122,8 @@ export function CardStatementPdf({ account, onBalance, onStatus, crossCheck = fa
   const already = purchases.length - fresh.length;
   const cutDate = /^\d{4}-\d{2}-\d{2}$/.test(draft.cut) ? draft.cut : null;
   const checks = useMemo(
-    () => (crossCheck && read ? checkInstallments(account, transactions, cardItems, extracted, cutDate) : []),
-    [crossCheck, read, account, transactions, cardItems, extracted, cutDate],
+    () => (crossCheck && read ? checkInstallments(account, transactions, cardItems, extracted, cutDate, links) : []),
+    [crossCheck, read, account, transactions, cardItems, extracted, cutDate, links],
   );
 
   async function pick(file: File | undefined) {
@@ -94,6 +132,7 @@ export function CardStatementPdf({ account, onBalance, onStatus, crossCheck = fa
     setNotice(null);
     setRead(null);
     setExtracted([]);
+    setLinks({});
     if (!navigator.onLine) return setErr("Sin conexión: para leer el extracto necesitas internet.");
     setBusy(true);
     try {
@@ -157,7 +196,11 @@ export function CardStatementPdf({ account, onBalance, onStatus, crossCheck = fa
               <p className="font-medium">Lo que leí (puedes corregirlo; no se guarda):</p>
               <StatementFields value={draft} onChange={setDraft} />
               <StatementCrossCheck account={account} draft={draft} />
-              {checks.length > 0 && <InstallmentChecks checks={checks} />}
+              {checks.length > 0 && (
+                <InstallmentChecks account={account} checks={checks}
+                  onLink={(index, txId) => setLinks((l) => ({ ...l, [index]: txId }))}
+                  onUnlink={(index) => setLinks((l) => Object.fromEntries(Object.entries(l).filter(([k]) => Number(k) !== index)))} />
+              )}
             </>
           )}
           {onBalance && read.totalDebt !== undefined && <p className="text-muted">Ya puse la deuda abajo como deuda según tu extracto.</p>}
