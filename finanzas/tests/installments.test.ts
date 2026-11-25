@@ -482,7 +482,7 @@ describe("cuota 0 (gracia) y vencimiento por corte", () => {
 
   it("una compra de 2 cuotas hecha después del corte no entra completa en el primer pago", () => {
     const cda = [buy("cda", "2026-10-24", 247_590, 2)];
-    const d = cardDue({ ...bbva, interest_rate_ea: 0, opening_balance: 0 }, -247_590, cda, dec, []);
+    const d = cardDue({ ...bbva, interest_rate_ea: 0 }, -247_590, cda, dec, []);
     expect(d.due).toBe(123_795);
     expect(d.laterCapital).toBe(123_795);
   });
