@@ -316,3 +316,26 @@ export function onlyExtractCandidates(checks: InstallmentCheck[], tx: Pick<Trans
       || daysApart(a.purchase!.purchaseDate, tx.occurred_on) - daysApart(b.purchase!.purchaseDate, tx.occurred_on))
     .slice(0, limit);
 }
+
+/** Poner en un movimiento de la app el total de cuotas que dice el extracto. */
+export interface InstallmentFix {
+  tx: Transaction;
+  /** Cuotas que tiene hoy en la app. */
+  from: number;
+  /** Cuotas que dice el extracto. */
+  to: number;
+}
+
+/**
+ * ¿Se puede corregir el total de cuotas de esta compra con lo que dice el extracto? Solo si el desacuerdo es el número de cuotas,
+ * la compra es de la app (no una compra guardada del extracto), la registró esta persona y es un gasto o un avance de esta tarjeta.
+ */
+export function installmentFix(c: InstallmentCheck, account: Account, userId: string): InstallmentFix | null {
+  const d = c.diffs.find((x) => x.field === "installments");
+  const tx = c.tx;
+  if (c.verdict !== "DIFFERS" || c.source !== "APP" || !d || !tx) return null;
+  if (!Number.isInteger(d.extract) || d.extract < 1 || d.extract > 48 || d.extract === d.app) return null;
+  if (tx.created_by !== userId || tx.status !== "CONFIRMED" || tx.account_id !== account.id) return null;
+  if (tx.kind !== "EXPENSE" && tx.kind !== "TRANSFER") return null;
+  return { tx, from: d.app, to: d.extract };
+}

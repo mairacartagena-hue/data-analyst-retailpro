@@ -5,35 +5,13 @@ import { useFinance } from "@/lib/data/FinanceProvider";
 import { AmountInput } from "@/components/AmountInput";
 import { Button } from "@/components/ui/button";
 import { Collapsible } from "@/components/ui/collapsible";
-import type { Account, Transaction } from "@/lib/types";
+import type { Account } from "@/lib/types";
 import { creditPayments, fixWithRealCapital, type CreditPayment } from "@/lib/finance/creditPayments";
 import { ensureCategory } from "@/lib/finance/ensureCategory";
+import { editPayload } from "@/lib/finance/txEdit";
 import { formatCop, parseCop } from "@/lib/finance/money";
 import { addDays, formatDay, todayBogota } from "@/lib/finance/periods";
 import { errMsg } from "@/lib/utils";
-
-/** Datos de un movimiento existente para editarlo con save_transaction cambiando solo el valor. */
-function editPayload(t: Transaction, amount: number) {
-  const splits = t.splits.length ? scaleSplits(t, amount) : [];
-  return {
-    id: t.id, kind: t.kind, scope: t.scope, amount, occurred_on: t.occurred_on, description: t.description,
-    merchant: t.merchant ?? null, tags: t.tags ?? [], account_id: t.account_id, to_account_id: t.to_account_id,
-    direction: t.direction ?? null, installments: t.installments ?? 1, interest_rate_ea: t.interest_rate_ea ?? null,
-    creates_debt: t.creates_debt, is_shared: t.is_shared, income_category_id: t.income_category_id ?? null,
-    scheduled_payment_id: t.scheduled_payment_id ?? null, scheduled_for: t.scheduled_for ?? null, splits,
-  };
-}
-
-/** Reparte el nuevo valor entre las partes del gasto en la misma proporción (lo que sobra va a la última). */
-function scaleSplits(t: Transaction, amount: number) {
-  const base = t.splits.reduce((s, x) => s + x.amount, 0) || 1;
-  let left = amount;
-  return t.splits.map((s, i) => {
-    const v = i === t.splits.length - 1 ? left : Math.round((s.amount * amount) / base);
-    left -= v;
-    return { amount: v, category_id: s.category_id, responsible_user_id: s.responsible_user_id, origin: s.origin ?? "NORMAL" };
-  });
-}
 
 /**
  * Cuotas pagadas del crédito con su reparto, y "Ajustar con el pago real": se escribe el capital que dice el
@@ -71,14 +49,14 @@ function PaymentRow({ account, payment: p }: { account: Account; payment: Credit
     setErr(null);
     try {
       if (fix.transferAmount !== p.transfer.amount) {
-        const r = await supabase.rpc("save_transaction", { p: editPayload(p.transfer, fix.transferAmount) });
+        const r = await supabase.rpc("save_transaction", { p: editPayload(p.transfer, { amount: fix.transferAmount }) });
         if (r.error) throw r.error;
       }
       if (p.charge && fix.chargeAmount === 0) {
         const r = await supabase.rpc("delete_transaction", { p_id: p.charge.id });
         if (r.error) throw r.error;
       } else if (p.charge && fix.chargeAmount !== p.charge.amount) {
-        const r = await supabase.rpc("save_transaction", { p: editPayload(p.charge, fix.chargeAmount) });
+        const r = await supabase.rpc("save_transaction", { p: editPayload(p.charge, { amount: fix.chargeAmount }) });
         if (r.error) throw r.error;
       } else if (!p.charge && fix.chargeAmount > 0) {
         const categoryId = account.budget_category_id ?? await ensureCategory(state, supabase, "Intereses y seguros de créditos", "🏦");

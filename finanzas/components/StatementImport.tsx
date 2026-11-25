@@ -15,13 +15,14 @@ import { formatCop } from "@/lib/finance/money";
 import { formatDay, todayBogota } from "@/lib/finance/periods";
 import { cycleRange, monthRange } from "@/lib/finance/reconcile";
 import { ensureCategory } from "@/lib/finance/ensureCategory";
+import { editPayload } from "@/lib/finance/txEdit";
 import { readStatementFile } from "@/lib/finance/statementFile";
 import { shrink, toBase64 } from "@/lib/capture/file";
 import type { CardLinesData } from "@/lib/capture/cardStatement";
 import { parsedFromCardLines } from "@/lib/finance/cardLines";
 import {
-  BANK_CATEGORY, INTEREST_CATEGORY, UNKNOWN_CATEGORY, VALUE_WINDOW_DAYS, appCandidatesFor, appEntryOf, bankCharges, carryOverStatus, closingBalance, coveredRange, isBankLine, lineCandidatesFor, parseStatementRows, reconcileStatement, registerPayload, withManualLinks,
-  type AppEntry, type CarryStatus, type ColumnMap, type LineKind, type ManualLink, type StatementLine,
+  BANK_CATEGORY, INTEREST_CATEGORY, UNKNOWN_CATEGORY, VALUE_WINDOW_DAYS, appCandidatesFor, appEntryOf, bankCharges, carryOverStatus, closingBalance, coveredRange, DIFFERENCE_TAG, differencePayload, isBankLine, lineCandidatesFor, pairKey, parseStatementRows, reconcileStatement, registerPayload, valuePairs, withManualLinks,
+  type AppEntry, type CarryStatus, type ColumnMap, type LineKind, type ManualLink, type StatementLine, type ValuePair,
 } from "@/lib/finance/statement";
 import { cn, errMsg } from "@/lib/utils";
 
@@ -67,6 +68,8 @@ export function StatementImport({ account, month, onBalance, onStatus, carryOver
   const [links, setLinks] = useState<ManualLink[]>([]);
   /** Parejas que el cruce por valor unió con fechas muy distintas y la persona separó ("esta no es"). */
   const [apart, setApart] = useState<ManualLink[]>([]);
+  /** Parejas "mismo movimiento con otro valor" que la persona descartó (`línea|movimiento`). */
+  const [notPairs, setNotPairs] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -99,8 +102,14 @@ export function StatementImport({ account, month, onBalance, onStatus, carryOver
   const duplicateIds = new Set((rec?.duplicates ?? []).map((d) => d.entry.tx.id));
   // Las partidas del cierre anterior se muestran en su propia sección: aquí no deben salir otra vez
   const carryIds = new Set(carry.flatMap((c) => (c.item.transaction_id ? [c.item.transaction_id] : [])));
-  const onlyInApp = (rec?.extra ?? []).filter((e) => !duplicateIds.has(e.tx.id) && !carryIds.has(e.tx.id));
-  const bankMissing = (rec?.missing ?? []).filter(isBankLine);
+  // Las diferencias que esta pantalla registró (#diferencia) son parte del arreglo: no se muestran como "solo en la app"
+  const onlyInApp = (rec?.extra ?? []).filter((e) => !duplicateIds.has(e.tx.id) && !carryIds.has(e.tx.id) && !e.tx.tags.includes(DIFFERENCE_TAG));
+  // Lo que falta y lo que sobra pero se parecen (mismo movimiento con otro valor): se proponen como pareja en vez de aparecer sueltos
+  const pairs = rec ? valuePairs(rec.missing, onlyInApp, account, me.user_id, notPairs) : [];
+  const pairedLines = new Set(pairs.map((p) => p.line.id));
+  const pairedTxs = new Set(pairs.map((p) => p.entry.tx.id));
+  const missingShown = (rec?.missing ?? []).filter((l) => !pairedLines.has(l.id));
+  const onlyInAppShown = onlyInApp.filter((e) => !pairedTxs.has(e.tx.id));
 
   // PDF: si lo leído no suma lo que dice el resumen del extracto, puede faltar algún movimiento y "no falta nada" no sería confiable
   const totalsOff = (pdfRead?.totals ?? []).filter((t) => !t.ok);
@@ -121,6 +130,7 @@ export function StatementImport({ account, month, onBalance, onStatus, carryOver
       setPdf(null);
       setLinks([]);
       setApart([]);
+      setNotPairs([]);
       setFileName(file.name);
       setMap({});
       setFlip(false);
@@ -144,6 +154,7 @@ export function StatementImport({ account, month, onBalance, onStatus, carryOver
       setPdf(body.result);
       setLinks([]);
       setApart([]);
+      setNotPairs([]);
       setRows(null);
       setFileName(file.name);
     } catch (e) {
@@ -153,32 +164,51 @@ export function StatementImport({ account, month, onBalance, onStatus, carryOver
     }
   }
 
-  async function registerBankLines() {
-    if (bankMissing.length === 0) return;
+  async function registerContext() {
+    return {
+      accountId: account.id, userId: me.user_id,
+      bankCategoryId: await ensureCategory(state, supabase, BANK_CATEGORY.name, BANK_CATEGORY.icon),
+      unknownCategoryId: await ensureCategory(state, supabase, UNKNOWN_CATEGORY.name, UNKNOWN_CATEGORY.icon),
+      interestCategoryId: await ensureCategory(state, supabase, INTEREST_CATEGORY.name, INTEREST_CATEGORY.icon, "INCOME"),
+    };
+  }
+
+  /** Una acción sobre un solo movimiento: la persona decide uno a uno. */
+  async function act(run: () => Promise<string>) {
     setBusy(true);
     setError(null);
     setNotice(null);
-    let done = 0;
     try {
-      const ctx = {
-        accountId: account.id, userId: me.user_id,
-        bankCategoryId: await ensureCategory(state, supabase, BANK_CATEGORY.name, BANK_CATEGORY.icon),
-        unknownCategoryId: await ensureCategory(state, supabase, UNKNOWN_CATEGORY.name, UNKNOWN_CATEGORY.icon),
-        interestCategoryId: await ensureCategory(state, supabase, INTEREST_CATEGORY.name, INTEREST_CATEGORY.icon, "INCOME"),
-      };
-      for (const line of bankMissing) {
-        const { error } = await supabase.rpc("save_transaction", { p: registerPayload(line, ctx) });
-        if (error) throw error;
-        done++;
-      }
-      setNotice(`Registré ${done} movimiento${done === 1 ? "" : "s"} del banco.`);
+      setNotice(await run());
     } catch (e) {
-      setError(`${done > 0 ? `Alcancé a registrar ${done}. ` : ""}${errMsg(e)}`);
+      setError(errMsg(e));
     } finally {
       setBusy(false);
       void reload();
     }
   }
+
+  /** Registra esta línea del banco (4x1000, intereses, cuota, seguro) tal como la trae el extracto. */
+  const registerBankLine = (line: StatementLine) => act(async () => {
+    const { error } = await supabase.rpc("save_transaction", { p: registerPayload(line, await registerContext()) });
+    if (error) throw error;
+    return `Registré ${(line.description || "el movimiento").slice(0, 40)} (${formatCop(Math.abs(line.amount))}).`;
+  });
+
+  /** El movimiento de la app queda con el valor que cobró el banco. */
+  const setPairAmount = (pair: ValuePair) => act(async () => {
+    const { error } = await supabase.rpc("save_transaction", { p: editPayload(pair.entry.tx, { amount: Math.abs(pair.line.amount) }) });
+    if (error) throw error;
+    return `Dejé ${(pair.entry.tx.description || pair.entry.tx.merchant || "el movimiento").slice(0, 40)} en ${formatCop(Math.abs(pair.line.amount))}, como dice el extracto.`;
+  });
+
+  /** El movimiento de la app no se toca: se registra aparte lo que el banco cobró de más (o de menos) y se unen. */
+  const registerPairDifference = (pair: ValuePair) => act(async () => {
+    const { error } = await supabase.rpc("save_transaction", { p: differencePayload(pair, await registerContext()) });
+    if (error) throw error;
+    setLinks((k) => [...k, { lineId: pair.line.id, txId: pair.entry.tx.id }]);
+    return `Registré la diferencia de ${formatCop(Math.abs(pair.diff))} y uní los dos movimientos.`;
+  });
 
   function registerManually(line: StatementLine) {
     openPayment({ kind: line.amount > 0 ? "INCOME" : "EXPENSE", amount: Math.abs(line.amount), description: line.description.slice(0, 60), date: line.date });
@@ -373,17 +403,38 @@ export function StatementImport({ account, month, onBalance, onStatus, carryOver
                 </section>
               )}
 
-              {rec.missing.length > 0 && (
+              {pairs.length > 0 && (
                 <section className="space-y-1">
-                  <h3 className="flex items-center gap-1.5 text-sm font-semibold"><PlusCircle size={15} /> Faltan en la app ({rec.missing.length})</h3>
-                  <p className="text-xs text-muted">Están en el extracto y no los encontré en la app (ni con el mismo valor en otra fecha). Si alguno sí está en la app con otro valor o nombre, vincúlalo con su movimiento.</p>
-                  {bankMissing.length > 0 && (
-                    <Button size="sm" className="w-full" onClick={registerBankLines} disabled={busy}>
-                      {busy ? "Registrando…" : `Registrar los ${bankMissing.length} del banco (4x1000, intereses, cuotas)`}
-                    </Button>
-                  )}
+                  <h3 className="flex items-center gap-1.5 text-sm font-semibold"><Scale size={15} /> Parecen el mismo movimiento, con otro valor ({pairs.length})</h3>
+                  <p className="text-xs text-muted">Están en el extracto y en la app, con fecha parecida pero no el mismo valor (un avance con comisión, puntos redimidos…). Tú decides qué hacer con cada una; si no es el mismo movimiento, pulsa “No es”.</p>
                   <div className="divide-y divide-border">
-                    {rec.missing.map((l) => (
+                    {pairs.map((pr) => (
+                      <div key={pr.line.id} className="space-y-1.5 py-2 text-sm">
+                        <div className="flex items-start gap-2">
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate font-medium">{pr.line.description || "Sin descripción"}</span>
+                            <span className="block truncate text-xs text-muted">Extracto {formatDay(pr.line.date)} · app {formatDay(pr.entry.date)} · {pr.entry.tx.description || pr.entry.tx.merchant || "Movimiento"}</span>
+                          </span>
+                          <span className="num shrink-0 text-right text-xs">{signed(pr.line.amount)}<span className="block text-muted">app {signed(pr.entry.amount)}</span></span>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {pr.editable && <Button size="sm" variant="outline" disabled={busy} onClick={() => setPairAmount(pr)}>Poner {formatCop(Math.abs(pr.line.amount))} en la app</Button>}
+                          <Button size="sm" variant="outline" disabled={busy} onClick={() => registerPairDifference(pr)}>Registrar la diferencia ({formatCop(Math.abs(pr.diff))})</Button>
+                          <Button size="sm" variant="ghost" disabled={busy} onClick={() => setNotPairs((n) => [...n, pairKey(pr.line, pr.entry.tx)])}>No es</Button>
+                        </div>
+                        {!pr.editable && <p className="text-xs text-muted">Este movimiento de la app es una transferencia, tiene cuotas o lo registró otra persona: no le cambio el valor, solo puedo registrar la diferencia.</p>}
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {missingShown.length > 0 && (
+                <section className="space-y-1">
+                  <h3 className="flex items-center gap-1.5 text-sm font-semibold"><PlusCircle size={15} /> Faltan en la app ({missingShown.length})</h3>
+                  <p className="text-xs text-muted">Están en el extracto y no los encontré en la app (ni con el mismo valor en otra fecha). Registra cada uno con su botón; si alguno sí está en la app con otro valor o nombre, vincúlalo con su movimiento.</p>
+                  <div className="divide-y divide-border">
+                    {missingShown.map((l) => (
                       <div key={l.id} className="py-2 text-sm">
                         <div className="flex items-center gap-2">
                           <span className="min-w-0 flex-1">
@@ -391,7 +442,9 @@ export function StatementImport({ account, month, onBalance, onStatus, carryOver
                             <span className="block text-xs text-muted">{formatDay(l.date)}{KIND_LABEL[l.kind] ? ` · ${KIND_LABEL[l.kind]}` : ""}</span>
                           </span>
                           <span className={cn("num shrink-0 font-semibold", l.amount > 0 && "text-olive")}>{signed(l.amount)}</span>
-                          {l.kind === "OTHER" && <Button size="sm" variant="outline" onClick={() => registerManually(l)}>Registrar</Button>}
+                          {isBankLine(l)
+                            ? <Button size="sm" variant="outline" disabled={busy} onClick={() => registerBankLine(l)}>Registrar</Button>
+                            : <Button size="sm" variant="outline" onClick={() => registerManually(l)}>Registrar</Button>}
                         </div>
                         {!l.id.startsWith("G:") && (
                           <LinkSelect label="Ya está en la app: elegir cuál"
@@ -416,12 +469,12 @@ export function StatementImport({ account, month, onBalance, onStatus, carryOver
                 </section>
               )}
 
-              {onlyInApp.length > 0 && (
+              {onlyInAppShown.length > 0 && (
                 <section className="space-y-1">
-                  <h3 className="flex items-center gap-1.5 text-sm font-semibold"><HelpCircle size={15} /> En la app, no en el extracto ({onlyInApp.length})</h3>
+                  <h3 className="flex items-center gap-1.5 text-sm font-semibold"><HelpCircle size={15} /> En la app, no en el extracto ({onlyInAppShown.length})</h3>
                   <p className="text-xs text-muted">Puede que el banco los registre otro día o que no se hayan hecho. Si alguno sí está en el extracto con otro valor o nombre, vincúlalo.</p>
                   <div className="divide-y divide-border">
-                    {onlyInApp.map((e) => (
+                    {onlyInAppShown.map((e) => (
                       <div key={e.tx.id}>
                         {appRow(e)}
                         <LinkSelect label="Está en el extracto: elegir cuál"
