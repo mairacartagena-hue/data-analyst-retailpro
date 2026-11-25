@@ -421,6 +421,30 @@ describe("extracto de BBVA: cargo solo con el capital y periodo de gracia", () =
   });
 });
 
+describe("cuota 0 detectada por el extracto", () => {
+  // La tarjeta ya tiene una compra de 3 cuotas que llegó con 0 en su primer extracto: da cuota 0
+  const bbva: Account = { ...account, interest_rate_ea: 28.56 };
+  const cero = item({ id: "zona", description: "ZONAFIT", purchase_date: "2026-09-29", amount: 245_955, installments: 3, paid_installments: 0, remaining_balance: 245_955 });
+  const viveros = tx({ id: "viv", description: "Mercado pago", amount: 116_361, installments: 3, occurred_on: "2026-10-30" });
+  const row = (over: Partial<ExtractPurchase>): ExtractPurchase => ({ description: "MERCADO PAGO*VIVEROS", purchaseDate: "2026-10-30", amount: 116_361, installments: 3, paidInstallments: 0, remainingBalance: 116_361, ...over });
+
+  it("la compra llega con 0 en el primer corte y con 1 en el siguiente", () => {
+    expect(checkInstallments(bbva, [viveros], [cero], [row({})], "2026-11-20")[0]).toMatchObject({ verdict: "OK", diffs: [] });
+    const segundo = row({ paidInstallments: 1, remainingBalance: 77_574 });
+    expect(checkInstallments(bbva, [viveros], [cero], [segundo], "2026-12-20")[0]).toMatchObject({ verdict: "OK", diffs: [] });
+  });
+
+  it("dos cortes después con 0 sigue siendo un error: ya debió cobrar la cuota 1", () => {
+    const [d] = checkInstallments(bbva, [viveros], [cero], [row({})], "2026-12-20");
+    expect(d.diffs[0]).toEqual({ field: "current", app: 1, extract: 0 });
+  });
+
+  it("una compra en gracia que el extracto no trae se marca como solo en la app", () => {
+    const out = checkInstallments(bbva, [viveros], [cero], [], "2026-11-20");
+    expect(out.map((c) => c.verdict)).toEqual(["ONLY_APP"]);
+  });
+});
+
 describe("lectura del saldo a corte", () => {
   const raw = (v: unknown) => ({ statement_date: "2026-11-20", purchases: [{ description: "CDA", purchase_date: "2026-10-24", amount: 247_590, installments: 2, paid_installments: 1, remaining_balance: 124_979.73, monthly_charge: 122_610.27, balance_at_cut: v }] });
   it("se conserva si queda entre el saldo diferido y el valor de la compra", () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addMonthsIso, cardDue, expandInstallments, installmentPlan, installmentsOf, isCardAdvance, monthlyRate, projectCard, rateOf, splitEven, statementsDueIn, cutsBetween, statementItemsAfter, matchedWithItems, billingDue } from "@/lib/finance/installments";
+import { addMonthsIso, cardDue, expandInstallments, graceShift, hasGrace, installmentCut, installmentPlan, installmentsOf, isCardAdvance, monthlyRate, projectCard, rateOf, splitEven, statementsDueIn, cutsBetween, statementItemsAfter, matchedWithItems, billingDue } from "@/lib/finance/installments";
 import type { CardStatementItem } from "@/lib/types";
 import { spendingRows } from "@/lib/finance/spaces";
 import type { Transaction } from "@/lib/types";
@@ -131,9 +131,17 @@ describe("tarjeta con día de corte y de pago: solo el extracto que vence en el 
   });
 
   it("de una compra a cuotas antes del corte solo toca la cuota del mes", () => {
-    // ya se pagó la cuota de octubre: debe 1.100.000 y en noviembre toca solo la segunda cuota
-    const d = cardDue({ ...card, interest_rate_ea: 0 }, -1_100_000, [tx({ occurred_on: "2026-10-10" })], nov);
+    // comprada el 10-sep (la cuota 1 salió en el corte del 20-sep y se pagó en octubre): debe 1.100.000 y en noviembre toca solo la segunda cuota
+    const d = cardDue({ ...card, interest_rate_ea: 0 }, -1_100_000, [tx({ occurred_on: "2026-09-10" })], nov);
     expect(d.due).toBe(100_000);
+  });
+
+  it("una compra hecha entre cortes factura su primera cuota en el corte siguiente: en su primer pago solo toca esa", () => {
+    // comprada el 10-oct (corte 20-oct, pago 5-nov): sin pagos todavía, el 5-nov toca la cuota 1 y no la 2
+    const d = cardDue({ ...card, interest_rate_ea: 0 }, -1_200_000, [tx({ occurred_on: "2026-10-10" })], nov);
+    expect(d.due).toBe(100_000);
+    // si ya se pagó esa cuota, el 5-nov no queda nada
+    expect(cardDue({ ...card, interest_rate_ea: 0 }, -1_100_000, [tx({ occurred_on: "2026-10-10" })], nov).due).toBe(0);
   });
 
   it("sin día de corte y de pago sigue apartando la deuda menos las cuotas futuras", () => {
@@ -393,5 +401,89 @@ describe("avances de la tarjeta a cuotas", () => {
     const billing = { id: "visa", statement_day: 20, due_day: 5, opening_at: "2026-10-01T05:00:00+00:00", interest_rate_ea: 0 };
     const p = projectCard(billing, [advance({ occurred_on: "2026-10-23", amount: 200_000, installments: 2 })], "2026-10-26", 4);
     expect(p.map((m) => m.capital)).toEqual([0, 0, 100_000, 100_000]); // la primera cuota se paga el 5-dic (corte del 20-nov) y la segunda el 5-ene
+  });
+});
+
+
+describe("cuota 0 (gracia) y vencimiento por corte", () => {
+  // BBVA: corte el 20, pago el 5; registrada con el extracto del 20-oct. Compras posteriores al corte.
+  const bbva = { id: "visa", interest_rate_ea: 28.56, statement_day: 20, due_day: 5, opening_at: "2026-10-21T05:00:00+00:00", opening_balance: -90_000 };
+  const dec = { start: "2026-12-01", end: "2026-12-31" };
+  const jan = { start: "2027-01-01", end: "2027-01-31" };
+  const buy = (id: string, on: string, amount: number, n: number, over: Partial<Transaction> = {}) =>
+    tx({ id, occurred_on: on, amount, installments: n, interest_rate_ea: null, splits: [], ...over });
+  // Compra del extracto del 20-oct que llegó con "00 de 03": prueba de que el banco da cuota 0
+  const cuotaCero = (over: Partial<CardStatementItem> = {}): CardStatementItem => ({
+    id: "zonafit", account_id: "visa", description: "ZONAFIT", purchase_date: "2026-09-29", amount: 90_000, installments: 3,
+    paid_installments: 0, remaining_balance: 90_000, rate_ea: 0, ...over,
+  });
+  const compras = [buy("airbnb", "2026-10-31", 161_600, 36), buy("viveros", "2026-10-30", 116_361, 3), buy("cda", "2026-10-24", 247_590, 2)];
+  const deuda = (txs: Transaction[]) => -(90_000 + txs.reduce((a, t) => a + t.amount, 0));
+  const app = (txs: Transaction[], items: CardStatementItem[], month: string) =>
+    projectCard(bbva, txs, "2026-11-25", 4, items).find((m) => m.month === month)!.lines.filter((l) => l.source === "APP");
+
+  it("la tarjeta tiene cuota 0 si una compra de 3 o más cuotas llegó con 0 facturadas", () => {
+    expect(hasGrace("visa", [cuotaCero()])).toBe(true);
+    expect(hasGrace("visa", [cuotaCero({ installments: 2 })])).toBe(false); // 2 cuotas: el primer corte ya cobra la 1
+    expect(hasGrace("visa", [cuotaCero({ paid_installments: 1 })])).toBe(false);
+    expect(hasGrace("visa", [cuotaCero({ remaining_balance: 0 })])).toBe(false);
+    expect(hasGrace("otra", [cuotaCero()])).toBe(false);
+    expect(hasGrace("visa", [])).toBe(false);
+  });
+
+  it("solo se corre la primera cuota de las compras de 3 o más cuotas (no los avances)", () => {
+    expect(graceShift(true, { kind: "EXPENSE", installments: 36 })).toBe(1);
+    expect(graceShift(true, { kind: "EXPENSE", installments: 3 })).toBe(1);
+    expect(graceShift(true, { kind: "EXPENSE", installments: 2 })).toBe(0);
+    expect(graceShift(true, { kind: "TRANSFER", installments: 36 })).toBe(0);
+    expect(graceShift(false, { kind: "EXPENSE", installments: 36 })).toBe(0);
+  });
+
+  it("corte que factura cada cuota, con el corrimiento y el cambio de año", () => {
+    expect(installmentCut(20, "2026-10-31", 1)).toBe("2026-11-20");
+    expect(installmentCut(20, "2026-10-31", 2)).toBe("2026-12-20");
+    expect(installmentCut(20, "2026-10-31", 3)).toBe("2027-01-20");
+    expect(installmentCut(20, "2026-10-31", 1, 1)).toBe("2026-12-20");
+    expect(installmentCut(20, "2026-10-15", 1)).toBe("2026-10-20");
+    expect(installmentCut(31, "2026-11-10", 2)).toBe("2026-12-31");
+  });
+
+  it("sin cuota 0 la proyección cobra la cuota 1 de todas en el primer pago que las factura", () => {
+    const dic = app(compras, [], "2026-12").map((l) => `${l.key.split("#")[0]} ${l.no}`).sort();
+    expect(dic).toEqual(["airbnb 1", "cda 1", "viveros 1"]);
+  });
+
+  it("con cuota 0 las compras de 3 o más cuotas empiezan un pago después; las de 2 cuotas no", () => {
+    const dic = app(compras, [cuotaCero()], "2026-12");
+    expect(dic.map((l) => l.key.split("#")[0])).toEqual(["cda"]); // solo CDA (2 cuotas) cobra en el 5-dic
+    const ene = app(compras, [cuotaCero()], "2027-01");
+    expect(ene.map((l) => `${l.key.split("#")[0]} ${l.no}`).sort()).toEqual(["airbnb 1", "cda 2", "viveros 1"]);
+  });
+
+  it("el vencimiento del 5-dic coincide con la proyección de diciembre, con y sin cuota 0", () => {
+    // Sin cuota 0 y sin deuda anterior; con cuota 0 la tarjeta se registró con la compra del extracto como única deuda anterior
+    for (const items of [[], [cuotaCero()]]) {
+      const card = items.length ? bbva : { ...bbva, opening_balance: 0 };
+      const debt = items.length ? deuda(compras) : -compras.reduce((a, t) => a + t.amount, 0);
+      const total = projectCard(card, compras, "2026-11-25", 4, items).find((m) => m.month === "2026-12")!.total;
+      const d = cardDue(card, debt, compras, dec, items);
+      expect(Math.abs(d.due - total)).toBeLessThanOrEqual(2); // pesos sueltos de redondeo
+    }
+  });
+
+  it("con cuota 0, sin pagar nada, el 5-ene toca lo de diciembre más la cuota 1 de las compras en gracia", () => {
+    // Sin intereses para que la suma sea exacta: el vencimiento no arrastra los intereses de extractos anteriores
+    const card = { ...bbva, interest_rate_ea: 0 };
+    const items = [cuotaCero()];
+    const mes = (m: string) => projectCard(card, compras, "2026-11-25", 4, items).find((x) => x.month === m)!.total;
+    const d = cardDue(card, deuda(compras), compras, jan, items);
+    expect(Math.abs(d.due - (mes("2026-12") + mes("2027-01")))).toBeLessThanOrEqual(2);
+  });
+
+  it("una compra de 2 cuotas hecha después del corte no entra completa en el primer pago", () => {
+    const cda = [buy("cda", "2026-10-24", 247_590, 2)];
+    const d = cardDue({ ...bbva, interest_rate_ea: 0, opening_balance: 0 }, -247_590, cda, dec, []);
+    expect(d.due).toBe(123_795);
+    expect(d.laterCapital).toBe(123_795);
   });
 });
