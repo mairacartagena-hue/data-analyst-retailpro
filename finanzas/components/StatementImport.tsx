@@ -79,6 +79,8 @@ export function StatementImport({ account, month, onBalance, onStatus, carryOver
   const [reading, setReading] = useState(false);
   /** Movimientos leídos del PDF o la foto con la IA (solo tarjetas); reemplaza a las filas del CSV. */
   const [pdf, setPdf] = useState<CardLinesData | null>(null);
+  /** El PDF se leyó directo, sin IA (formato conocido). */
+  const [pdfLocal, setPdfLocal] = useState(false);
   /** Vínculos hechos a mano entre una línea del extracto y un movimiento de la app que no se unieron solos. Valen mientras el extracto está abierto. */
   const [links, setLinks] = useState<ManualLink[]>([]);
   /** Parejas que el cruce por valor unió con fechas muy distintas y la persona separó ("esta no es"). */
@@ -120,7 +122,8 @@ export function StatementImport({ account, month, onBalance, onStatus, carryOver
   // Las partidas del cierre anterior se muestran en su propia sección: aquí no deben salir otra vez
   const carryIds = new Set(carry.flatMap((c) => (c.item.transaction_id ? [c.item.transaction_id] : [])));
   // Las diferencias que esta pantalla registró (#diferencia) son parte del arreglo: no se muestran como "solo en la app"
-  const onlyInApp = (rec?.extra ?? []).filter((e) => !duplicateIds.has(e.tx.id) && !carryIds.has(e.tx.id) && !e.tx.tags.includes(DIFFERENCE_TAG));
+  // Extracto que solo trae los cobros del banco (Addi): las compras y pagos de la app no tienen con qué cruzarse, no "sobran"
+  const onlyInApp = pdf?.chargesOnly ? [] : (rec?.extra ?? []).filter((e) => !duplicateIds.has(e.tx.id) && !carryIds.has(e.tx.id) && !e.tx.tags.includes(DIFFERENCE_TAG));
   // Lo que falta y lo que sobra pero se parecen (mismo movimiento con otro valor): se proponen como pareja en vez de aparecer sueltos
   const pairs = rec ? valuePairs(rec.missing, onlyInApp, account, me.user_id, notPairs) : [];
   const pairedLines = new Set(pairs.map((p) => p.line.id));
@@ -191,9 +194,10 @@ export function StatementImport({ account, month, onBalance, onStatus, carryOver
       const payload = isPdf ? { data: await toBase64(file), mime: "application/pdf" } : await shrink(file, 2400);
       if (payload.data.length > 4_200_000) throw new Error("El archivo es muy pesado (máximo ~3 MB). Prueba con el Excel o CSV del banco.");
       const res = await fetch("/api/card-statement", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, today: todayBogota(), mode: "lines" }) });
-      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; result?: CardLinesData; error?: string };
+      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; result?: CardLinesData; error?: string; source?: string };
       if (!body.ok || !body.result) throw new Error(body.error ?? "No se pudo leer el extracto.");
       setPdf(body.result);
+      setPdfLocal(body.source === "local");
       setLinks([]);
       setApart([]);
       setNotPairs([]);
@@ -348,7 +352,8 @@ export function StatementImport({ account, month, onBalance, onStatus, carryOver
 
               {pdfRead && (
                 <div className="space-y-2 rounded-2xl border border-border bg-surface p-3 text-sm">
-                  <p className="font-semibold">Leído del PDF con IA</p>
+                  <p className="font-semibold">{pdfLocal ? "Leído directo del PDF (sin IA)" : "Leído del PDF con IA"}</p>
+                  {pdf?.note && <p className="text-xs text-muted">{pdf.note}</p>}
                   {pdfRead.totals.length > 0 ? (
                     <div className="space-y-1">
                       <p className="text-xs text-muted">Lo que sumé de los movimientos contra el resumen que imprime el extracto:</p>

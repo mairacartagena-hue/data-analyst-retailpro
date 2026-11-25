@@ -3,6 +3,10 @@ import type { PdfTextItem } from "@/lib/capture/pdf/rows";
 import { parseAddiCreditStatement, parseCop, parseLongDate } from "@/lib/capture/pdf/addiCredit";
 import { readLocalCreditStatement } from "@/lib/capture/creditStatementLocal";
 import { readLocalCardStatement } from "@/lib/capture/cardStatementLocal";
+import type { CardChargeLine } from "@/lib/capture/cardStatement";
+import { checkMonthlyCharges } from "@/lib/finance/cardStatements";
+import { parsedFromCardLines } from "@/lib/finance/cardLines";
+import type { Account, Transaction } from "@/lib/types";
 
 // Extracto sintético con la misma disposición del de Addi (posiciones en puntos como las entrega pdf.js: x a la izquierda,
 // y hacia arriba). Nombres, comercios, IDs y valores son inventados.
@@ -93,15 +97,57 @@ describe("lectura local del extracto de Addi", () => {
 });
 
 describe("el extracto de Addi en la revisión de tarjetas", () => {
-  it("lee la deuda (pago total), el pago mínimo y las fechas; avisa que no trae cuotas por compra ni movimientos", () => {
+  it("deuda (pago total), pago mínimo, fechas y el cobro del mes de cada compra", () => {
     const r = readLocalCardStatement(statement(), "2026-10-12");
     expect(r?.bank).toBe("Addi");
-    expect(r?.lines).toBeNull();
-    const { installmentsNote, ...rest } = r!.statement;
-    expect(rest).toEqual({
+    expect(r?.statement).toMatchObject({
       institution: "Addi", statementDate: "2026-10-10", dueDate: "2026-10-17", totalDebt: 1500000, totalPayment: 1500000,
-      minimumPayment: 170001, rateEa: 30, purchases: [], rawPurchases: 0,
+      minimumPayment: 170001, rateEa: 30, purchases: [],
+      chargeLines: [
+        { purchaseDate: "2026-10-05", description: "Tienda Inventada", capital: 50000, interest: 0, fees: 0 },
+        { purchaseDate: "2026-01-20", description: "Almacén de Prueba SAS", capital: 80000, interest: 30000, fees: 10000, rateEa: 30 },
+      ],
     });
-    expect(typeof installmentsNote).toBe("string");
+  });
+
+  it("movimientos: solo los cobros de Addi (intereses y fianza), con el período y cuadrando con el resumen", () => {
+    const lines = readLocalCardStatement(statement(), "2026-10-12")?.lines;
+    expect(lines).toMatchObject({
+      periodStart: "2026-09-18", periodEnd: "2026-10-17", totals: { interest: 30000, fees: 10000 }, chargesOnly: true,
+      lines: [
+        { date: "2026-10-10", description: "Intereses corrientes (Addi)", amount: 30000, kind: "INTEREST", credit: false },
+        { date: "2026-10-10", description: "Servicio de fianza (Addi)", amount: 10000, kind: "FEE", credit: false },
+      ],
+    });
+    expect(parsedFromCardLines(lines!).totals.every((t) => t.ok)).toBe(true);
+  });
+});
+
+describe("cobro del mes por compra contra la app (Addi)", () => {
+  const addi: Account = {
+    id: "addi", household_id: "h", owner_user_id: "u1", name: "Addi", kind: "CREDIT_CARD", institution: "Addi", last4: null,
+    visibility: "PRIVATE", reveal_in_shared: false, opening_balance: 0, opening_at: "2026-09-01T05:00:00+00:00",
+    credit_limit: null, statement_day: 10, due_day: 17, interest_rate_ea: 0, archived: false,
+  } as Account;
+  const tx = (over: Partial<Transaction>): Transaction => ({
+    id: "t1", kind: "EXPENSE", status: "CONFIRMED", occurred_on: "2026-10-05", amount: 150_000, description: "Tienda Inventada", merchant: null,
+    account_id: "addi", to_account_id: null, payer_user_id: "u1", counterparty_user_id: null, is_shared: false, scope: "PERSONAL",
+    creates_debt: true, source: "MANUAL", tags: [], created_by: "u1", created_at: "2026-10-05T12:00:00Z", installments: 3, splits: [], ...over,
+  } as Transaction);
+  const line = (over: Partial<CardChargeLine> = {}): CardChargeLine => ({ purchaseDate: "2026-10-05", description: "Tienda Inventada", capital: 50_000, interest: 0, fees: 0, ...over });
+
+  it("la compra de 3 cuotas sin intereses: la cuota 1 de $50.000 cuadra", () => {
+    const [c] = checkMonthlyCharges(addi, [tx({})], [line()], "2026-10-10");
+    expect(c).toMatchObject({ verdict: "OK", installment: 1, of: 3, appCharge: 50000, extractCharge: 50000 });
+  });
+
+  it("si la app tiene otro número de cuotas, la cuota no cuadra", () => {
+    const [c] = checkMonthlyCharges(addi, [tx({ installments: 2 })], [line()], "2026-10-10");
+    expect(c).toMatchObject({ verdict: "DIFFERS", appCharge: 75000 });
+  });
+
+  it("sin la compra en la app (otra fecha) queda como solo en el extracto", () => {
+    const [c] = checkMonthlyCharges(addi, [tx({ occurred_on: "2026-09-20" })], [line()], "2026-10-10");
+    expect(c.verdict).toBe("ONLY_EXTRACT");
   });
 });

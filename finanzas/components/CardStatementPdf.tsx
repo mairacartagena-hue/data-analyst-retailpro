@@ -10,7 +10,7 @@ import { ManualCrossCheck, StatementCrossCheck, StatementFields, emptyDraft, sta
 import { ReviewRow, type RowTone } from "@/components/ReviewRow";
 import type { Account } from "@/lib/types";
 import type { CardStatementData, CardStatementPurchase } from "@/lib/capture/cardStatement";
-import { checkInstallments, checkStatement, diffVerdict, installmentFix, knownItem, onlyExtractCandidates, purchaseLinkCandidates, registeredTx, type InstallmentCheck, type InstallmentDiff, type InstallmentFix, type InstallmentVerdict } from "@/lib/finance/cardStatements";
+import { checkInstallments, checkMonthlyCharges, checkStatement, diffVerdict, installmentFix, knownItem, onlyExtractCandidates, purchaseLinkCandidates, registeredTx, type ChargeCheck, type InstallmentCheck, type InstallmentDiff, type InstallmentFix, type InstallmentVerdict } from "@/lib/finance/cardStatements";
 import { editPayload } from "@/lib/finance/txEdit";
 import { installmentsOf, matchedWithItems } from "@/lib/finance/installments";
 import { openingDay } from "@/lib/finance/cardBudget";
@@ -29,6 +29,42 @@ const diffValue = (field: InstallmentDiff["field"], n: number) => (field === "ba
  * Si el cruce automático no unió una compra que sí es la misma (valor o fecha distintos), se vincula a mano desde aquí:
  * el vínculo vale mientras tengas el extracto abierto y deja ver en qué se diferencian.
  */
+/** Addi: lo que cobra este mes de cada compra contra la cuota que la app espera de esa compra. */
+function ChargeChecks({ checks }: { checks: ChargeCheck[] }) {
+  const { openTransaction } = useShell();
+  const ok = checks.filter((c) => c.verdict === "OK").length;
+  const needs = checks.length - ok;
+  const status = (c: ChargeCheck) =>
+    c.verdict === "OK" ? `Cuota ${c.installment} de ${c.of}: cuadra`
+    : c.verdict === "DIFFERS" ? `Cuota ${c.installment} de ${c.of}: la app espera ${formatCop(c.appCharge ?? 0)}`
+    : c.verdict === "NO_CHARGE" ? `En la app no le toca cuota en este corte (${c.of} cuota${c.of === 1 ? "" : "s"}): revisa el número de cuotas o la fecha`
+    : "No encontré la compra en la app (misma fecha)";
+  return (
+    <div className="space-y-1.5">
+      <p className="font-medium">Cuotas del mes: extracto vs. app</p>
+      <p className={cn("rounded-lg px-2 py-1", needs === 0 ? "bg-olive-soft" : "bg-warning-soft")}>
+        {needs === 0 ? `Las ${ok} cuota${ok === 1 ? "" : "s"} del mes cuadran con la app.` : `${needs} para revisar · ${ok} cuadra${ok === 1 ? "" : "n"}`}
+      </p>
+      <p className="text-muted">El extracto no trae el valor de cada compra ni su número de cuotas: se compara lo que cobra este mes (capital + intereses, sin fianza) con la cuota que la app espera de la compra del mismo día.</p>
+      <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-surface">
+        {checks.map((c, i) => (
+          <li key={`${c.line.purchaseDate}|${c.line.description}|${i}`} className="space-y-0.5 px-3 py-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="min-w-0 truncate font-medium">{formatDay(c.line.purchaseDate)} · {c.line.description}</span>
+              <span className="num shrink-0">{formatCop(c.extractCharge)}</span>
+            </div>
+            <p className={cn(c.verdict === "OK" ? "text-olive" : "text-warning")}>{status(c)}</p>
+            {c.line.fees > 0 && <p className="text-muted">Además cobra {formatCop(Math.round(c.line.fees))} de fianza y otros cargos (se revisan en Movimientos).</p>}
+            {c.tx && c.verdict !== "OK" && (
+              <Button size="sm" variant="ghost" onClick={() => openTransaction(c.tx)}>Abrir la compra de la app</Button>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function InstallmentChecks({ account, checks, fixing, onLink, onUnlink, onSeparate, onFix }: { account: Account; checks: InstallmentCheck[]; fixing: boolean; onLink: (index: number, txId: string) => void; onUnlink: (index: number) => void; onSeparate: (index: number, txId: string) => void; onFix: (fix: InstallmentFix) => void }) {
   const { openTransaction } = useShell();
   const { transactions, cardItems, me } = useFinance();
@@ -160,7 +196,11 @@ export function CardStatementPdf({ account, onBalance, onStatus, crossCheck = fa
     () => (crossCheck && read && extracted.length > 0 ? checkInstallments(account, transactions, cardItems, extracted, cutDate, links, apart) : []),
     [crossCheck, read, account, transactions, cardItems, extracted, cutDate, links, apart],
   );
-  const noPurchasesRead = crossCheck && !!read && extracted.length === 0 && !read.installmentsNote;
+  const chargeChecks = useMemo(
+    () => (crossCheck && read?.chargeLines?.length ? checkMonthlyCharges(account, transactions, read.chargeLines, cutDate) : null),
+    [crossCheck, read, account, transactions, cutDate],
+  );
+  const noPurchasesRead = crossCheck && !!read && extracted.length === 0 && !read.installmentsNote && !read.chargeLines?.length;
   // Resumen de la deuda en una línea (fila "Deuda"): se recalcula al corregir los valores
   const debtResult = useMemo((): { text: string; tone: RowTone } | null => {
     if (!read) return null;
@@ -252,6 +292,12 @@ export function CardStatementPdf({ account, onBalance, onStatus, crossCheck = fa
     const debtRow = busy && !read ? reading : failed ?? debtResult ?? { text: idleNote ?? "Sube el extracto o escribe los valores a mano", tone: "idle" as RowTone };
     const instRow = busy && !read ? reading : failed
       ?? (!read ? { text: idleNote ?? "Sube el extracto para comparar las compras a cuotas", tone: "idle" as RowTone }
+        : chargeChecks ? (() => {
+          const bad = chargeChecks.filter((c) => c.verdict !== "OK").length;
+          return bad === 0
+            ? { text: `Las ${chargeChecks.length} cuota${chargeChecks.length === 1 ? "" : "s"} del mes cuadran`, tone: "ok" as RowTone }
+            : { text: `${bad} por revisar · ${chargeChecks.length - bad} cuadra${chargeChecks.length - bad === 1 ? "" : "n"}`, tone: "warn" as RowTone };
+        })()
         : read.installmentsNote && extracted.length === 0 ? { text: "Este extracto no trae las cuotas por compra (toca para ver)", tone: "idle" as RowTone }
         : noPurchasesRead ? { text: "No pude leer las compras a cuotas (toca para volver a leer)", tone: "warn" as RowTone }
         : needs === 0 ? { text: `Las ${checks.length} compra${checks.length === 1 ? "" : "s"} a cuotas cuadran`, tone: "ok" as RowTone }
@@ -275,7 +321,8 @@ export function CardStatementPdf({ account, onBalance, onStatus, crossCheck = fa
           {err && !read && <><p className="text-danger">{err}</p>{retry}</>}
           {notice && <p className="text-olive">{notice}</p>}
           {err && read && <p className="text-danger">{err}</p>}
-          {read?.installmentsNote && extracted.length === 0 && <p className="text-muted">{read.installmentsNote}</p>}
+          {read?.installmentsNote && extracted.length === 0 && !chargeChecks && <p className="text-muted">{read.installmentsNote}</p>}
+          {chargeChecks && <ChargeChecks checks={chargeChecks} />}
           {noPurchasesRead && (
             <div className="space-y-1.5 rounded-xl bg-warning-soft px-3 py-2">
               <p className="font-medium">No pude leer ninguna compra a cuotas de este extracto.</p>

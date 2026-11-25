@@ -3,7 +3,7 @@
 //  · La deuda de la app al día del corte contra la deuda total del extracto.
 
 import type { Account, CardStatement, CardStatementItem, Transaction } from "@/lib/types";
-import type { CardStatementPurchase } from "@/lib/capture/cardStatement";
+import type { CardChargeLine, CardStatementPurchase } from "@/lib/capture/cardStatement";
 import { accountStatement } from "./reconcile";
 import { addDays } from "./periods";
 import { VALUE_ONLY_MIN, VALUE_WINDOW_DAYS, sameMerchant } from "./statement";
@@ -347,4 +347,47 @@ export function installmentFix(c: InstallmentCheck, account: Account, userId: st
   if (tx.created_by !== userId || tx.status !== "CONFIRMED" || tx.account_id !== account.id) return null;
   if (tx.kind !== "EXPENSE" && tx.kind !== "TRANSFER") return null;
   return { tx, from: d.app, to: d.extract };
+}
+
+// ───────────────────── Cobro del mes por compra (extractos sin plan de cuotas: Addi) ─────────────────────
+
+export interface ChargeCheck {
+  line: CardChargeLine;
+  /** La compra de la app con la que se cruzó (misma fecha ±1 día). */
+  tx?: Transaction;
+  /** Cuota que la app espera facturar en este corte y de cuántas. */
+  installment: number | null;
+  of: number | null;
+  /** Cuota del mes (capital + intereses) según la app, y según el extracto. */
+  appCharge: number | null;
+  extractCharge: number;
+  verdict: "OK" | "DIFFERS" | "ONLY_EXTRACT" | "NO_CHARGE";
+}
+
+/**
+ * El extracto de Addi no trae el valor de cada compra ni su número de cuotas, solo lo que cobra este mes de cada una. Se cruza cada
+ * cobro con la compra de la app del mismo día (±1; si hay varias, la del mismo comercio y luego la de cuota más parecida) y se compara
+ * la cuota (capital + intereses, sin fianza) que la app espera para este corte con la del extracto, con la tolerancia de siempre.
+ *  · NO_CHARGE: la compra está en la app pero, según la app, no le toca cuota en este corte (otro número de cuotas u otra fecha).
+ */
+export function checkMonthlyCharges(account: Account, txs: Transaction[], lines: CardChargeLine[], cutDate: string | null): ChargeCheck[] {
+  const cut = cutDate && /^\d{4}-\d{2}-\d{2}$/.test(cutDate) ? cutDate : null;
+  const mine = txs.filter((t) => t.account_id === account.id && (t.kind === "EXPENSE" || isCardAdvance(t)) && t.status !== "PENDING_REVIEW");
+  const used = new Set<string>();
+  const rank: Record<ChargeCheck["verdict"], number> = { DIFFERS: 0, ONLY_EXTRACT: 1, NO_CHARGE: 2, OK: 3 };
+  return lines.map((line): ChargeCheck => {
+    const extractCharge = Math.round(line.capital + line.interest);
+    const options = mine.filter((t) => !used.has(t.id) && daysApart(t.occurred_on, line.purchaseDate) <= 1).map((t) => {
+      const e = expectedForTx(t, account, cut);
+      const dist = e.charge === null ? Number.MAX_SAFE_INTEGER : Math.abs(e.charge - extractCharge);
+      return { t, e, dist, merchant: sameMerchant(line.description, `${t.merchant ?? ""} ${t.description ?? ""}`) };
+    });
+    options.sort((a, b) => Number(b.merchant) - Number(a.merchant) || a.dist - b.dist);
+    const best = options[0];
+    if (!best) return { line, installment: null, of: null, appCharge: null, extractCharge, verdict: "ONLY_EXTRACT" };
+    used.add(best.t.id);
+    const appCharge = best.e.charge === null ? null : Math.round(best.e.charge);
+    const verdict = appCharge === null ? "NO_CHARGE" : Math.abs(appCharge - extractCharge) <= chargeTolerance(extractCharge) ? "OK" : "DIFFERS";
+    return { line, tx: best.t, installment: best.e.current, of: best.e.n, appCharge, extractCharge, verdict };
+  }).sort((a, b) => rank[a.verdict] - rank[b.verdict]);
 }

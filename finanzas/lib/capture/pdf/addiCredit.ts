@@ -30,6 +30,8 @@ export interface AddiCreditRead {
   /** Para `sanitizeCreditStatement`. */
   statement: Record<string, unknown>;
   purchases: AddiPurchase[];
+  /** "Período facturado", si se pudo leer. */
+  period: { start: string; end: string } | null;
 }
 
 const MONTHS: Record<string, number> = {
@@ -119,6 +121,15 @@ export function parseAddiCreditStatement(items: PdfTextItem[]): AddiCreditRead |
   const dueLabel = find(all, /^fecha limite de pago$/);
   const dueDate = dueLabel ? parseLongDate(below(all, dueLabel, 35).map(text).join(" ")) : null;
 
+  // Período facturado: "23 de oct. de 2026 - 22 de nov. de 2026"
+  let period: AddiCreditRead["period"] = null;
+  for (const it of page1) {
+    const parts = text(it).split(/\s+-\s+/);
+    if (parts.length !== 2) continue;
+    const [start, end] = parts.map(parseLongDate);
+    if (start && end && start <= end) { period = { start, end }; break; }
+  }
+
   const minimum = amountBelow(all, /^tu pago minimo$/);
   const payoff = amountBelow(all, /^tu pago total al\b/);
   if (!statementDate || !dueDate || minimum === null) return null;
@@ -182,7 +193,7 @@ export function parseAddiCreditStatement(items: PdfTextItem[]): AddiCreditRead |
     amount_due: minimum,
     payoff_amount: payoff,
   };
-  return { statement, purchases };
+  return { statement, purchases, period };
 }
 
 /**
@@ -204,5 +215,37 @@ export function addiAsCardStatement(read: AddiCreditRead): Record<string, unknow
   };
 }
 
-export const ADDI_NO_INSTALLMENTS = "El extracto de Addi no trae el plan de cuotas de cada compra (cuántas cuotas ni cuánto queda por compra): revísalas en la app de Addi.";
-export const ADDI_NO_LINES = "El extracto de Addi no trae la lista de movimientos del mes (compras y pagos), solo el detalle del pago mínimo, así que no hay nada que cruzar. Revisa los movimientos en la app de Addi.";
+/** El cobro del mes de cada compra, para cruzarlo con la cuota que la app espera de esa compra (`checkMonthlyCharges`). */
+export const addiChargeLines = (read: AddiCreditRead) => read.purchases.map((p) => ({
+  purchaseDate: p.date, description: p.merchant, capital: p.capital, interest: p.interest,
+  fees: cents(p.fianza + p.lateInterest + p.collection), ...(p.rateEa > 0 ? { rateEa: p.rateEa } : {}),
+}));
+
+/**
+ * Movimientos del mes en el formato de `sanitizeCardLines`. El extracto de Addi no lista compras ni pagos: lo que sí factura y se
+ * puede cruzar con la app son los cobros de Addi (intereses corrientes y de mora, fianza, gastos de cobranza), con la fecha del extracto.
+ * Lo que cobra de capital de cada compra se revisa en las cuotas.
+ */
+export function addiAsCardLines(read: AddiCreditRead): Record<string, unknown> {
+  const s = read.statement;
+  const date = s.statement_date as string;
+  const sum = (f: (p: AddiPurchase) => number) => cents(read.purchases.reduce((a, p) => a + f(p), 0));
+  const interest = sum((p) => p.interest);
+  const late = sum((p) => p.lateInterest);
+  const fianza = sum((p) => p.fianza);
+  const collection = sum((p) => p.collection);
+  const lines = [
+    { description: "Intereses corrientes (Addi)", amount: interest, kind: "INTEREST" },
+    { description: "Intereses de mora (Addi)", amount: late, kind: "INTEREST" },
+    { description: "Servicio de fianza (Addi)", amount: fianza, kind: "FEE" },
+    { description: "Gastos de cobranza (Addi)", amount: collection, kind: "FEE" },
+  ].filter((l) => l.amount > 0).map((l) => ({ ...l, date, is_credit: false }));
+  return {
+    institution: "Addi",
+    ...(read.period ? { period_start: read.period.start, period_end: read.period.end } : {}),
+    printed_totals: { interest: cents(interest + late), fees: cents(fianza + collection) },
+    lines,
+  };
+}
+
+export const ADDI_LINES_NOTE = "El extracto de Addi no lista las compras ni los pagos del mes, solo lo que cobra: aquí se cruzan los intereses y la fianza. Lo que cobra de capital de cada compra se revisa en Cuotas.";
