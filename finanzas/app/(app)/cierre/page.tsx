@@ -13,6 +13,7 @@ import { ErrorText, Field, Input } from "@/components/ui/input";
 import { Sheet } from "@/components/ui/sheet";
 import { StatementImport } from "@/components/StatementImport";
 import { CardStatementPdf } from "@/components/CardStatementPdf";
+import { BankAppCheck } from "@/components/BankAppCheck";
 import { ManualCrossCheck } from "@/components/CardStatements";
 import { ReconcileStep } from "@/components/ReconcileStep";
 import { CreditPaymentAdjust } from "@/components/CreditPaymentAdjust";
@@ -192,6 +193,17 @@ function AccountClose({ account, month, open, onToggle }: { account: Account; mo
     setBank(rec ? String(Math.abs(rec.statement_balance)) : "");
   }, [rec, month]);
 
+  // Lo que se ve en la app del banco (otro dato y otra fecha que el extracto): se guarda aparte, con el mismo signo que el extracto
+  const [bankApp, setBankApp] = useState("");
+  const [bankAppDate, setBankAppDate] = useState(() => todayBogota());
+  useEffect(() => {
+    setBankApp(rec?.bank_balance != null ? String(Math.abs(rec.bank_balance)) : "");
+    setBankAppDate(rec?.bank_balance_at ? todayBogota(new Date(rec.bank_balance_at)) : todayBogota());
+  }, [rec, month]);
+  const bankAppValue = parseCop(bankApp);
+  const savedBankApp = rec?.bank_balance != null && bankAppValue !== null && Math.abs(rec.bank_balance) === bankAppValue
+    && !!rec.bank_balance_at && todayBogota(new Date(rec.bank_balance_at)) === bankAppDate;
+
   // En tarjetas se compara la deuda (positiva) con la del extracto
   const appValue = isDebt ? -st.closing : st.closing;
   const bankValue = parseCop(bank);
@@ -227,6 +239,27 @@ function AccountClose({ account, month, open, onToggle }: { account: Account; mo
     }, { onConflict: "account_id,month" });
   }
 
+  /**
+   * Guarda lo que se ve en la app del banco en el cierre. Va aparte del cierre: si todavía no se aplicó la migración 0061,
+   * el cierre igual queda guardado. Devuelve un aviso si no se pudo.
+   */
+  async function saveBankApp(): Promise<string | null> {
+    if (isCredit || bankAppValue === null) return null;
+    const { error } = await supabase.from("account_reconciliations")
+      .update({ bank_balance: isDebt ? -bankAppValue : bankAppValue, bank_balance_at: `${bankAppDate}T12:00:00-05:00` })
+      .eq("account_id", account.id).eq("month", monthKey);
+    return error ? `El cierre quedó guardado, pero no pude guardar lo que ves en la app del banco (${errMsg(error)}).` : null;
+  }
+
+  async function saveBankAppOnly() {
+    setBusy(true);
+    setError(null);
+    const warn = await saveBankApp();
+    setBusy(false);
+    if (warn) return setError(warn);
+    void reload();
+  }
+
   /** Deja lo que movió la cuenta como partidas conciliatorias: la conciliación sigue en el saldo del banco. */
   async function acceptItems() {
     if (!rec) return;
@@ -254,8 +287,10 @@ function AccountClose({ account, month, open, onToggle }: { account: Account; mo
     setBusy(true);
     setError(null);
     const { error } = await saveClose(rest === 0 ? "RECONCILED" : "DIFFERENCE", st.closing);
+    const warn = error ? null : await saveBankApp();
     setBusy(false);
     if (error) return setError(errMsg(error));
+    if (warn) setError(warn);
     void reload();
   }
 
@@ -279,6 +314,8 @@ function AccountClose({ account, month, open, onToggle }: { account: Account; mo
       // La app queda igual al banco más las partidas conciliatorias
       const r = await saveClose("RECONCILED", (isDebt ? -bankValue : bankValue) + pickedEffect);
       if (r.error) throw r.error;
+      const warn = await saveBankApp();
+      if (warn) setError(warn);
       void reload();
     } catch (e) {
       setError(errMsg(e));
@@ -399,6 +436,12 @@ function AccountClose({ account, month, open, onToggle }: { account: Account; mo
                 <dt className="font-semibold">Igual a la app</dt><dd className={cn("num text-right font-semibold", rest !== 0 && "text-warning")}>{formatCop((bankValue ?? 0) + (isDebt ? -pickedEffect : pickedEffect))}{rest === 0 ? " ✓" : ""}</dd>
               </dl>
             </Collapsible>
+          )}
+
+          {!isCredit && (
+            <BankAppCheck account={account} isDebt={isDebt} extractValue={bankValue} extractDate={cutDate ?? range.end}
+              value={bankApp} onValue={setBankApp} date={bankAppDate} onDate={setBankAppDate}
+              onSave={rec && bankAppValue !== null && !savedBankApp ? saveBankAppOnly : undefined} busy={busy} />
           )}
 
           {!isCredit && <div className="space-y-2">
