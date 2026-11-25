@@ -9,7 +9,8 @@ import { parseAmountCo } from "../normalize";
 export const googleWalletParser: BankParser = {
   id: "google-wallet",
   institution: "Google Wallet",
-  matches: (ev) => /wallet|billetera de google|walletnfcrel/i.test(ev.source),
+  // \s también cubre el espacio duro (U+00A0) con el que el celular escribe "Billetera de Google"
+  matches: (ev) => /wallet|billetera\s+de\s+google|walletnfcrel/i.test(ev.source),
   parse: (ev) => {
     const text = ev.text.replace(/\s+/g, " ").trim();
     const m = /(?:cop|\$)\s?([\d][\d.,]*\d)\s+con\s+.+?[•·*]+\s*(\d{4})\b/i.exec(text);

@@ -178,9 +178,12 @@ export function bogotaIso(y: number, m: number, d: number, h = 0, mi = 0, sec = 
 export function findDate(text: string, order: "DMY" | "MDY" = "DMY"): string | null {
   let m = /(\d{4})-(\d{2})-(\d{2})(?:\s+a las\s+|\s+|T)(\d{1,2}):(\d{2})/i.exec(text);
   if (m) return bogotaIso(+m[1], +m[2], +m[3], +m[4], +m[5]);
+  // Año/mes/día con barras ("2026/11/16 20:27:25", PSE y Bre-B): antes que día/mes/año, que leería "26/11/16"
+  m = /(?<!\d)(\d{4})\/(\d{1,2})\/(\d{1,2})(?:\s+a las)?\s+(\d{1,2}):(\d{2})(?::(\d{2}))?/i.exec(text);
+  if (m) return bogotaIso(+m[1], +m[2], +m[3], +m[4], +m[5], m[6] ? +m[6] : 0);
   m = /(\d{1,2}):(\d{2})\s+a las\s+(\d{1,2})\/(\d{1,2})\/(\d{2,4})/i.exec(text);
   if (m) return order === "DMY" ? bogotaIso(+m[5], +m[4], +m[3], +m[1], +m[2]) : bogotaIso(+m[5], +m[3], +m[4], +m[1], +m[2]);
-  m = /(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:\s+a las)?\s+(\d{1,2}):(\d{2})(?::(\d{2}))?/i.exec(text);
+  m = /(?<!\d)(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:\s+a las)?\s+(\d{1,2}):(\d{2})(?::(\d{2}))?/i.exec(text);
   if (m) {
     const [a, b] = order === "DMY" ? [+m[1], +m[2]] : [+m[2], +m[1]];
     return bogotaIso(+m[3], b, a, +m[4], +m[5], m[6] ? +m[6] : 0);

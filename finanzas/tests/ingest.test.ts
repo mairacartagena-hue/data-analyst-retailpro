@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  MAX_MERCHANT, cleanMerchant, detectIgnore, dropUnfilled, findDateEs, findAmount, findIdentifiers, findLast4, guessInstitution, maskSensitive, normalizeMerchant, parseAmountCo,
+  MAX_MERCHANT, cleanMerchant, detectIgnore, dropUnfilled, findDate, findDateEs, findAmount, findIdentifiers, findLast4, guessInstitution, maskSensitive, normalizeMerchant, parseAmountCo,
 } from "@/lib/ingest/normalize";
 import { parseWithRules } from "@/lib/ingest/registry";
 import type { RawEvent } from "@/lib/ingest/types";
@@ -129,5 +129,35 @@ describe("nombres de comercio desmedidos", () => {
 
   it("un nombre normal no cambia", () => {
     expect(cleanMerchant("Banco De Bogotá - Crédito Hipotecario")).toBe("Banco De Bogotá - Crédito Hipotecario");
+  });
+});
+
+describe("fecha año/mes/día con barras (PSE y Bre-B)", () => {
+  it("no confunde 2026/11/16 con día/mes/año (antes quedaba en 2016)", () => {
+    expect(findDate("Tu pago por PSE fue aprobado el 2026/11/16 20:27:25 por valor de $10,000.00 Banco de Bogota")).toBe("2026-11-17T01:27:25.000Z");
+    expect(findDate("Tu envío con llave fue exitoso 2026/11/20 16:14 NOMBRE APELLIDO recibió")).toBe("2026-11-20T21:14:00.000Z");
+  });
+
+  it("día/mes/año sigue igual", () => {
+    expect(findDate("el 22/10/2026 a las 14:10")).toBe("2026-10-22T19:10:00.000Z");
+    expect(findDate("el 10:07 a las 23/10/2026")).toBe("2026-10-23T15:07:00.000Z");
+  });
+});
+
+describe("Google Wallet con el espacio duro del celular", () => {
+  const NB = "Billetera de\u00A0Google";
+  const wallet = (text: string, title: string): RawEvent => ({ ...ev(text, NB), title });
+
+  it("lee el pago con reglas, sin Gemini", () => {
+    const a = parseWithRules(wallet("$ 137.700,00 con Tarjeta Nequi Visa ••6867", "AGROVENTAS NORTE"));
+    expect(a.parser).toBe("google-wallet");
+    expect(a.parsed).toMatchObject({ kind: "PURCHASE", amount: 137700, last4: "6867" });
+    const b = parseWithRules(wallet("COP 27,800.00 con Visa Platinum ••5367", "JUAN VALDEZ CHIPICHAPE"));
+    expect(b.parsed).toMatchObject({ kind: "PURCHASE", amount: 27800, last4: "5367" });
+  });
+
+  it("los avisos de la billetera que no son pagos se ignoran", () => {
+    expect(parseWithRules(wallet("Crea un número de tarjeta virtual para Visa ••6182 en unos pocos pasos", "Compra con más seguridad")).parsed?.kind).toBe("IGNORE");
+    expect(parseWithRules(wallet("Agregaremos la ubicación a tu recibo", "Preparando tu recibo")).parsed?.kind).toBe("IGNORE");
   });
 });

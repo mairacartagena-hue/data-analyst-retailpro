@@ -45,7 +45,8 @@ function toEvent(body: Record<string, unknown>): RawEvent | null {
   const received = str(body.received_at);
   return {
     channel,
-    source: dropUnfilled(str(body.app ?? body.package ?? body.sender ?? body.from, 200)),
+    // Espacios duros y dobles (ej. "Billetera de Google") se vuelven un espacio normal para que las reglas coincidan
+    source: dropUnfilled(str(body.app ?? body.package ?? body.sender ?? body.from, 200)).replace(/\s+/g, " ").trim(),
     title: dropUnfilled(str(body.title, 300)) || undefined,
     subject: str(body.subject, 300) || undefined,
     text,
