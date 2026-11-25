@@ -1,8 +1,8 @@
 // Compras y avances a cuotas con tarjeta de crédito (un avance es una transferencia que sale de la tarjeta:
 // no es gasto, así que no entra en presupuestos ni informes, pero sí en lo que toca pagar de la tarjeta).
 // - Presupuestos e informes: cada mes cuenta su cuota de capital (valor / cuotas), desde el mes de la compra.
-// - Intereses (estimados): como cobran las tarjetas en Colombia, capital fijo por cuota e intereses sobre el
-//   saldo que queda, con la tasa mensual equivalente a la efectiva anual de la tarjeta. A 1 cuota no hay intereses.
+// - Intereses (estimados): como cobran las tarjetas en Colombia, cuota fija (capital + intereses sobre el saldo
+//   que queda, con la tasa mensual equivalente a la efectiva anual de la tarjeta): ver `amortize`. A 1 cuota no hay intereses.
 // - Saldo Seguro y aviso de pago: se aparta lo que toca pagar en el periodo, no toda la deuda.
 
 import type { CardStatementItem, Transaction } from "@/lib/types";
@@ -84,16 +84,39 @@ export interface Installment {
   total: number;
 }
 
-/** Plan de pagos de una compra: capital fijo e intereses sobre el saldo pendiente. */
-export function installmentPlan(amount: number, n: number, date: string, eaPercent?: number | null): Installment[] {
-  const caps = splitEven(amount, n);
+/**
+ * Amortización de un saldo en `n` cuotas, como cobran las tarjetas en Colombia: cuota fija (sistema francés). Cada mes se paga el mismo valor
+ * (capital + intereses sobre el saldo, con la tasa mensual equivalente a la E.A.); el interés baja y por eso la parte de capital va subiendo.
+ * La última cuota absorbe el redondeo, así que el capital suma exactamente `balance`. Sin tasa (o a 1 cuota) no hay intereses y el capital
+ * se reparte parejo: el sobrante de pesos va en la primera cuota si `remainderFirst` y, si no, en la última.
+ * El banco calcula los intereses por días y no por meses completos: sus valores salen un poco distintos (menos de 1 % de la cuota).
+ */
+export function amortize(balance: number, n: number, eaPercent?: number | null, remainderFirst = false): { capital: number; interest: number }[] {
+  if (n < 1) return [];
   const rate = n > 1 ? monthlyRate(eaPercent) : 0;
-  let balance = amount;
-  return caps.map((capital, i) => {
-    const interest = Math.round(balance * rate);
-    balance -= capital;
-    return { no: i + 1, date: addMonthsIso(date, i), capital, interest, total: capital + interest };
+  if (rate === 0) {
+    if (remainderFirst) return splitEven(balance, n).map((capital) => ({ capital, interest: 0 }));
+    const part = Math.round(balance / n);
+    let left = balance;
+    return Array.from({ length: n }, (_, k) => {
+      const capital = k === n - 1 ? left : Math.min(left, part);
+      left -= capital;
+      return { capital, interest: 0 };
+    });
+  }
+  const pay = Math.round((balance * rate) / (1 - Math.pow(1 + rate, -n)));
+  let left = balance;
+  return Array.from({ length: n }, (_, k) => {
+    const interest = Math.round(left * rate);
+    const capital = k === n - 1 ? left : Math.max(0, Math.min(left, pay - interest));
+    left -= capital;
+    return { capital, interest };
   });
+}
+
+/** Plan de pagos de una compra: cuota fija, con la parte de capital y de intereses de cada una (ver `amortize`). */
+export function installmentPlan(amount: number, n: number, date: string, eaPercent?: number | null): Installment[] {
+  return amortize(amount, n, eaPercent, true).map(({ capital, interest }, i) => ({ no: i + 1, date: addMonthsIso(date, i), capital, interest, total: capital + interest }));
 }
 
 /**
@@ -273,7 +296,7 @@ export function cutsBetween(statementDay: number, after: string, upTo: string): 
 
 /**
  * Compras a cuotas del extracto (no son movimientos). Su saldo pendiente todavía no se factura: cada corte que pasa
- * factura una cuota (el saldo en partes iguales, con interés sobre lo que queda). `cuts` = cuántos cortes se
+ * factura una cuota (cuota fija sobre el saldo que queda y las cuotas que faltan: ver `amortize`). `cuts` = cuántos cortes se
  * facturan antes del pago que se está calculando. Devuelve el capital que sigue sin facturar y los intereses de esos cortes.
  */
 export function statementItemsAfter(items: CardStatementItem[], cuts: number | ((it: CardStatementItem) => number), fallbackRate?: number | null): { later: number; interest: number; capitalDue: number } {
@@ -284,14 +307,13 @@ export function statementItemsAfter(items: CardStatementItem[], cuts: number | (
     const n = typeof cuts === "function" ? cuts(it) : cuts;
     const left = it.installments - it.paid_installments;
     if (left <= 0 || it.remaining_balance <= 0) continue;
-    const r = monthlyRate(it.rate_ea ?? fallbackRate);
-    const part = Math.round(it.remaining_balance / left);
+    // Cuota fija sobre el saldo que el banco dice que queda, con las cuotas que faltan
     let bal = it.remaining_balance;
-    for (let k = 0; k < Math.min(n, left) && bal > 0; k++) {
-      const capital = k === left - 1 ? bal : Math.min(bal, part);
-      interest += Math.round(bal * r);
-      bal -= capital;
-      capitalDue += capital;
+    for (const c of amortize(it.remaining_balance, left, it.rate_ea ?? fallbackRate).slice(0, Math.max(0, n))) {
+      if (bal <= 0) break;
+      interest += c.interest;
+      bal -= c.capital;
+      capitalDue += c.capital;
     }
     later += bal;
   }
@@ -494,8 +516,7 @@ export function projectCard(
       add(c.date.slice(0, 7), c.capital, c.interest, seen, { key: t.id, label, no: c.no, of: n, source: "APP" });
     }
   }
-  // Compras del extracto (no son movimientos): el saldo que falta se reparte en partes iguales por cuota restante,
-  // con interés sobre el saldo. Con día de corte y de pago, la primera cuota que falta se factura en el primer corte
+  // Compras del extracto (no son movimientos): el saldo que falta se paga en cuota fija por cuota restante (`amortize`). Con día de corte y de pago, la primera cuota que falta se factura en el primer corte
   // después del extracto; sin ellos, empiezan el mes siguiente al de `from`.
   // Una compra que salió de un extracto posterior (as_of) se factura desde el corte siguiente a ese extracto.
   const dayAfter = (iso: string) => new Date(Date.parse(`${iso}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
@@ -508,13 +529,12 @@ export function projectCard(
     if (it.account_id !== card.id || payoffs.has(it.id)) continue;
     const left = it.installments - it.paid_installments;
     if (left <= 0 || it.remaining_balance <= 0) continue;
-    const r = monthlyRate(it.rate_ea ?? card.interest_rate_ea);
     let bal = it.remaining_balance;
     const seen = new Set<string>();
     const firstDue = firstDueOf(it);
+    const plan = amortize(it.remaining_balance, left, it.rate_ea ?? card.interest_rate_ea);
     for (let k = 0; k < left && bal > 0; k++) {
-      const capital = k === left - 1 ? bal : Math.min(bal, Math.round(it.remaining_balance / left));
-      const interest = Math.round(bal * r);
+      const { capital, interest } = plan[k];
       bal -= capital;
       const line = { key: it.id, label: it.description, no: it.paid_installments + k + 1, of: it.installments, source: "EXTRACT" as const };
       if (firstDue) add(addMonthsIso(firstDue, k).slice(0, 7), capital, interest, seen, line);

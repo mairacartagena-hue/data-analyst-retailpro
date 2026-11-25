@@ -258,11 +258,12 @@ export function TransactionSheet({
     const plan = installmentPlan(total, installmentCount, date, effectiveRate);
     const interest = plan.reduce((a, c) => a + c.interest, 0);
     const first = plan[0];
-    const base = isCardAdvance
-      ? `${installmentCount} cuotas de ${formatCop(plan[plan.length - 1]?.capital ?? 0)} de capital; un avance no cuenta en el presupuesto, solo en lo que toca pagar de la tarjeta.`
-      : `${installmentCount} cuotas de ${formatCop(plan[plan.length - 1]?.capital ?? 0)} de capital; en el presupuesto cuenta una por mes.`;
-    if (!effectiveRate) return `${base} Escribe la tasa de la tarjeta en Cuentas o la de ${isCardAdvance ? "este avance" : "esta compra"} para estimar los intereses.`;
-    return `${base} Primera cuota ≈ ${formatCop(first?.total ?? 0)} con intereses; intereses estimados en total ≈ ${formatCop(interest)} (${effectiveRate} % E.A.).`;
+    const tail = isCardAdvance ? "un avance no cuenta en el presupuesto, solo en lo que toca pagar de la tarjeta." : "en el presupuesto cuenta una por mes.";
+    if (!effectiveRate) {
+      return `${installmentCount} cuotas de ${formatCop(plan[plan.length - 1]?.capital ?? 0)} de capital; ${tail} Escribe la tasa de la tarjeta en Cuentas o la de ${isCardAdvance ? "este avance" : "esta compra"} para estimar los intereses.`;
+    }
+    // Cuota fija: cada mes se paga lo mismo (capital + intereses)
+    return `${installmentCount} cuotas fijas de ≈ ${formatCop(first?.total ?? 0)} con intereses; intereses estimados en total ≈ ${formatCop(interest)} (${effectiveRate} % E.A.); ${tail}`;
   })();
   const installmentsField = hasInstallments ? (
     <Field label={isCardAdvance ? "Cuotas del avance" : "Cuotas"} htmlFor="cuotas" hint={installmentHint}>

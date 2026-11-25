@@ -141,10 +141,10 @@ function expectedForTx(t: Transaction, account: Account, cut: string | null, gra
   if (!sd || !cut) return { n, current: null, balance: null, charge: null, listed: null };
   const listed = cutsBetween(sd, addDays(billingCut(sd, t.occurred_on), -1), cut);
   const current = Math.min(n, Math.max(0, listed - graceShift(grace, t)));
-  const flat = installmentPlan(t.amount, n, t.occurred_on, null);
-  // Cargo del mes = cuota (capital fijo) + intereses sobre el saldo, con la tasa de la compra o, si no, la de la tarjeta
+  // Cuota fija (capital + intereses) con la tasa de la compra o, si no, la de la tarjeta: el cargo del mes es la cuota y el saldo diferido
+  // lo que queda de capital después de ella
   const rated = installmentPlan(t.amount, n, t.occurred_on, rateOf(t, account));
-  const at = (k: number) => ({ balance: flat.slice(k).reduce((a, c) => a + c.capital, 0), charge: k >= 1 ? rated[k - 1]?.total ?? null : null });
+  const at = (k: number) => ({ balance: rated.slice(k).reduce((a, c) => a + c.capital, 0), charge: k >= 1 ? rated[k - 1]?.total ?? null : null });
   return { n, current, listed, ...at(current), at };
 }
 
@@ -177,7 +177,7 @@ function capitalOnlyCharge(p: ExtractPurchase, expectedCharge: number | null): b
  * Diferencias de una compra del extracto con lo que espera la app. Si el total de cuotas no coincide solo se informa eso: lo demás es consecuencia.
  * Del banco se perdonan dos costumbres que no son errores de la app: el periodo de gracia (planes de 3 o más cuotas que en el primer corte
  * traen "00 DE nn" y empiezan a cobrar capital en el siguiente) y el cargo con solo el capital (`capitalOnlyCharge`), cuyo saldo sigue la
- * amortización del banco y no la de cuota fija de la app: ahí el saldo solo se marca si queda por debajo de lo que la app ya habría amortizado
+ * amortización del banco (interés por días) y no la de cuota fija de la app: ahí el saldo solo se marca si queda por debajo de lo que la app ya habría amortizado
  * (cuotas de más pagadas) o por encima del valor de la compra.
  */
 function compareWith(p: ExtractPurchase, appInstallments: number, e: Expected, appAmount?: number, graceKnown = false): InstallmentDiff[] {
