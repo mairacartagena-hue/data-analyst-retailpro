@@ -49,6 +49,8 @@ export interface CardStatementData {
   installmentsNote?: string;
   /** Cobro del mes de cada compra a cuotas, cuando el extracto lo trae así (Addi). Se cruza con `checkMonthlyCharges`. */
   chargeLines?: CardChargeLine[];
+  /** La "deuda" del extracto es un pago total que incluye intereses, fianza y otros cargos además del capital (Addi): no se compara con la deuda de la app. */
+  debtIsPayoff?: boolean;
   /** Cuántas filas de compras devolvió la IA antes de validarlas (para distinguir "no vio ninguna" de "ninguna pasó la validación"). */
   rawPurchases?: number;
 }
