@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, FileUp, HelpCircle, History, Landmark, Link2, PlusCircle, Scale, Trash2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, FileUp, HelpCircle, History, Landmark, Link2, PlusCircle, RefreshCw, Scale, Trash2 } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { useShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
@@ -87,6 +87,8 @@ export function StatementImport({ account, month, onBalance, onStatus, carryOver
   const [notPairs, setNotPairs] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // El último archivo que se leyó aquí (aunque la lectura haya fallado): para volver a leerlo sin elegirlo otra vez
+  const [lastFile, setLastFile] = useState<File | null>(null);
 
   const pdfRead = useMemo(() => (pdf ? parsedFromCardLines(pdf) : null), [pdf]);
   const parsed = useMemo(() => (pdfRead ? pdfRead.parsed : rows === null ? null : parseStatementRows(rows, { map, flip, purchasesPositive, isCard, yearHint: Number(month.slice(0, 4)) })), [pdfRead, rows, map, flip, purchasesPositive, isCard, month]);
@@ -156,6 +158,7 @@ export function StatementImport({ account, month, onBalance, onStatus, carryOver
 
   async function pickFile(file: File | undefined, fromOtherStep = false) {
     if (!file) return;
+    setLastFile(file);
     setError(null);
     setNotice(null);
     const isDoc = file.type === "application/pdf" || file.type.startsWith("image/") || /\.(pdf|jpe?g|png|webp|heic|heif)$/i.test(file.name);
@@ -297,6 +300,15 @@ export function StatementImport({ account, month, onBalance, onStatus, carryOver
               <FileUp size={18} /> {reading ? "Leyendo el extracto…" : fileName || (isCard ? "Elegir el extracto (PDF, Excel o CSV)" : "Elegir el extracto (Excel o CSV)")}
               <input type="file" disabled={reading} accept={`.csv,.txt,.xlsx,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet${isCard ? ",application/pdf,.pdf,image/*" : ""}`} className="sr-only" onChange={(e) => { void pickFile(e.target.files?.[0]); e.target.value = ""; }} />
             </label>
+            {lastFile && (
+              <>
+                {/* Solo vuelve a leer los movimientos (no la deuda ni las cuotas): `fromOtherStep` evita avisar al otro paso */}
+                <Button type="button" variant="outline" size="sm" className="w-full" disabled={reading} onClick={() => void pickFile(lastFile, true)}>
+                  <RefreshCw size={16} className={reading ? "animate-spin" : undefined} /> {reading ? "Leyendo el extracto…" : "Volver a leer el extracto"}
+                </Button>
+                {(links.length > 0 || apart.length > 0) && <p className="text-xs text-muted">Al volver a leer se borran los cruces que hiciste a mano en esta revisión (lo que ya registraste se queda).</p>}
+              </>
+            )}
             <p className="text-xs text-muted">{isCard
               ? "El Excel o CSV se lee en tu celular y no se sube a ningún lado. El PDF o la foto del extracto sí se envía a la IA (Gemini) para leerlo y no se guarda; la lectura puede tardar hasta un minuto y a veces se equivoca, por eso se compara con los totales del extracto. "
               : "El archivo se lee en tu celular; no se sube a ningún lado. Descárgalo desde la página o app de tu banco (extracto en Excel .xlsx o CSV). "}Si trae varios meses, se compara solo {byCycle ? "el ciclo" : "el mes"} que estás cerrando.</p>
