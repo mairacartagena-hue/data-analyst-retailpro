@@ -146,3 +146,34 @@ export function sanitizeCardLines(raw: Record<string, unknown>, today: string): 
   for (const k of Object.keys(r) as (keyof CardLinesData)[]) if (r[k] === undefined) delete r[k];
   return r;
 }
+
+/**
+ * Lee los movimientos probando los modelos en orden y se queda con la primera lectura que SÍ trae movimientos: un modelo
+ * saturado o liviano a veces responde bien pero con la lista vacía. Si ninguno trae movimientos devuelve la primera lectura
+ * válida (vacía); si ninguna se pudo leer, relanza el último error. `read` recibe el modelo y los ms que quedan del presupuesto
+ * (Vercel corta a los 60 s); con menos de `minMs` no se prueba otro modelo.
+ */
+export async function firstReadWithLines(
+  models: string[],
+  read: (model: string, leftMs: number) => Promise<CardLinesData>,
+  budgetMs = 57_000,
+  minMs = 8_000,
+  now: () => number = Date.now,
+): Promise<CardLinesData> {
+  const started = now();
+  let empty: CardLinesData | null = null;
+  let lastError: unknown = null;
+  for (const model of models) {
+    const left = budgetMs - (now() - started);
+    if (left < minMs) break;
+    try {
+      const data = await read(model, left);
+      if (data.lines.length > 0) return data;
+      empty ??= data;
+    } catch (e) {
+      lastError = e;
+    }
+  }
+  if (empty) return empty;
+  throw lastError ?? new Error("No se pudo leer la lista de movimientos del extracto.");
+}

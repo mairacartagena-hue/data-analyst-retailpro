@@ -63,7 +63,15 @@ export function parsedFromCardLines(data: CardLinesData): CardLinesParsed {
     lines.push({ id: `P${i + 1}`, date: l.date, description: l.description, amount, exact: amount, balance: null, kind: lineKind(l, amount) });
   });
   const warnings: string[] = [];
-  if (lines.length === 0) warnings.push("No encontré movimientos en el extracto. Prueba con otra foto o usa el Excel o CSV del banco.");
+  if (lines.length === 0) {
+    // Decir POR QUÉ no hay movimientos: no es lo mismo que la IA devuelva la lista vacía, que no pudiera leer ninguno o que todo sean cuotas
+    const why = installmentLines.length > 0
+      ? `Todo lo que leí (${installmentLines.length}) son cuotas de compras diferidas: esas se revisan en la comparación de cuotas, no aquí. ¿El archivo trae el detalle de movimientos del periodo?`
+      : data.dropped > 0
+        ? `Leí ${data.dropped} filas pero sin una fecha o un valor que pudiera usar (revisa que las fechas sean del año del extracto).`
+        : "La lectura no devolvió ninguna fila: revisa que el archivo tenga el detalle de movimientos (no solo el resumen), que no esté protegido con contraseña y, si es foto, que se lea nítida.";
+    warnings.push(`No encontré movimientos en el extracto. ${why} Prueba con otro archivo, vuelve a intentarlo o usa el Excel o CSV del banco.`);
+  }
   const dates = data.lines.map((l) => l.date).sort();
   const period = data.periodStart && data.periodEnd ? { start: data.periodStart, end: data.periodEnd } : null;
   const parsed: ParsedStatement = {

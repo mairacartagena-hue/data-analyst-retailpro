@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sanitizeCardLines } from "@/lib/capture/cardStatement";
+import { firstReadWithLines, sanitizeCardLines, type CardLinesData } from "@/lib/capture/cardStatement";
 import { TOTALS_TOLERANCE, checkPrintedTotals, parsedFromCardLines } from "@/lib/finance/cardLines";
 import { cycleRange } from "@/lib/finance/reconcile";
 import { coveredRange, reconcileStatement } from "@/lib/finance/statement";
@@ -136,6 +136,74 @@ describe("parsedFromCardLines", () => {
     expect(e.parsed.lines).toEqual([]);
     expect(e.parsed.warnings[0]).toMatch(/No encontré movimientos/);
     expect(e.parsed.period).toBeNull();
+  });
+});
+
+describe("por qué no hay movimientos", () => {
+  it("la lectura vino vacía: lo dice y sugiere revisar el archivo", () => {
+    const w = parsedFromCardLines(sanitizeCardLines({ lines: [] }, TODAY)).parsed.warnings[0];
+    expect(w).toMatch(/^No encontré movimientos en el extracto\./);
+    expect(w).toMatch(/ninguna fila/);
+  });
+  it("filas sin fecha o valor legible: dice cuántas", () => {
+    const d = sanitizeCardLines({ lines: [{ date: "2019-01-05", description: "X", amount: 5000, kind: "PURCHASE" }, { date: "2026-11-05", description: "Y", amount: 0, kind: "PURCHASE" }] }, TODAY);
+    const w = parsedFromCardLines(d).parsed.warnings[0];
+    expect(w).toMatch(/Leí 2 filas pero sin una fecha o un valor/);
+  });
+  it("todo eran cuotas de compras diferidas: no es un error de lectura", () => {
+    const d = sanitizeCardLines({ lines: [{ date: "2026-11-05", description: "TV", amount: 100_000, kind: "PURCHASE", installment_no: 3 }] }, TODAY);
+    const out = parsedFromCardLines(d);
+    expect(out.parsed.lines).toEqual([]);
+    expect(out.parsed.warnings[0]).toMatch(/son cuotas de compras diferidas/);
+  });
+});
+
+describe("leer con el siguiente modelo si la lista viene vacía", () => {
+  const withLines = sanitizeCardLines(raw(), TODAY);
+  const empty = sanitizeCardLines({ lines: [] }, TODAY);
+  const run = (reads: Record<string, CardLinesData | Error>, models = Object.keys(reads), budget = 57_000, clock?: () => number) => {
+    const asked: string[] = [];
+    const p = firstReadWithLines(models, async (m) => {
+      asked.push(m);
+      const r = reads[m];
+      if (r instanceof Error) throw r;
+      return r;
+    }, budget, 8_000, clock);
+    return p.then((data) => ({ data, asked }));
+  };
+
+  it("el primero trae movimientos: no se pregunta más", async () => {
+    const { data, asked } = await run({ a: withLines, b: withLines });
+    expect(data.lines).toHaveLength(5);
+    expect(asked).toEqual(["a"]);
+  });
+  it("el primero responde vacío: se prueba el siguiente y se queda con el que trae movimientos", async () => {
+    const { data, asked } = await run({ a: empty, b: withLines, c: withLines });
+    expect(data.lines).toHaveLength(5);
+    expect(asked).toEqual(["a", "b"]);
+  });
+  it("uno falla (saturado) y el siguiente responde", async () => {
+    const { data, asked } = await run({ a: new Error("saturado"), b: withLines });
+    expect(data.lines).toHaveLength(5);
+    expect(asked).toEqual(["a", "b"]);
+  });
+  it("todos vacíos: devuelve la lectura vacía (con su aviso), no un error", async () => {
+    const { data } = await run({ a: empty, b: empty });
+    expect(data.lines).toEqual([]);
+  });
+  it("uno vacío y los demás fallan: devuelve la lectura vacía", async () => {
+    const { data } = await run({ a: empty, b: new Error("x") });
+    expect(data.lines).toEqual([]);
+  });
+  it("todos fallan: relanza el último error", async () => {
+    const err = await run({ a: new Error("uno"), b: new Error("dos") }).then(() => null, (e: Error) => e);
+    expect(err?.message).toBe("dos");
+  });
+  it("sin tiempo suficiente no prueba otro modelo", async () => {
+    let t = 0;
+    const clock = () => (t += 30_000); // cada consulta al reloj avanza 30 s
+    const { asked } = await run({ a: empty, b: withLines }, ["a", "b"], 57_000, clock);
+    expect(asked).toEqual(["a"]);
   });
 });
 

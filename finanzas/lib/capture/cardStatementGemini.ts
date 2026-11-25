@@ -2,8 +2,8 @@ import "server-only";
 
 // Gemini lee el extracto de una tarjeta de crédito (PDF o foto). El archivo no se guarda en ningún lado.
 
-import { sanitizeCardLines, sanitizeCardStatement, type CardLinesData, type CardStatementData } from "./cardStatement";
-import { geminiGenerate, geminiModels } from "@/lib/ai/geminiCall";
+import { firstReadWithLines, sanitizeCardLines, sanitizeCardStatement, type CardLinesData, type CardStatementData } from "./cardStatement";
+import { GeminiError, geminiGenerate, geminiModels } from "@/lib/ai/geminiCall";
 
 const DEFAULT_MODEL = "gemini-flash-latest";
 
@@ -114,14 +114,19 @@ No incluyas encabezados, subtotales, totales ni la tabla de "compras diferidas /
 /** Lee los movimientos del extracto. Tarda más que la lectura de totales (puede ser una lista larga), por eso tiene más tiempo. */
 export async function readCardStatementLines(file: { data: string; mime: string }, today: string): Promise<CardLinesData> {
   const models = geminiModels(process.env.GEMINI_ASSISTANT_MODEL || DEFAULT_MODEL, process.env.GEMINI_MODEL);
-  const out = await geminiGenerate(models, {
+  const body = {
     systemInstruction: { parts: [{ text: `${LINES_INSTRUCTIONS}\nHoy es ${today}.` }] },
     contents: [{ role: "user", parts: [{ inlineData: { mimeType: file.mime, data: file.data } }] }],
     generationConfig: { responseMimeType: "application/json", responseSchema: linesSchema, temperature: 0 },
-  }, { timeoutMs: 52_000, deadlineMs: 57_000 });
+  };
   try {
-    return sanitizeCardLines(JSON.parse(out) as Record<string, unknown>, today);
-  } catch {
+    // Un modelo que responde con la lista vacía no es la última palabra: se prueba el siguiente mientras alcance el tiempo
+    return await firstReadWithLines(models, async (model, left) => {
+      const out = await geminiGenerate([model], body, { timeoutMs: Math.min(52_000, left), deadlineMs: left });
+      return sanitizeCardLines(JSON.parse(out) as Record<string, unknown>, today);
+    });
+  } catch (e) {
+    if (e instanceof GeminiError) throw e;
     throw new Error("No se pudo leer la lista de movimientos del extracto (puede ser muy larga). Usa el Excel o CSV del banco.");
   }
 }
