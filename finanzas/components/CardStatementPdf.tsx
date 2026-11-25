@@ -9,7 +9,7 @@ import { LinkSelect } from "@/components/LinkSelect";
 import { ManualCrossCheck, StatementCrossCheck, StatementFields, emptyDraft, statementOf, type StatementDraft } from "@/components/CardStatements";
 import { ReviewRow, type RowTone } from "@/components/ReviewRow";
 import type { Account } from "@/lib/types";
-import type { CardStatementData, CardStatementPurchase } from "@/lib/capture/cardStatement";
+import { isPayoffIssuer, type CardStatementData, type CardStatementPurchase } from "@/lib/capture/cardStatement";
 import { checkInstallments, checkMonthlyCharges, checkStatement, diffVerdict, installmentFix, knownItem, onlyExtractCandidates, purchaseLinkCandidates, registeredTx, type ChargeCheck, type InstallmentCheck, type InstallmentDiff, type InstallmentFix, type InstallmentVerdict } from "@/lib/finance/cardStatements";
 import { editPayload } from "@/lib/finance/txEdit";
 import { installmentsOf, matchedWithItems } from "@/lib/finance/installments";
@@ -218,6 +218,8 @@ export function CardStatementPdf({ account, onBalance, onPayoff, onStatus, cross
   const lastFile = useRef<File | null>(null);
 
   const purchases = read?.purchases ?? [];
+  // Extracto con "pago total" y sin saldo de capital (Addi): lo dice la lectura local, o se reconoce por el nombre si la leyó la IA o es una foto
+  const payoff = !!read && (!!read.debtIsPayoff || isPayoffIssuer(read.institution, account.institution, account.name));
   const inCard = (p: CardStatementPurchase) => !!knownItem(p, cardItems, account.id);
   const inApp = (p: CardStatementPurchase) => {
     const t = registeredTx(p, transactions, account.id);
@@ -240,7 +242,7 @@ export function CardStatementPdf({ account, onBalance, onPayoff, onStatus, cross
   const debtResult = useMemo((): { text: string; tone: RowTone } | null => {
     if (!read) return null;
     // Addi no trae el saldo de capital y su "pago total" incluye intereses y cargos: no hay deuda con qué comparar la de la app aquí
-    if (read.debtIsPayoff) return { text: "Addi no trae el saldo de capital: compáralo abajo con tu app de Addi", tone: "idle" };
+    if (payoff) return { text: "Addi no trae el saldo de capital: compáralo abajo con tu app de Addi", tone: "idle" };
     const st = statementOf(account.id, draft);
     if (!st) return { text: "Falta la fecha de corte para compararla", tone: "warn" };
     const c = checkStatement(account, transactions, cardItems, st);
@@ -248,7 +250,7 @@ export function CardStatementPdf({ account, onBalance, onPayoff, onStatus, cross
     if (c.debtDiff !== null && !diffVerdict(c.debtDiff).ok) bad.push(`la deuda de la app es ${formatCop(Math.abs(c.debtDiff))} ${c.debtDiff > 0 ? "mayor" : "menor"}`);
     if (c.minimumDiff !== null && !diffVerdict(c.minimumDiff).ok) bad.push("la cuota del mes no coincide con el pago mínimo");
     if (bad.length > 0) return { text: bad.join(" · ").replace(/^./, (ch) => ch.toUpperCase()), tone: "warn" };
-    if (c.debtDiff === null) return { text: read.debtIsPayoff ? "Addi no trae el saldo de capital: escríbelo abajo para compararlo" : "El extracto no trae la deuda para comparar", tone: "idle" };
+    if (c.debtDiff === null) return { text: "El extracto no trae la deuda para comparar", tone: "idle" };
     return { text: "La deuda coincide con la app", tone: "ok" };
   }, [read, account, draft, transactions, cardItems]);
 
@@ -281,10 +283,11 @@ export function CardStatementPdf({ account, onBalance, onPayoff, onStatus, cross
       setRead(r);
       setExtracted(r.purchases);
       const s = (v?: number) => (v === undefined ? "" : String(v));
+      const isPayoff = !!r.debtIsPayoff || isPayoffIssuer(r.institution, account.institution, account.name);
       // El "pago total" de Addi trae intereses y cargos además del capital: no es la deuda con que se compara la de la app
-      setDraft({ cut: r.statementDate ?? "", due: r.dueDate ?? "", minimum: s(r.minimumPayment), total: s(r.totalPayment), debt: r.debtIsPayoff ? "" : s(r.totalDebt) });
-      if (r.totalDebt !== undefined && !r.debtIsPayoff) onBalance?.(r.totalDebt);
-      onPayoff?.(!!r.debtIsPayoff);
+      setDraft({ cut: r.statementDate ?? "", due: r.dueDate ?? "", minimum: s(r.minimumPayment), total: s(r.totalPayment), debt: isPayoff ? "" : s(r.totalDebt) });
+      if (r.totalDebt !== undefined && !isPayoff) onBalance?.(r.totalDebt);
+      onPayoff?.(isPayoff);
       onStatus?.(`Extracto leído${body.source === "local" ? " directo del PDF" : ""}: revisa el cruce de la deuda abajo`);
     } catch (e) {
       setErr(errMsg(e));
@@ -351,8 +354,8 @@ export function CardStatementPdf({ account, onBalance, onPayoff, onStatus, cross
           {read ? (
             <>
               <p className="text-muted">Esto es lo que leí del extracto; puedes corregirlo. No se guarda.</p>
-              <StatementFields value={draft} onChange={setDraft} capitalOnly={!!read.debtIsPayoff} />
-              {read.debtIsPayoff
+              <StatementFields value={draft} onChange={setDraft} capitalOnly={payoff} />
+              {payoff
                 ? <p className="text-muted">Addi no trae el saldo de capital, y su “pago total” incluye intereses, fianza y otros cargos: por eso no lo comparo con la deuda de la app. El saldo de capital lo escribes una sola vez, abajo, como lo ves en la app de Addi. Las cuotas de cada compra se revisan en “Cuotas”.</p>
                 : <StatementCrossCheck account={account} draft={draft} />}
             </>
@@ -417,8 +420,8 @@ export function CardStatementPdf({ account, onBalance, onPayoff, onStatus, cross
           {crossCheck && (
             <>
               <p className="font-medium">Lo que leí (puedes corregirlo; no se guarda):</p>
-              <StatementFields value={draft} onChange={setDraft} capitalOnly={!!read.debtIsPayoff} />
-              {!read.debtIsPayoff && <StatementCrossCheck account={account} draft={draft} />}
+              <StatementFields value={draft} onChange={setDraft} capitalOnly={payoff} />
+              {!payoff && <StatementCrossCheck account={account} draft={draft} />}
               {noPurchasesRead && (
                 <div className="space-y-1.5 rounded-xl bg-warning-soft px-3 py-2">
                   <p className="font-medium">No pude leer ninguna compra a cuotas de este extracto.</p>
@@ -437,7 +440,7 @@ export function CardStatementPdf({ account, onBalance, onPayoff, onStatus, cross
               )}
             </>
           )}
-          {onBalance && read.totalDebt !== undefined && !read.debtIsPayoff && <p className="text-muted">Ya puse la deuda abajo como deuda según tu extracto.</p>}
+          {onBalance && read.totalDebt !== undefined && !payoff && <p className="text-muted">Ya puse la deuda abajo como deuda según tu extracto.</p>}
           {purchases.length > 0 && (
             <div className="space-y-1.5">
               <p className="font-medium">
