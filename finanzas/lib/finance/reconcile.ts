@@ -30,6 +30,17 @@ export function shiftMonth(month: string, n: number): string {
   return new Date(Date.UTC(y, m - 1 + n, 1)).toISOString().slice(0, 7);
 }
 
+/**
+ * Ciclo de una tarjeta que corta el día `statementDay`: del día siguiente al corte del mes anterior hasta el corte de
+ * `month` (AAAA-MM). Es lo que trae el extracto de la tarjeta. Sin día de corte, o si corta el último día del mes,
+ * es el mes calendario.
+ */
+export function cycleRange(statementDay: number | null | undefined, month: string): MonthRange {
+  if (!statementDay) return monthRange(month);
+  const cutIn = (m: string) => `${m}-${String(Math.min(statementDay, Number(monthRange(m).end.slice(8)))).padStart(2, "0")}`;
+  return { month, start: addDays(cutIn(shiftMonth(month, -1)), 1), end: cutIn(month) };
+}
+
 /** Momento efectivo: la hora real si existe; si no, el final del día (hora de Bogotá). */
 export function effectiveAt(t: Pick<Transaction, "occurred_at" | "occurred_on">): number {
   return t.occurred_at ? Date.parse(t.occurred_at) : Date.parse(`${t.occurred_on}T23:59:59-05:00`);

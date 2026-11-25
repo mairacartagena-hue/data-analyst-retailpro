@@ -11,7 +11,8 @@ import { AmountInput } from "@/components/AmountInput";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/input";
 import type { Account, CardStatement } from "@/lib/types";
-import { checkStatement, squares } from "@/lib/finance/cardStatements";
+import { checkStatement, diffVerdict } from "@/lib/finance/cardStatements";
+import { formatDay } from "@/lib/finance/periods";
 import { formatCop, parseCop } from "@/lib/finance/money";
 import { cn } from "@/lib/utils";
 
@@ -50,10 +51,10 @@ export function StatementFields({ value, onChange }: { value: StatementDraft; on
 
 function Diff({ label, diff }: { label: string; diff: number | null }) {
   if (diff === null) return null;
-  const ok = squares(diff);
+  const v = diffVerdict(diff);
   return (
-    <p className={cn("rounded-lg px-2 py-1", ok ? "bg-olive-soft" : "bg-warning-soft")}>
-      {label}: {ok ? "cuadra" : diff > 0 ? `la app tiene ${formatCop(diff)} más` : `la app tiene ${formatCop(-diff)} menos`}
+    <p className={cn("rounded-lg px-2 py-1", v.ok ? "bg-olive-soft" : "bg-warning-soft")}>
+      {label}: {v.ok ? (v.rounding > 0 ? `cuadra (redondeo de ${formatCop(v.rounding)})` : "cuadra exacto") : diff > 0 ? `la app tiene ${formatCop(diff)} más` : `la app tiene ${formatCop(-diff)} menos`}
     </p>
   );
 }
@@ -70,7 +71,7 @@ export function StatementCrossCheck({ account, draft }: { account: Account; draf
         <dt className="text-muted">Pago mínimo</dt><dd className="num text-right">{st.minimum_payment !== null ? formatCop(st.minimum_payment) : "—"}</dd>
         <dt className="text-muted">Cuota según la app</dt><dd className="num text-right">{c.projected !== null ? formatCop(c.projected) : "falta la fecha de pago"}</dd>
         <dt className="text-muted">Deuda del extracto</dt><dd className="num text-right">{st.total_debt !== null ? formatCop(st.total_debt) : "—"}</dd>
-        <dt className="text-muted">Deuda según la app al corte</dt><dd className="num text-right">{formatCop(c.appDebt)}</dd>
+        <dt className="text-muted">Deuda según la app al corte ({formatDay(st.cut_date)})</dt><dd className="num text-right">{formatCop(c.appDebt)}</dd>
       </dl>
       <Diff label="Cuota del mes vs. pago mínimo" diff={c.minimumDiff} />
       <Diff label="Deuda vs. extracto" diff={c.debtDiff} />

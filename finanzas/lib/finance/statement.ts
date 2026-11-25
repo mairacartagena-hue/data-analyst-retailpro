@@ -4,7 +4,7 @@
 // Convención de signos: el monto de cada línea es su EFECTO sobre el saldo de la cuenta
 // (+ entra plata, − sale plata). En una tarjeta de crédito una compra sale (−): sube la deuda.
 
-import type { Account, Transaction } from "@/lib/types";
+import type { Account, ReconcilingItem, Transaction } from "@/lib/types";
 import { fold } from "@/lib/ingest/normalize";
 import { addDays } from "./periods";
 import { effectOn, gmfEstimate, type GmfMode, type MonthRange } from "./reconcile";
@@ -483,6 +483,58 @@ export function reconcileStatement(account: Account, txs: Transaction[], lines: 
     if (twin) duplicates.push({ entry, twin });
   }
   return { matched, missing, extra, duplicates, outOfRange: lines.length - inRange.length };
+}
+
+/**
+ * Fechas que realmente se pueden comparar: el rango pedido (el ciclo de la tarjeta) recortado a lo que cubre el archivo
+ * (el periodo que declara o, si no, de la primera a la última línea). Así un extracto por mes calendario no hace parecer
+ * "faltantes" las compras del ciclo que el archivo no trae. Si no se cruzan, queda el rango pedido.
+ */
+export function coveredRange(base: MonthRange, lines: Pick<StatementLine, "date">[], period: { start: string; end: string } | null): MonthRange {
+  const dates = lines.map((l) => l.date).sort();
+  const from = period?.start ?? dates[0];
+  const to = period?.end ?? dates[dates.length - 1];
+  if (!from || !to) return base;
+  const start = from > base.start ? from : base.start;
+  const end = to < base.end ? to : base.end;
+  return start <= end ? { ...base, start, end } : base;
+}
+
+// ───────────────────── Partidas del mes anterior ─────────────────────
+
+export type CarryStatus = "FOUND" | "NOT_FOUND" | "GONE" | "UNKNOWN";
+
+export interface CarryOver {
+  item: ReconcilingItem;
+  /**
+   * FOUND: ya está en este extracto · NOT_FOUND: debería estar y no apareció · GONE: el movimiento ya no existe en la app ·
+   * UNKNOWN: no se puede saber (sin extracto cargado, sin movimiento o fuera de las fechas que se comparan).
+   */
+  status: CarryStatus;
+  /** Línea del extracto con la que se cruzó (solo en FOUND). */
+  line?: StatementLine;
+}
+
+/**
+ * Las partidas conciliatorias de un cierre (movimientos que el banco todavía no había cobrado) deberían aparecer en el
+ * extracto siguiente. Con el cruce de ese extracto ya hecho, dice cuáles aparecieron y cuáles no.
+ */
+export function carryOverStatus(items: ReconcilingItem[], txs: Transaction[], rec: StatementReconciliation | null, range: MonthRange, tolerance = 3): CarryOver[] {
+  const lineOf = new Map<string, StatementLine>();
+  for (const m of rec?.matched ?? []) if (m.entry) lineOf.set(m.entry.tx.id, m.line);
+  const ids = new Set(txs.map((t) => t.id));
+  const lo = addDays(range.start, -tolerance);
+  const hi = addDays(range.end, tolerance);
+  // Sin líneas del extracto en las fechas comparadas no se puede decir que algo "no apareció"
+  const covered = !!rec && rec.matched.length + rec.missing.length > 0;
+  return items.map((item): CarryOver => {
+    if (!item.transaction_id) return { item, status: "UNKNOWN" };
+    if (!ids.has(item.transaction_id)) return { item, status: "GONE" };
+    const line = lineOf.get(item.transaction_id);
+    if (line) return { item, status: "FOUND", line };
+    if (!covered || !item.occurred_on || item.occurred_on < lo || item.occurred_on > hi) return { item, status: "UNKNOWN" };
+    return { item, status: "NOT_FOUND" };
+  });
 }
 
 // ───────────────────── 4x1000, intereses y gastos bancarios ─────────────────────

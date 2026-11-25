@@ -88,6 +88,12 @@ export interface Reconciliation {
   reconciled_at?: string | null;
   /** Movimientos posteriores aceptados como partidas conciliatorias. */
   reconciling_items?: ReconcilingItem[] | null;
+  /** Tarjetas: fecha de corte del extracto contra el que se concilió (el cierre es al fin de mes, el extracto trae otra fecha). */
+  cut_date?: string | null;
+  /** Lo que la persona veía en la app del banco al cerrar (mismo signo que statement_balance: en deudas, negativo). */
+  bank_balance?: number | null;
+  /** Momento en que miró la app del banco. */
+  bank_balance_at?: string | null;
 }
 
 export interface CustomPeriodRow {

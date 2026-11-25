@@ -109,7 +109,8 @@ async function loadAll(sb: SupabaseClient, userId: string): Promise<Loaded> {
         sb.from("cross_ledger").select("*").eq("household_id", hh).order("occurred_on", { ascending: false }).order("created_at", { ascending: false }).range(f, t),
       ),
       sb.from("manual_assets").select("*").eq("household_id", hh).order("created_at"),
-      sb.from("account_reconciliations").select("id, account_id, month, statement_balance, app_balance, difference, status, note, updated_at, reconciled_at, reconciling_items")
+      // "*" para que bank_balance y cut_date lleguen cuando ya existan las columnas (migraciones 0056 y 0061) sin romper antes
+      sb.from("account_reconciliations").select("*")
         .eq("owner_user_id", userId).order("month", { ascending: false }),
       sb.from("budget_plans").select("*").eq("household_id", hh).order("name"),
       sb.from("budget_plan_categories").select("plan_id, category_id, amount").eq("household_id", hh),
@@ -188,6 +189,7 @@ async function loadAll(sb: SupabaseClient, userId: string): Promise<Loaded> {
       statement_balance: Number(r.statement_balance),
       app_balance: Number(r.app_balance),
       difference: Number(r.difference),
+      bank_balance: r.bank_balance == null ? null : Number(r.bank_balance),
     })),
     customPeriods: (customPeriods.data ?? []) as CustomPeriodRow[],
     accounts: ((accounts.data ?? []) as Account[]).map((a) => ({
