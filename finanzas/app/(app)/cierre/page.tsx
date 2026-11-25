@@ -13,6 +13,7 @@ import { ErrorText, Field, Input } from "@/components/ui/input";
 import { Sheet } from "@/components/ui/sheet";
 import { StatementImport } from "@/components/StatementImport";
 import { CardReview } from "@/components/CardReview";
+import { isPayoffIssuer } from "@/lib/capture/cardStatement";
 import { BankAppCheck } from "@/components/BankAppCheck";
 import { ReconcileStep } from "@/components/ReconcileStep";
 import { CreditPaymentAdjust } from "@/components/CreditPaymentAdjust";
@@ -184,14 +185,17 @@ function AccountClose({ account, month, open, onToggle }: { account: Account; mo
   const [movesStatus, setMovesStatus] = useState<string | null>(null);
   // El extracto trae el "pago total" (con intereses y cargos) y no el saldo de capital (Addi): la deuda no se compara con él; el saldo que
   // se pide es el de capital que la persona ve en la app del banco, y se pide una sola vez (aquí).
-  const [payoffOnly, setPayoffOnly] = useState(false);
+  // Addi se reconoce por el nombre de la cuenta (sin subir nada); otro emisor, cuando el extracto leído resulta ser así
+  const payoffAccount = isPayoffIssuer(account.institution, account.name);
+  const [payoffRead, setPayoffRead] = useState(false);
+  const payoffOnly = payoffAccount || payoffRead;
   const payoffRef = useRef(false);
-  useEffect(() => { setMovesStatus(null); setPayoffOnly(false); payoffRef.current = false; }, [month]);
+  useEffect(() => { setMovesStatus(null); setPayoffRead(false); payoffRef.current = false; }, [month]);
   function onPayoff(v: boolean) {
-    // Al leer un extracto así, lo que hubiera en el campo (de un cierre anterior, o el pago total) no es el capital: se limpia una vez
-    if (v && !payoffRef.current) setBank("");
+    // Al leer un extracto así de una cuenta que no se conocía como tal, lo que hubiera en el campo no es el capital: se limpia una vez
+    if (v && !payoffRef.current && !payoffAccount) setBank("");
     payoffRef.current = v;
-    setPayoffOnly(v);
+    setPayoffRead(v);
   }
   const [fee, setFee] = useState<FeeKey | null>(null);
   const [error, setError] = useState<string | null>(null);

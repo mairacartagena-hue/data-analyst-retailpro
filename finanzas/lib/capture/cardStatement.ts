@@ -29,6 +29,14 @@ export interface CardChargeLine {
   rateEa?: number;
 }
 
+/**
+ * Emisores cuyo extracto trae el "pago total" (lo que se paga para saldar todo ese día) y no el saldo de capital: Addi.
+ * Se reconoce por el nombre aunque la lectura sea de la IA o una foto, para que la deuda de la app nunca se compare con ese pago total.
+ */
+export function isPayoffIssuer(...names: (string | null | undefined)[]): boolean {
+  return names.some((n) => /\baddi\b/i.test(n ?? ""));
+}
+
 export interface CardStatementData {
   institution?: string;
   last4?: string;

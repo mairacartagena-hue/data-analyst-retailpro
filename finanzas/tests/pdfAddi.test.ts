@@ -3,7 +3,7 @@ import type { PdfTextItem } from "@/lib/capture/pdf/rows";
 import { parseAddiCreditStatement, parseCop, parseLongDate } from "@/lib/capture/pdf/addiCredit";
 import { readLocalCreditStatement } from "@/lib/capture/creditStatementLocal";
 import { readLocalCardStatement } from "@/lib/capture/cardStatementLocal";
-import type { CardChargeLine } from "@/lib/capture/cardStatement";
+import { isPayoffIssuer, type CardChargeLine } from "@/lib/capture/cardStatement";
 import { checkMonthlyCharges } from "@/lib/finance/cardStatements";
 import { parsedFromCardLines } from "@/lib/finance/cardLines";
 import type { Account, CardStatementItem, Transaction } from "@/lib/types";
@@ -244,5 +244,19 @@ describe("cobro del mes por compra contra la app (Addi)", () => {
     const bad: CardStatementItem = { id: "linea", account_id: "addi", description: "Línea estética", purchase_date: "2026-10-15", amount: 90_000, installments: 3, paid_installments: 2, remaining_balance: 30_000, rate_ea: null };
     const [c] = checkMonthlyCharges(real, [], [bad], [{ purchaseDate: "2026-08-09", description: "Linea Estética", capital: 34_475, interest: 0, fees: 0 }], "2026-11-15");
     expect(c).toMatchObject({ verdict: "DIFFERS", appCharge: 30000, extractCharge: 34475 });
+  });
+});
+
+describe("emisores cuyo extracto trae el pago total y no el capital", () => {
+  it("Addi se reconoce por el nombre de la cuenta o de la lectura, aunque la lea la IA", () => {
+    expect(isPayoffIssuer(null, "Addi")).toBe(true);
+    expect(isPayoffIssuer("ADDI", "Mi tarjeta")).toBe(true);
+    expect(isPayoffIssuer(undefined, null, "Tarjeta Addi crédito")).toBe(true);
+  });
+
+  it("otros bancos no", () => {
+    expect(isPayoffIssuer("BBVA", "Visa")).toBe(false);
+    expect(isPayoffIssuer(null, undefined)).toBe(false);
+    expect(isPayoffIssuer("Daddio", "Paddington")).toBe(false);
   });
 });
