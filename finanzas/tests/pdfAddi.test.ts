@@ -4,7 +4,7 @@ import { parseAddiCreditStatement, parseCop, parseLongDate } from "@/lib/capture
 import { readLocalCreditStatement } from "@/lib/capture/creditStatementLocal";
 import { readLocalCardStatement } from "@/lib/capture/cardStatementLocal";
 import { isPayoffIssuer, type CardChargeLine } from "@/lib/capture/cardStatement";
-import { checkMonthlyCharges } from "@/lib/finance/cardStatements";
+import { checkMonthlyCharges, payoffExplained, squares } from "@/lib/finance/cardStatements";
 import { parsedFromCardLines } from "@/lib/finance/cardLines";
 import type { Account, CardStatementItem, Transaction } from "@/lib/types";
 
@@ -236,6 +236,57 @@ describe("cobro del mes por compra contra la app (Addi)", () => {
       const [c] = checkMonthlyCharges(real, [], [last], [lines[1]], "2026-11-15");
       expect(c.verdict).toBe("DIFFERS");
       expect(c.update).toMatchObject({ paid: 3, remaining: 0 });
+    });
+  });
+
+  describe("pago total del corte: las cuotas del mes de las compras viejas", () => {
+    const real: Account = { ...addi, statement_day: 15, due_day: 22, opening_balance: -1_885_015, opening_at: "2026-10-16T05:00:00+00:00" } as Account;
+    const item = (over: Partial<CardStatementItem>): CardStatementItem => ({
+      id: "x", account_id: "addi", description: "", purchase_date: "2026-10-15", amount: 0, installments: 3, paid_installments: 2, remaining_balance: 0, rate_ea: null, ...over,
+    });
+    const sofa = item({ id: "sofa", description: "Sofá", amount: 2_530_000, installments: 24, paid_installments: 7, remaining_balance: 1_829_240, rate_ea: 33 });
+    const linea = item({ id: "linea", description: "Línea estética", amount: 103_425, remaining_balance: 34_475 });
+    const feria = item({ id: "feria", description: "Feria del brasier", amount: 63_900, remaining_balance: 21_300, rate_ea: 0 });
+    const lines: CardChargeLine[] = [
+      { purchaseDate: "2026-11-03", description: "Línea Estética", capital: 68_433.34, interest: 0, fees: 0 },
+      { purchaseDate: "2026-08-19", description: "Feria del Brasier", capital: 21_300, interest: 0, fees: 0 },
+      { purchaseDate: "2026-08-09", description: "Linea Estética", capital: 34_475, interest: 0, fees: 0 },
+      { purchaseDate: "2026-01-29", description: "Muebles La Semana MS", capital: 95_091.25, interest: 43_992.37, fees: 13_759.01, rateEa: 33 },
+    ];
+    // Deuda de la app al corte (1.885.015 + la compra del 3 de noviembre + intereses y fianza ya registrados) y pago total del extracto
+    const APP_DEBT = 2_148_066;
+    const PAYOFF = 2_343_761.51;
+    const newPurchase = tx({ id: "nueva", occurred_on: "2026-11-03", amount: 205_300, description: "Línea Estética", account_id: "addi" });
+
+    it("suma las cuotas de Sofá, Línea y Feria; la compra nueva (ya en la deuda de la app) no entra", () => {
+      const checks = checkMonthlyCharges(real, [newPurchase], [sofa, linea, feria], lines, "2026-11-15");
+      const explained = payoffExplained(checks);
+      expect(explained.parts).toEqual([
+        { description: "Sofá", charge: 139_084 },
+        { description: "Línea estética", charge: 34_475 },
+        { description: "Feria del brasier", charge: 21_300 },
+      ]);
+      expect(explained.total).toBe(194_859);
+    });
+
+    it("con eso los 195.696 de diferencia cuadran: quedan $837, dentro de la tolerancia", () => {
+      const explained = payoffExplained(checkMonthlyCharges(real, [newPurchase], [sofa, linea, feria], lines, "2026-11-15"));
+      expect(squares(Math.round(APP_DEBT - PAYOFF))).toBe(false);
+      const left = Math.round(APP_DEBT + explained.total - PAYOFF);
+      expect(Math.abs(left)).toBe(837);
+      expect(squares(left)).toBe(true);
+    });
+
+    it("sirve igual con el proyectado ya actualizado (actualizar no cambia lo que cobra el extracto)", () => {
+      const updated = [{ ...sofa, paid_installments: 8, remaining_balance: 1_734_149, as_of: "2026-11-15" }, linea, feria];
+      const checks = checkMonthlyCharges(real, [newPurchase], updated, lines, "2026-11-15");
+      expect(checks.find((c) => c.item?.id === "sofa")?.verdict).toBe("UPDATED");
+      expect(payoffExplained(checks).total).toBe(194_859);
+    });
+
+    it("sin compras viejas en el extracto no hay nada que explicar", () => {
+      expect(payoffExplained(null)).toEqual({ total: 0, parts: [] });
+      expect(payoffExplained(checkMonthlyCharges(real, [newPurchase], [], [lines[0]], "2026-11-15")).total).toBe(0);
     });
   });
 
