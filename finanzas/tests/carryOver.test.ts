@@ -50,10 +50,13 @@ describe("partidas del mes anterior en el extracto siguiente", () => {
     line("L4", "2026-11-04", -50_000, "COMPRA NOV"),
   ];
 
-  it("con el mes calendario las compras de octubre del extracto de noviembre no se comparan (el hueco)", () => {
-    const rec = reconcileStatement(card, txs, lines, monthRange("2026-11"));
-    expect(rec.outOfRange).toBe(2);
-    expect(rec.matched).toHaveLength(1);
+  it("con el mes calendario lo de octubre pegado al día 1 cruza igual (borde) y lo más lejano no se compara (el hueco)", () => {
+    const lejos = line("L5", "2026-10-24", -9_300, "TIENDA D1");
+    const rec = reconcileStatement(card, txs, [...lines, lejos], monthRange("2026-11"));
+    expect(rec.matched.map((m) => m.line.id).sort()).toEqual(["L1", "L2", "L4"]);
+    expect(rec.matched.filter((m) => m.edge).map((m) => m.line.id).sort()).toEqual(["L1", "L2"]);
+    expect(rec.missing).toHaveLength(0);
+    expect(rec.outOfRange).toBe(1);
   });
 
   it("con el ciclo se comparan: dos aparecen y una no", () => {

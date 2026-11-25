@@ -372,14 +372,14 @@ export interface AppEntry {
 
 export interface StatementReconciliation {
   /** `entry` es null cuando el cobro es tan pequeño que no hace falta registrarlo (menos de la tolerancia). */
-  matched: { line: StatementLine; entry: AppEntry | null; /** Coincide con una diferencia pequeña (comisión de cambio en compras internacionales). */ approx?: boolean; /** La persona la vinculó a mano. */ manual?: boolean; /** Cruzada por valor idéntico con fechas muy distintas (app en un mes, extracto en otro): días de diferencia. */ dateGap?: number }[];
+  matched: { line: StatementLine; entry: AppEntry | null; /** Coincide con una diferencia pequeña (comisión de cambio en compras internacionales). */ approx?: boolean; /** La persona la vinculó a mano. */ manual?: boolean; /** Cruzada por valor idéntico con fechas muy distintas (app en un mes, extracto en otro): días de diferencia. */ dateGap?: number; /** La línea del extracto está fechada justo fuera del ciclo (el banco la facturó en este extracto): no cuenta entre las del ciclo. */ edge?: boolean }[];
   /** En el extracto y no en la app. */
   missing: StatementLine[];
   /** En la app y no en el extracto (del mes). */
   extra: AppEntry[];
   /** De las anteriores, las que parecen una copia de otra que sí aparece en el extracto. */
   duplicates: { entry: AppEntry; twin: AppEntry }[];
-  /** Líneas del extracto fuera del mes que se cierra (no se comparan). */
+  /** Líneas del extracto fuera del mes que se cierra y que no se usaron para cruzar (no se comparan). */
   outOfRange: number;
 }
 
@@ -429,6 +429,9 @@ export function reconcileStatement(account: Account, txs: Transaction[], lines: 
   const inRange = lines.filter((l) => l.date >= range.start && l.date <= range.end);
   const lo = addDays(range.start, -tolerance);
   const hi = addDays(range.end, tolerance);
+  // Líneas pegadas al ciclo (hasta `tolerance` días antes o después): lo comprado el día del corte puede facturarse en cualquiera de los
+  // dos extractos. Cruzan con lo de la app, pero si no tienen pareja no se reportan como faltantes (no son de este ciclo).
+  const edge = lines.filter((l) => !GROUPED.includes(l.kind) && ((l.date < range.start && l.date >= lo) || (l.date > range.end && l.date <= hi)));
   const entries: AppEntry[] = [];
   for (const tx of txs) {
     const amount = effectOn(account.id, tx);
@@ -458,7 +461,8 @@ export function reconcileStatement(account: Account, txs: Transaction[], lines: 
   }
 
   // 2) Líneas normales: primero monto exacto; luego con $1 de diferencia (el banco redondea los centavos)
-  const regular = inRange.filter((l) => !GROUPED.includes(l.kind));
+  const regular = [...inRange.filter((l) => !GROUPED.includes(l.kind)), ...edge];
+  const outside = (l: StatementLine) => l.date < range.start || l.date > range.end;
   const lineTaken = new Map<string, { entry: AppEntry; approx: boolean }>();
   const take = (line: StatementLine, entry: AppEntry, approx: boolean) => {
     lineTaken.set(line.id, { entry, approx });
@@ -520,8 +524,8 @@ export function reconcileStatement(account: Account, txs: Transaction[], lines: 
 
   for (const l of regular) {
     const t = lineTaken.get(l.id);
-    if (t) matched.push({ line: l, entry: t.entry, approx: t.approx || undefined, ...(gaps.has(l.id) ? { dateGap: gaps.get(l.id) } : {}) });
-    else missing.push(l);
+    if (t) matched.push({ line: l, entry: t.entry, approx: t.approx || undefined, ...(gaps.has(l.id) ? { dateGap: gaps.get(l.id) } : {}), ...(outside(l) ? { edge: true } : {}) });
+    else if (!outside(l)) missing.push(l);
   }
   missing.sort((a, b) => a.date.localeCompare(b.date));
 
@@ -532,7 +536,7 @@ export function reconcileStatement(account: Account, txs: Transaction[], lines: 
     const twin = matchedEntries.find((m) => m.amount === entry.amount && dayDiff(m.date, entry.date) <= tolerance);
     if (twin) duplicates.push({ entry, twin });
   }
-  return { matched, missing, extra, duplicates, outOfRange: lines.length - inRange.length };
+  return { matched, missing, extra, duplicates, outOfRange: lines.length - inRange.length - matched.filter((m) => m.edge).length };
 }
 
 // ───────────────────── Vínculos hechos a mano ─────────────────────

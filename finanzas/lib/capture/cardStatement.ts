@@ -116,6 +116,30 @@ export interface CardLinesData {
 const KINDS: CardLineKind[] = ["PURCHASE", "PAYMENT", "INTEREST", "FEE", "OTHER"];
 const MAX_LINES = 400;
 
+/** Monedas con las que el extracto repite el valor original de una compra en el exterior ("AIRBNB … COP", "… USD", "… MXN"). */
+const CURRENCY_NOTE = /\s+(?:COP|USD|MXN|EUR|GBP|CAD|BRL|PEN|CLP|ARS|JPY|CHF|AUD|CNY)$/i;
+const norm = (t: string) => t.replace(/\s+/g, " ").trim().toLowerCase();
+/** Mismo comercio: el extracto corta los nombres según la columna, así que la nota puede traer un tramo menos ("…CG USD" junto a "…CG2"). */
+const sameText = (a: string, b: string) => {
+  const x = norm(a);
+  const y = norm(b);
+  return x === y || (Math.min(x.length, y.length) >= 6 && (x.startsWith(y) || y.startsWith(x)));
+};
+
+/**
+ * Debajo de una compra en moneda extranjera (o en pesos con comercio del exterior) el extracto repite el valor en la moneda original:
+ * es una nota de la misma compra, no otro movimiento. Si se deja, la compra queda contada dos veces ("Faltan en la app: Registrar").
+ * Solo se descarta la línea que termina en un código de moneda y que tiene, el mismo día, la compra con el mismo comercio.
+ */
+export function dropCurrencyNotes(lines: CardStatementLine[]): CardStatementLine[] {
+  return lines.filter((l) => {
+    const m = CURRENCY_NOTE.exec(l.description);
+    if (!m) return true;
+    const base = l.description.slice(0, m.index);
+    return !lines.some((o) => o !== l && o.date === l.date && sameText(o.description, base));
+  });
+}
+
 export function sanitizeCardLines(raw: Record<string, unknown>, today: string): CardLinesData {
   const year = Number(today.slice(0, 4));
   const inRange = (d: string) => Math.abs(Number(d.slice(0, 4)) - year) <= 1;
@@ -148,6 +172,7 @@ export function sanitizeCardLines(raw: Record<string, unknown>, today: string): 
     const no = typeof it.installment_no === "number" ? Math.round(it.installment_no) : 0;
     r.lines.push({ date: d, description, amount, kind, credit, ...(no >= 1 && no <= 48 ? { installmentNo: no } : {}) });
   }
+  r.lines = dropCurrencyNotes(r.lines);
   if (items.length > MAX_LINES) r.dropped += items.length - MAX_LINES;
   for (const k of Object.keys(r) as (keyof CardLinesData)[]) if (r[k] === undefined) delete r[k];
   return r;

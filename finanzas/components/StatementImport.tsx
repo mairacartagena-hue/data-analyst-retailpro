@@ -83,6 +83,12 @@ export function StatementImport({ account, month, onBalance, onStatus, carryOver
   const accountTxs = useMemo(() => transactions.filter((t) => t.account_id === account.id || t.to_account_id === account.id), [transactions, account.id]);
   const manual = (rec?.matched ?? []).filter((m) => m.manual && m.entry);
   const byValue = (rec?.matched ?? []).filter((m) => m.dateGap !== undefined && !m.manual && m.entry);
+  // Líneas fechadas justo fuera del ciclo que el banco facturó en este extracto (se cruzaron con la app) y las que quedan sin comparar
+  const edgeMatched = (rec?.matched ?? []).filter((m) => m.edge).length;
+  const notCompared = useMemo(() => {
+    const used = new Set((rec?.matched ?? []).filter((m) => m.edge).map((m) => m.line.id));
+    return (parsed?.lines ?? []).filter((l) => (l.date < range.start || l.date > range.end) && !used.has(l.id)).sort((a, b) => a.date.localeCompare(b.date));
+  }, [parsed, rec, range.start, range.end]);
   const charges = useMemo(() => bankCharges(account, inMonth, uvt), [account, inMonth, uvt]);
   const closing = useMemo(() => (parsed ? closingBalance(parsed.raw.filter((l) => l.date >= range.start && l.date <= range.end)) : null), [parsed, range.start, range.end]);
   const inflow = inMonth.filter((l) => l.amount > 0).reduce((a, l) => a + l.amount, 0);
@@ -240,7 +246,17 @@ export function StatementImport({ account, month, onBalance, onStatus, carryOver
                 <p className="font-semibold">{inMonth.length} movimiento{inMonth.length === 1 ? "" : "s"} del {scope} en el extracto</p>
                 {byCycle && <p className="text-xs text-muted">Fechas que se comparan: {formatDay(range.start)} – {formatDay(range.end)} (ciclo de la tarjeta)</p>}
                 <p className="num text-muted">Entró {formatCop(inflow)} · Salió {formatCop(outflow)}</p>
-                {rec && rec.outOfRange > 0 && <p className="text-xs text-muted">{rec.outOfRange} línea{rec.outOfRange === 1 ? "" : "s"} de otros {byCycle ? "ciclos" : "meses"} no se comparan.</p>}
+                {rec && rec.outOfRange > 0 && (
+                  <details className="text-xs text-muted">
+                    <summary className="cursor-pointer">{rec.outOfRange} línea{rec.outOfRange === 1 ? "" : "s"} de otros {byCycle ? "ciclos" : "meses"} no se comparan (ver cuáles)</summary>
+                    <ul className="mt-1 space-y-0.5">
+                      {notCompared.slice(0, 40).map((l) => (
+                        <li key={l.id} className="flex justify-between gap-2"><span className="truncate">{formatDay(l.date)} · {(l.description || "Sin descripción").slice(0, 30)}</span><span className="num shrink-0">{signed(l.amount)}</span></li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+                {edgeMatched > 0 && <p className="text-xs text-muted">{edgeMatched} línea{edgeMatched === 1 ? "" : "s"} fechada{edgeMatched === 1 ? "" : "s"} justo fuera del ciclo (el banco {edgeMatched === 1 ? "la facturó" : "las facturó"} en este extracto) ya {edgeMatched === 1 ? "está" : "están"} en la app.</p>}
                 {parsed.skipped > 0 && <p className="text-xs text-muted">{parsed.skipped} fila{parsed.skipped === 1 ? "" : "s"} sin fecha o valor (títulos, totales) se ignoraron.</p>}
                 {closing !== null && (
                   <button className="mt-2 text-xs font-medium text-olive underline" onClick={() => { onBalance(Math.abs(closing)); setNotice(`Usé ${formatCop(Math.abs(closing))} como ${isCard ? "deuda" : "saldo"} del banco.`); }}>
@@ -256,9 +272,10 @@ export function StatementImport({ account, month, onBalance, onStatus, carryOver
                     <div className="space-y-1">
                       <p className="text-xs text-muted">Lo que sumé de los movimientos contra el resumen que imprime el extracto:</p>
                       {pdfRead.totals.map((t) => (
-                        <div key={t.key} className="flex items-center justify-between gap-2">
+                        <div key={t.key} className="flex flex-wrap items-center justify-between gap-2">
                           <span className={cn("flex items-center gap-1.5", !t.ok && "text-warning")}>{t.ok ? <CheckCircle2 size={14} className="text-olive" /> : <AlertTriangle size={14} />}{t.label}</span>
                           <span className="num text-right text-xs">{formatCop(t.read)} · extracto {formatCop(t.printed)}</span>
+                          {t.note && <span className="basis-full text-xs text-muted">{t.note}</span>}
                         </div>
                       ))}
                     </div>
@@ -308,8 +325,8 @@ export function StatementImport({ account, month, onBalance, onStatus, carryOver
 
           {rec && inMonth.length > 0 && (
             <>
-              <p className={cn("flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium", rec.matched.length === inMonth.length ? "bg-olive-soft" : "bg-surface-2")}>
-                <CheckCircle2 size={16} /> {rec.matched.length} de {inMonth.length} ya están en la app
+              <p className={cn("flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium", rec.matched.length === inMonth.length + edgeMatched ? "bg-olive-soft" : "bg-surface-2")}>
+                <CheckCircle2 size={16} /> {rec.matched.length} de {inMonth.length + edgeMatched} ya están en la app
               </p>
               {rec.matched.some((m) => m.approx) && (
                 <p className="px-1 text-xs text-muted">

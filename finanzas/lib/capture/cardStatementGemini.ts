@@ -109,7 +109,8 @@ const LINES_INSTRUCTIONS = `Lees el extracto o estado de cuenta de una tarjeta d
 - lines: UN movimiento por fila, en el orden del documento, todas las páginas. Para cada uno: date (AAAA-MM-DD; si el extracto trae solo día y mes, completa el año con el del periodo), description (comercio o concepto), amount (valor en pesos, SIEMPRE positivo; en una compra diferida es el VALOR ORIGINAL de la compra, no el cargo del mes ni el saldo), kind, is_credit, installment_no.
   kind: PURCHASE = compra o avance; PAYMENT = pago o abono que hizo el titular; INTEREST = intereses cobrados; FEE = cuota de manejo, comisión, seguro, IVA u otro cobro del banco; OTHER = ajustes y lo demás.
   is_credit: true si el movimiento BAJA la deuda (pagos, abonos, devoluciones, reversiones, notas crédito); false si la sube (compras, intereses, cobros).
-  installment_no: si la línea es la cuota de una compra diferida ("cuota 3 de 12", "3/12" → 3), ese número; si es una compra nueva o no es una cuota, null.
+  installment_no: si la línea es la cuota de una compra diferida ("cuota 3 de 12", "3/12" → 3), ese número; si es una compra nueva o no es una cuota, null. Los pagos y abonos nunca llevan installment_no (un número de referencia o de comprobante no es una cuota).
+Una compra en el exterior trae debajo una fila con el mismo comercio y el valor en la moneda original (COP, USD, MXN, EUR…, a menudo con asteriscos en las demás columnas): esa fila es una nota de la misma compra, NO es otro movimiento; no la incluyas.
 No incluyas encabezados, subtotales, totales ni la tabla de "compras diferidas / saldo pendiente" (solo los movimientos facturados). No agrupes ni resumas movimientos, no inventes. Los montos van en pesos como número: en Colombia "2.405.745,56" o "2,405,745.56" es 2405745.56.`;
 
 /** Lee los movimientos del extracto. Tarda más que la lectura de totales (puede ser una lista larga), por eso tiene más tiempo. */
