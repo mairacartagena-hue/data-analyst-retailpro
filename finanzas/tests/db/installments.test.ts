@@ -57,6 +57,22 @@ describe("cuotas de tarjeta de crédito", () => {
     await db.exec(`delete from transactions`);
   });
 
+  it("un avance (transferencia que sale de la tarjeta) guarda cuotas y tasa; los demás traslados no", async () => {
+    const transfer = (from: string, to: string, extra = {}) => ({ kind: "TRANSFER", amount: 600_000, occurred_on: "2026-10-15", account_id: from, to_account_id: to, description: "Avance", tags: [], ...extra });
+    const id = await rpc<string>(db, MAY, "save_transaction", transfer(card, savings, { installments: 6, interest_rate_ea: 33.5 }));
+    expect(await inst(id)).toBe(6);
+    expect(Number((await db.query<{ r: string | null }>(`select interest_rate_ea::text r from transactions where id = $1`, [id])).rows[0].r)).toBe(33.5);
+    // se puede cambiar el número de cuotas del avance
+    await rpc(db, MAY, "save_transaction", { ...transfer(card, savings, { installments: 3 }), id });
+    expect(await inst(id)).toBe(3);
+    // un pago a la tarjeta (sale de otra cuenta) o un avance sin cuotas quedan en 1 y sin tasa
+    expect(await inst(await rpc<string>(db, MAY, "save_transaction", transfer(savings, card, { installments: 6, interest_rate_ea: 33.5 })))).toBe(1);
+    const sinCuotas = await rpc<string>(db, MAY, "save_transaction", transfer(card, savings, { installments: 1, interest_rate_ea: 33.5 }));
+    expect(await inst(sinCuotas)).toBe(1);
+    expect((await db.query<{ r: string | null }>(`select interest_rate_ea::text r from transactions where id = $1`, [sinCuotas])).rows[0].r).toBeNull();
+    await db.exec(`delete from transactions`);
+  });
+
   it("la pareja ve el total de un presupuesto personal compartido repartido en cuotas", async () => {
     await as(db, MAY, `select public.save_category_limit($1::jsonb)`, [JSON.stringify({ category_id: ropa, scope: "PERSONAL", amount: 500_000, shared_with_partner: true })]).catch(async () => {
       // Si save_category_limit cambia de forma, se marca directo

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addMonthsIso, cardDue, expandInstallments, installmentPlan, monthlyRate, projectCard, rateOf, splitEven, statementsDueIn, cutsBetween, statementItemsAfter, matchedWithItems, billingDue } from "@/lib/finance/installments";
+import { addMonthsIso, cardDue, expandInstallments, installmentPlan, installmentsOf, isCardAdvance, monthlyRate, projectCard, rateOf, splitEven, statementsDueIn, cutsBetween, statementItemsAfter, matchedWithItems, billingDue } from "@/lib/finance/installments";
 import type { CardStatementItem } from "@/lib/types";
 import { spendingRows } from "@/lib/finance/spaces";
 import type { Transaction } from "@/lib/types";
@@ -326,5 +326,72 @@ describe("compras del extracto (no son movimientos)", () => {
   it("una compra ya pagada no aparece", () => {
     const rows = projectCard(card, [], "2026-10-26", 3, [item({ paid_installments: 36, remaining_balance: 0 })]);
     expect(rows.every((r) => r.total === 0)).toBe(true);
+  });
+});
+
+describe("avances de la tarjeta a cuotas", () => {
+  // Un avance es una transferencia que sale de la tarjeta hacia otra cuenta
+  const advance = (over: Partial<Transaction> = {}) => tx({
+    id: "av", kind: "TRANSFER", account_id: "visa", to_account_id: "ahorros", amount: 600_000, installments: 6, splits: [], description: "", occurred_on: "2026-10-15", ...over,
+  });
+  const card = { id: "visa", interest_rate_ea: 28 };
+  const oct = { start: "2026-10-01", end: "2026-10-31" };
+
+  it("una transferencia de la tarjeta con cuotas es un avance a cuotas; sin cuotas o de otro tipo, no", () => {
+    expect(installmentsOf(advance())).toBe(6);
+    expect(isCardAdvance(advance())).toBe(true);
+    expect(isCardAdvance(advance({ installments: 1 }))).toBe(false);
+    expect(installmentsOf(tx({ kind: "INCOME", installments: 6 }))).toBe(1);
+    expect(installmentsOf(advance({ installments: 99 }))).toBe(48);
+  });
+
+  it("no es consumo: no se reparte en presupuestos ni informes", () => {
+    const list = [advance()];
+    expect(expandInstallments(list)).toEqual(list);
+    expect(spendingRows(expandInstallments(list))).toHaveLength(0);
+  });
+
+  it("aparta la cuota del mes con sus intereses y no todo el avance", () => {
+    const d = cardDue(card, -600_000, [advance()], oct);
+    expect(d.debt).toBe(600_000);
+    expect(d.laterCapital).toBe(500_000);
+    expect(d.due).toBe(100_000 + Math.round(600_000 * monthlyRate(28)));
+  });
+
+  it("usa la tasa del avance y no la de la tarjeta", () => {
+    const d = cardDue(card, -600_000, [advance({ interest_rate_ea: 40 })], oct);
+    expect(d.interest).toBe(Math.round(600_000 * monthlyRate(40)));
+  });
+
+  it("con día de corte y de pago, el avance se trata como una compra a cuotas equivalente", () => {
+    const withDays = { id: "visa", interest_rate_ea: 28, statement_day: 20, due_day: 5 };
+    const asPurchase = (t: Transaction): Transaction => ({ ...t, kind: "EXPENSE", to_account_id: null });
+    // antes del corte del 20-sep: ya está facturado, toca lo mismo que una compra
+    const before = advance({ occurred_on: "2026-09-10" });
+    expect(cardDue(withDays, -600_000, [before], oct)).toEqual(cardDue(withDays, -600_000, [asPurchase(before)], oct));
+    expect(cardDue(withDays, -600_000, [before], oct).due).toBeLessThan(600_000);
+    // después del corte: va en el extracto siguiente, no en el que vence en octubre
+    const after = advance({ occurred_on: "2026-09-25" });
+    const d = cardDue(withDays, -600_000, [after], oct);
+    expect(d.due - d.interest).toBe(0);
+    expect(d).toEqual(cardDue(withDays, -600_000, [asPurchase(after)], oct));
+  });
+
+  it("sin cuotas el avance se comporta como antes (la deuda se considera ya facturada)", () => {
+    const withDays = { id: "visa", interest_rate_ea: 0, statement_day: 20, due_day: 5 };
+    expect(cardDue(withDays, -600_000, [advance({ occurred_on: "2026-09-25", installments: 1 })], oct).due).toBe(600_000);
+  });
+
+  it("la proyección reparte las cuotas del avance mes a mes y lo llama Avance", () => {
+    const p = projectCard({ id: "visa", interest_rate_ea: 0 }, [advance({ occurred_on: "2026-10-15" })], "2026-10-26", 6);
+    expect(p.map((m) => m.capital)).toEqual([100_000, 100_000, 100_000, 100_000, 100_000, 100_000]);
+    expect(p[1].lines[0].label).toBe("Avance");
+    expect(p[1].lines[0]).toMatchObject({ no: 2, of: 6 });
+  });
+
+  it("con día de corte y de pago el avance entra en el primer extracto que lo factura", () => {
+    const billing = { id: "visa", statement_day: 20, due_day: 5, opening_at: "2026-10-01T05:00:00+00:00", interest_rate_ea: 0 };
+    const p = projectCard(billing, [advance({ occurred_on: "2026-10-23", amount: 200_000, installments: 2 })], "2026-10-26", 4);
+    expect(p.map((m) => m.capital)).toEqual([0, 0, 100_000, 100_000]); // la primera cuota se paga el 5-dic (corte del 20-nov) y la segunda el 5-ene
   });
 });

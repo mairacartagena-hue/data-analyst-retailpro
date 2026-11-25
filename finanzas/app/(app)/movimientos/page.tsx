@@ -292,7 +292,7 @@ function TxRow({ tx, showDate = false }: { tx: Transaction; showDate?: boolean }
     // Para quien la recibe es una entrada; para quien la paga, una salida
     sign = tx.counterparty_user_id === me.user_id ? "+" : tx.payer_user_id === me.user_id ? "−" : "";
   }
-  if ((tx.installments ?? 1) > 1 && tx.kind === "EXPENSE") subtitle = `${subtitle} · ${tx.installments} cuotas`;
+  if ((tx.installments ?? 1) > 1 && (tx.kind === "EXPENSE" || tx.kind === "TRANSFER")) subtitle = `${subtitle} · ${tx.installments} cuotas`;
   if (showDate) subtitle = `${formatDay(tx.occurred_on)} · ${subtitle}`;
 
   return (

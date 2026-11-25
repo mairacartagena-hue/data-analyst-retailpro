@@ -1,4 +1,5 @@
-// Compras a cuotas con tarjeta de crédito.
+// Compras y avances a cuotas con tarjeta de crédito (un avance es una transferencia que sale de la tarjeta:
+// no es gasto, así que no entra en presupuestos ni informes, pero sí en lo que toca pagar de la tarjeta).
 // - Presupuestos e informes: cada mes cuenta su cuota de capital (valor / cuotas), desde el mes de la compra.
 // - Intereses (estimados): como cobran las tarjetas en Colombia, capital fijo por cuota e intereses sobre el
 //   saldo que queda, con la tasa mensual equivalente a la efectiva anual de la tarjeta. A 1 cuota no hay intereses.
@@ -10,10 +11,17 @@ import { legacySchedule } from "./cardBudget";
 
 export const MAX_INSTALLMENTS = 48;
 
+/**
+ * Cuotas de un movimiento de tarjeta: una compra (gasto) o un avance (transferencia que sale de la tarjeta).
+ * La base solo guarda cuotas en gastos y transferencias que salen de una tarjeta de crédito (migración 0060).
+ */
 export function installmentsOf(t: Pick<Transaction, "kind" | "installments">): number {
   const n = Math.round(Number(t.installments ?? 1));
-  return t.kind === "EXPENSE" && n > 1 ? Math.min(n, MAX_INSTALLMENTS) : 1;
+  return (t.kind === "EXPENSE" || t.kind === "TRANSFER") && n > 1 ? Math.min(n, MAX_INSTALLMENTS) : 1;
 }
+
+/** ¿Es un avance de la tarjeta diferido a cuotas? (transferencia que sale de la tarjeta con más de una cuota) */
+export const isCardAdvance = (t: Pick<Transaction, "kind" | "installments">) => t.kind === "TRANSFER" && installmentsOf(t) > 1;
 
 /** ¿Es un pago con puntos de una compra de la tarjeta? (ajuste que suma a la tarjeta con `pays_off_id`) */
 export const isPointsPayoff = (t: Pick<Transaction, "kind" | "direction" | "pays_off_id">) =>
@@ -97,7 +105,8 @@ export function expandInstallments(txs: Transaction[]): Transaction[] {
   const payoffs = payoffDates(txs);
   const points = pointsPayoffs(txs);
   for (const t of txs) {
-    const n = installmentsOf(t);
+    // Un avance a cuotas no es consumo: no se reparte en presupuestos ni informes
+    const n = t.kind === "EXPENSE" ? installmentsOf(t) : 1;
     if (n === 1) {
       out.push(t);
       continue;
@@ -298,7 +307,7 @@ export function cardDue(
   const lastCut = statements.reduce((acc, x) => (x.cut > acc ? x.cut : acc), "");
   const charges = txs
     // Una compra pagada en su totalidad ya no compone la deuda
-    .filter((t) => t.account_id === card.id && t.kind === "EXPENSE" && t.status !== "PENDING_REVIEW" && !payoffs.has(t.id))
+    .filter((t) => t.account_id === card.id && (t.kind === "EXPENSE" || isCardAdvance(t)) && t.status !== "PENDING_REVIEW" && !payoffs.has(t.id))
     .sort((a, b) => (a.occurred_on < b.occurred_on ? 1 : a.occurred_on > b.occurred_on ? -1 : 0));
   let remaining = debt;
   let billed = 0;
@@ -412,9 +421,9 @@ export function projectCard(
     if (t.account_id !== card.id || inExtract.has(t.id)) continue;
     const n = installmentsOf(t);
     const seen = new Set<string>();
-    const label = t.merchant || t.description || "Compra";
+    const label = t.merchant || t.description || (t.kind === "TRANSFER" ? "Avance" : "Compra");
     const paidOff = payoffs.get(t.id);
-    if (billing && t.kind === "EXPENSE" && t.status !== "PENDING_REVIEW" && t.occurred_on > billing.openingDay) {
+    if (billing && (t.kind === "EXPENSE" || isCardAdvance(t)) && t.status !== "PENDING_REVIEW" && t.occurred_on > billing.openingDay) {
       const due = billingDue(billing.cut, billing.due, t.occurred_on);
       for (const c of installmentPlan(t.amount, n, t.occurred_on, rateOf(t, card))) {
         const dueOn = addMonthsIso(due, c.no - 1);

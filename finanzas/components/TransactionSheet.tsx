@@ -245,18 +245,40 @@ export function TransactionSheet({
   // Compra con tarjeta de crédito: se puede diferir a cuotas (cada mes cuenta su cuota en el presupuesto)
   const payAccount = accounts.find((a) => a.id === accountId) ?? null;
   const isCardPurchase = kind === "EXPENSE" && payAccount?.kind === "CREDIT_CARD" && !partnerEdit;
+  // Avance: transferencia que sale de la tarjeta de crédito hacia otra cuenta mía; también se puede diferir a cuotas
+  const isCardAdvance = kind === "TRANSFER" && !toPartner && payAccount?.kind === "CREDIT_CARD" && !partnerEdit;
+  const hasInstallments = isCardPurchase || isCardAdvance;
   const installmentCount = Math.min(MAX_INSTALLMENTS, Math.max(1, Number.parseInt(installments, 10) || 1));
   const parsedPurchaseRate = purchaseRate.trim() ? Number(purchaseRate.replace(",", ".")) : null;
   const effectiveRate = rateOf({ interest_rate_ea: parsedPurchaseRate ?? null }, { interest_rate_ea: payAccount?.interest_rate_ea ?? null });
   const installmentHint = (() => {
-    if (!isCardPurchase || installmentCount <= 1) return "Cada mes cuenta su cuota en el presupuesto.";
+    if (!hasInstallments || installmentCount <= 1) {
+      return isCardAdvance ? "Un avance no es un gasto: no cuenta en el presupuesto. Si lo difieres, la tarjeta te cobra una cuota por mes." : "Cada mes cuenta su cuota en el presupuesto.";
+    }
     const plan = installmentPlan(total, installmentCount, date, effectiveRate);
     const interest = plan.reduce((a, c) => a + c.interest, 0);
     const first = plan[0];
-    const base = `${installmentCount} cuotas de ${formatCop(plan[plan.length - 1]?.capital ?? 0)} de capital; en el presupuesto cuenta una por mes.`;
-    if (!effectiveRate) return `${base} Escribe la tasa de la tarjeta en Cuentas o la de esta compra para estimar los intereses.`;
+    const base = isCardAdvance
+      ? `${installmentCount} cuotas de ${formatCop(plan[plan.length - 1]?.capital ?? 0)} de capital; un avance no cuenta en el presupuesto, solo en lo que toca pagar de la tarjeta.`
+      : `${installmentCount} cuotas de ${formatCop(plan[plan.length - 1]?.capital ?? 0)} de capital; en el presupuesto cuenta una por mes.`;
+    if (!effectiveRate) return `${base} Escribe la tasa de la tarjeta en Cuentas o la de ${isCardAdvance ? "este avance" : "esta compra"} para estimar los intereses.`;
     return `${base} Primera cuota ≈ ${formatCop(first?.total ?? 0)} con intereses; intereses estimados en total ≈ ${formatCop(interest)} (${effectiveRate} % E.A.).`;
   })();
+  const installmentsField = hasInstallments ? (
+    <Field label={isCardAdvance ? "Cuotas del avance" : "Cuotas"} htmlFor="cuotas" hint={installmentHint}>
+      <Select id="cuotas" value={String(installmentCount)} onChange={(e) => setInstallments(e.target.value)} aria-label="Número de cuotas">
+        {Array.from({ length: MAX_INSTALLMENTS }, (_, i) => i + 1).map((n) => (
+          <option key={n} value={n}>{n === 1 ? "1 cuota (sin cuotas)" : `${n} cuotas`}</option>
+        ))}
+      </Select>
+      {installmentCount > 1 && (
+        <div className="mt-2">
+          <Input inputMode="decimal" value={purchaseRate} placeholder={`Tasa E.A. ${isCardAdvance ? "de este avance" : "de esta compra"} (vacío = ${payAccount?.interest_rate_ea ?? "la de la tarjeta"})`}
+            onChange={(e) => setPurchaseRate(e.target.value.replace(/[^\d,.]/g, "").slice(0, 6))} aria-label={isCardAdvance ? "Tasa efectiva anual de este avance" : "Tasa efectiva anual de esta compra"} />
+        </div>
+      )}
+    </Field>
+  ) : null;
   const selectedCategory = usable.find((c) => c.id === categoryId) ?? null;
   const withSplits = hasSplits(kind);
   // Los comentarios van justo después de la categoría; sin categoría (transferencias, ajustes) quedan al final
@@ -486,8 +508,8 @@ export function TransactionSheet({
         account_id: accountId || null,
         to_account_id: kind === "TRANSFER" ? toAccountId : null,
         direction: kind === "ADJUSTMENT" ? direction : null,
-        installments: isCardPurchase ? installmentCount : 1,
-        interest_rate_ea: isCardPurchase && installmentCount > 1 ? parsedPurchaseRate : null,
+        installments: hasInstallments ? installmentCount : 1,
+        interest_rate_ea: hasInstallments && installmentCount > 1 ? parsedPurchaseRate : null,
         creates_debt: createsDebt,
         is_shared: kind === "INCOME" && scope === "HOUSEHOLD",
         income_category_id: kind === "INCOME" ? incomeCategoryId || null : null,
@@ -681,21 +703,7 @@ export function TransactionSheet({
             </Field>
           )}
 
-          {isCardPurchase && (
-            <Field label="Cuotas" htmlFor="cuotas" hint={installmentHint}>
-              <Select id="cuotas" value={String(installmentCount)} onChange={(e) => setInstallments(e.target.value)} aria-label="Número de cuotas">
-                {Array.from({ length: MAX_INSTALLMENTS }, (_, i) => i + 1).map((n) => (
-                  <option key={n} value={n}>{n === 1 ? "1 cuota (sin cuotas)" : `${n} cuotas`}</option>
-                ))}
-              </Select>
-              {installmentCount > 1 && (
-                <div className="mt-2">
-                  <Input inputMode="decimal" value={purchaseRate} placeholder={`Tasa E.A. de esta compra (vacío = ${payAccount?.interest_rate_ea ?? "la de la tarjeta"})`}
-                    onChange={(e) => setPurchaseRate(e.target.value.replace(/[^\d,.]/g, "").slice(0, 6))} aria-label="Tasa efectiva anual de esta compra" />
-                </div>
-              )}
-            </Field>
-          )}
+          {isCardPurchase && installmentsField}
 
           {kind === "TRANSFER" && !partnerEdit && (
             <Segmented value={toPartner ? "PARTNER" : "MINE"} onChange={(v) => { setToPartner(v === "PARTNER"); setToAccountId(""); }} options={[
@@ -710,6 +718,8 @@ export function TransactionSheet({
                 options={transferTargets.filter((a) => a.id !== accountId).map((a) => ({ value: a.id, label: accountLabel(labels, a.id) }))} />
             </Field>
           )}
+
+          {isCardAdvance && installmentsField}
 
           {kind === "TRANSFER" && toPartner && !partner && (
             <div className="space-y-2 rounded-2xl bg-wood-soft px-3 py-3 text-sm">
