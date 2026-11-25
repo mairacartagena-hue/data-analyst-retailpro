@@ -7,7 +7,7 @@ import type { CardStatementPurchase } from "@/lib/capture/cardStatement";
 import { accountStatement } from "./reconcile";
 import { addDays } from "./periods";
 import { VALUE_ONLY_MIN, VALUE_WINDOW_DAYS, sameMerchant } from "./statement";
-import { billingCut, cutsBetween, installmentPlan, installmentsOf, isCardAdvance, matchedWithItems, payoffDates, projectCard, rateOf, statementItemsAfter } from "./installments";
+import { billingCut, cutsBetween, graceShift, hasGrace, installmentPlan, installmentsOf, isCardAdvance, matchedWithItems, payoffDates, projectCard, rateOf, statementItemsAfter } from "./installments";
 
 /** Diferencias de hasta $1.000 se toman como iguales (redondeos e intereses de centavos). */
 export const STATEMENT_TOLERANCE = 1000;
@@ -130,17 +130,22 @@ interface Expected {
   at?: (k: number) => { balance: number | null; charge: number | null };
 }
 
-/** Cuota que se factura en el extracto que corta `cut` y saldo diferido que queda después, según el movimiento de la app. */
-function expectedForTx(t: Transaction, account: Account, cut: string | null): Expected & { n: number } {
+/**
+ * Cuota que se factura en el extracto que corta `cut` y saldo diferido que queda después, según el movimiento de la app.
+ * `grace`: la tarjeta da cuota 0 (ver `hasGrace`): una compra de 3 o más cuotas llega con 0 en su primer corte y la cuota 1 viene en el siguiente.
+ * `listed` = cortes que lleva la compra en extractos (con gracia, el primero ya la lista aunque su cuota sea la 0).
+ */
+function expectedForTx(t: Transaction, account: Account, cut: string | null, grace = false): Expected & { n: number; listed: number | null } {
   const n = installmentsOf(t);
   const sd = account.statement_day ?? null;
-  if (!sd || !cut) return { n, current: null, balance: null, charge: null };
-  const current = Math.min(n, cutsBetween(sd, addDays(billingCut(sd, t.occurred_on), -1), cut));
+  if (!sd || !cut) return { n, current: null, balance: null, charge: null, listed: null };
+  const listed = cutsBetween(sd, addDays(billingCut(sd, t.occurred_on), -1), cut);
+  const current = Math.min(n, Math.max(0, listed - graceShift(grace, t)));
   const flat = installmentPlan(t.amount, n, t.occurred_on, null);
   // Cargo del mes = cuota (capital fijo) + intereses sobre el saldo, con la tasa de la compra o, si no, la de la tarjeta
   const rated = installmentPlan(t.amount, n, t.occurred_on, rateOf(t, account));
   const at = (k: number) => ({ balance: flat.slice(k).reduce((a, c) => a + c.capital, 0), charge: k >= 1 ? rated[k - 1]?.total ?? null : null });
-  return { n, current, ...at(current), at };
+  return { n, current, listed, ...at(current), at };
 }
 
 /** Lo mismo para una compra del extracto que ya está guardada en la tarjeta: cada corte desde su extracto factura una cuota. */
@@ -175,7 +180,7 @@ function capitalOnlyCharge(p: ExtractPurchase, expectedCharge: number | null): b
  * amortización del banco y no la de cuota fija de la app: ahí el saldo solo se marca si queda por debajo de lo que la app ya habría amortizado
  * (cuotas de más pagadas) o por encima del valor de la compra.
  */
-function compareWith(p: ExtractPurchase, appInstallments: number, e: Expected, appAmount?: number): InstallmentDiff[] {
+function compareWith(p: ExtractPurchase, appInstallments: number, e: Expected, appAmount?: number, graceKnown = false): InstallmentDiff[] {
   if (appInstallments !== p.installments) return [{ field: "installments", app: appInstallments, extract: p.installments }];
   const diffs: InstallmentDiff[] = [];
   // Vinculada a mano con otro valor: el cargo y el saldo de la app salen de ese valor, así que serían consecuencia y no se comparan
@@ -184,8 +189,9 @@ function compareWith(p: ExtractPurchase, appInstallments: number, e: Expected, a
     if (e.current !== null && e.current !== p.paidInstallments) diffs.push({ field: "current", app: e.current, extract: p.paidInstallments });
     return diffs;
   }
-  // Periodo de gracia: la app ya factura la 1 y el banco trae la 0 → se espera lo que corresponde a la cuota 0 (saldo completo, sin cargo)
-  const grace = e.at !== undefined && p.installments >= 3 && p.paidInstallments === 0 && e.current === 1;
+  // Periodo de gracia: la app ya factura la 1 y el banco trae la 0 → se espera lo que corresponde a la cuota 0 (saldo completo, sin cargo).
+  // Si la tarjeta ya se sabe con gracia, `e` ya la trae contada y no se perdona nada más (dos cortes con 0 sí es un error)
+  const grace = !graceKnown && e.at !== undefined && p.installments >= 3 && p.paidInstallments === 0 && e.current === 1;
   const x: Expected = grace && e.at ? { current: 0, ...e.at(0) } : e;
   if (x.current !== null && x.current !== p.paidInstallments) diffs.push({ field: "current", app: x.current, extract: p.paidInstallments });
   // El cargo del mes solo se compara si es la misma cuota: con otra cuota la diferencia sería consecuencia, no un dato nuevo
@@ -218,6 +224,8 @@ export function checkInstallments(account: Account, txs: Transaction[], items: C
   const cut = cutDate && /^\d{4}-\d{2}-\d{2}$/.test(cutDate) ? cutDate : null;
   const mine = txs.filter((t) => t.account_id === account.id);
   const myItems = items.filter((i) => i.account_id === account.id);
+  // Tarjeta con cuota 0: las compras de 3 o más cuotas llegan con 0 en su primer extracto
+  const grace = hasGrace(account.id, myItems);
   const used = new Set<string>();
   const out: InstallmentCheck[] = [];
   // Movimientos que la persona vinculó a mano: ninguna otra compra se los lleva sola
@@ -230,8 +238,8 @@ export function checkInstallments(account: Account, txs: Transaction[], items: C
   const pending: number[] = [];
   const pair = (p: ExtractPurchase, index: number, tx: Transaction, how: { linked?: boolean; dateGap?: number }): InstallmentCheck => {
     used.add(tx.id);
-    const e = expectedForTx(tx, account, cut);
-    const diffs = compareWith(p, e.n, e, how.linked ? tx.amount : undefined);
+    const e = expectedForTx(tx, account, cut, grace);
+    const diffs = compareWith(p, e.n, e, how.linked ? tx.amount : undefined, graceShift(grace, tx) > 0);
     return { verdict: diffs.length ? "DIFFERS" : "OK", index, ...(how.linked ? { linked: true } : {}), ...(how.dateGap !== undefined ? { dateGap: how.dateGap } : {}), purchase: p, source: "APP", tx, diffs };
   };
 
@@ -285,9 +293,10 @@ export function checkInstallments(account: Account, txs: Transaction[], items: C
       if ((open && t.occurred_on <= open) || t.occurred_on > cut) continue;
       const paidOff = payoffs.get(t.id);
       if (paidOff && paidOff <= cut) continue;
-      const e = expectedForTx(t, account, cut);
-      // Aún no se factura, o ya es su última cuota (el extracto solo lista las que tienen saldo pendiente)
-      if (e.current === null || e.current < 1 || e.current >= e.n) continue;
+      const e = expectedForTx(t, account, cut, grace);
+      // Aún no se factura, o ya es su última cuota (el extracto solo lista las que tienen saldo pendiente).
+      // Con cuota 0 el extracto ya la lista desde el primer corte aunque todavía no cobre.
+      if (e.current === null || (e.listed ?? 0) < 1 || e.current >= e.n) continue;
       out.push({ verdict: "ONLY_APP", source: "APP", tx: t, diffs: [] });
     }
   }

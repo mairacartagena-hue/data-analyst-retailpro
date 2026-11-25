@@ -195,6 +195,33 @@ export function billingCut(statementDay: number, purchase: string): string {
   return cut;
 }
 
+/** Compras de este número de cuotas en adelante entran en la gracia (cuota 0) de los bancos que la dan. */
+export const GRACE_MIN_INSTALLMENTS = 3;
+
+/**
+ * ¿La tarjeta da cuota 0 (periodo de gracia)? Algunos bancos (BBVA) imprimen las compras de 3 o más cuotas con "00 de nn" en su primer
+ * extracto y empiezan a cobrar la cuota 1 en el corte siguiente. Se reconoce por las compras guardadas del extracto: una de 3 o más
+ * cuotas con 0 facturadas y saldo pendiente solo puede existir en una tarjeta con gracia (donde no la hay, ya viene en la cuota 1).
+ */
+export function hasGrace(accountId: string, items: CardStatementItem[]): boolean {
+  return items.some((i) => i.account_id === accountId && i.installments >= GRACE_MIN_INSTALLMENTS && i.paid_installments === 0 && i.remaining_balance > 0);
+}
+
+/** Cortes que se corre la primera cuota de una compra: 1 si es de 3 o más cuotas en una tarjeta con gracia (los avances no entran). */
+export function graceShift(grace: boolean, t: Pick<Transaction, "kind" | "installments">): number {
+  return grace && t.kind === "EXPENSE" && installmentsOf(t) >= GRACE_MIN_INSTALLMENTS ? 1 : 0;
+}
+
+/**
+ * Corte (AAAA-MM-DD) del extracto que factura la cuota `no` (la 1 es la primera) de una compra hecha el día `purchase`.
+ * `shift` corre la primera cuota esos cortes más allá del primero (la cuota 0 de la gracia: ver `graceShift`).
+ */
+export function installmentCut(statementDay: number, purchase: string, no: number, shift = 0): string {
+  const [y0, m0] = billingCut(statementDay, purchase).split("-").map(Number);
+  const k = m0 - 1 + (no - 1) + shift;
+  return dayOfMonth(y0 + Math.floor(k / 12), (k % 12) + 1, statementDay);
+}
+
 /**
  * Fechas de pago de la tarjeta que caen dentro del periodo y el corte del extracto que se paga ese día
  * (el último corte anterior a la fecha de pago). Ej.: corte el 20 y pago el 5 → el extracto del 20-sep se paga el 5-oct.
@@ -287,13 +314,30 @@ export function cardDue(
   const laterOf = new Map<string, number>(); // capital de cuotas que vencen después del periodo, por compra
   const payoffs = payoffDates(txs);
   const inExtract = matchedWithItems(txs.filter((t) => t.account_id === card.id), statementItems.filter((i) => i.account_id === card.id));
+  // Con día de corte y de pago, cada cuota se factura en un corte (como en la proyección): se debe en el pago de ese extracto, no por la
+  // fecha de la compra. Los extractos que se pagan en el periodo y su último corte salen de aquí.
+  const sd = card.statement_day;
+  const dd = card.due_day;
+  const statements = sd && dd ? statementsDueIn(sd, dd, period) : [];
+  const lastCut = statements.reduce((acc, x) => (x.cut > acc ? x.cut : acc), "");
+  const cutsInPeriod = new Set(statements.map((x) => x.cut));
+  const grace = hasGrace(card.id, statementItems);
   for (const t of txs) {
     if (t.account_id !== card.id || inExtract.has(t.id)) continue;
     const n = installmentsOf(t);
     if (n === 1) continue;
     let later = 0;
     const paidOff = payoffs.get(t.id);
+    const shift = graceShift(grace, t);
     for (const c of installmentPlan(t.amount, n, t.occurred_on, rateOf(t, card))) {
+      if (sd && dd) {
+        const cut = installmentCut(sd, t.occurred_on, c.no, shift);
+        // Ya pagada en su totalidad: las cuotas que se pagarían después del pago no se deben
+        if (paidOff && billingDue(sd, dd, cut) > paidOff) continue;
+        if (cut > lastCut) later += c.capital;
+        else if (cutsInPeriod.has(cut)) interest += c.interest;
+        continue;
+      }
       // Ya pagada en su totalidad: las cuotas posteriores al pago no se deben
       if (paidOff && c.date > paidOff) continue;
       if (c.date > period.end) later += c.capital;
@@ -305,7 +349,7 @@ export function cardDue(
 
   // Sin día de corte y de pago no se sabe qué extracto vence: se aparta la deuda menos las cuotas futuras
   const items = statementItems.filter((i) => i.account_id === card.id && !payoffs.has(i.id));
-  if (!card.statement_day || !card.due_day) {
+  if (!sd || !dd) {
     // Las compras a cuotas del extracto todavía no se facturan: su saldo no se paga ahora
     const later = laterCapital + statementItemsAfter(items, 0).later;
     const capitalNow = Math.max(0, debt - later);
@@ -314,8 +358,6 @@ export function cardDue(
 
   // Con ellos solo se aparta el extracto que vence en el periodo. La deuda actual se compone de las compras más
   // recientes (lo que se pagó cubre primero lo más viejo); las posteriores al corte van en extractos siguientes.
-  const statements = statementsDueIn(card.statement_day, card.due_day, period);
-  const lastCut = statements.reduce((acc, x) => (x.cut > acc ? x.cut : acc), "");
   const charges = txs
     // Una compra pagada en su totalidad ya no compone la deuda
     .filter((t) => t.account_id === card.id && (t.kind === "EXPENSE" || isCardAdvance(t)) && t.status !== "PENDING_REVIEW" && !payoffs.has(t.id))
@@ -337,7 +379,6 @@ export function cardDue(
   // Compras a cuotas del extracto: lo que sigue sin facturar no se paga en este extracto
   // (cada corte después de la apertura de la tarjeta factura una cuota).
   // Una compra que salió de un extracto posterior (as_of) empieza a contar cortes desde ese extracto
-  const sd = card.statement_day;
   const cuts = (it: CardStatementItem) => {
     const from = it.as_of ?? card.opening_at?.slice(0, 10);
     return lastCut && from ? cutsBetween(sd, from, lastCut) : 0;
@@ -414,6 +455,8 @@ export function projectCard(
     ? { cut: card.statement_day, due: card.due_day, openingDay: card.opening_at.slice(0, 10) }
     : null;
   const inExtract = matchedWithItems(txs.filter((t) => t.account_id === card.id), statementItems.filter((i) => i.account_id === card.id));
+  // Tarjeta con cuota 0: las compras de 3 o más cuotas empiezan a cobrar un corte después
+  const grace = hasGrace(card.id, statementItems);
   // Compras pagadas en su totalidad: sus cuotas posteriores al pago ya no se proyectan
   const payoffs = opts.ignorePayments ? new Map<string, string>() : payoffDates(txs);
   const add = (month: string, capital: number, interest: number, seen: Set<string>, line?: Omit<ProjectionLine, "capital" | "interest">) => {
@@ -436,8 +479,9 @@ export function projectCard(
     const paidOff = payoffs.get(t.id);
     if (billing && (t.kind === "EXPENSE" || isCardAdvance(t)) && t.status !== "PENDING_REVIEW" && t.occurred_on > billing.openingDay) {
       const due = billingDue(billing.cut, billing.due, t.occurred_on);
+      const shift = graceShift(grace, t);
       for (const c of installmentPlan(t.amount, n, t.occurred_on, rateOf(t, card))) {
-        const dueOn = addMonthsIso(due, c.no - 1);
+        const dueOn = addMonthsIso(due, c.no - 1 + shift);
         if (paidOff && dueOn > paidOff) continue;
         add(dueOn.slice(0, 7), c.capital, c.interest, seen, { key: t.id, label, no: c.no, of: n, source: "APP" });
       }
