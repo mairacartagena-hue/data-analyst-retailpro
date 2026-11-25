@@ -265,7 +265,7 @@ export function classifyLine(description: string, amount: number): LineKind {
   const f = fold(description);
   if (/4\s*x\s*1000|4\s*por\s*(?:mil|1000)|4\s*\*\s*1000|\bgmf\b|g\.m\.f|gravamen|impuesto(?:s)?\s+(?:al\s+)?gobierno|imp(?:to)?\.?\s+gobierno/.test(f)) return "GMF";
   if (/interes|rendimiento/.test(f) && !/retencion|retefuente|reteica/.test(f)) return amount > 0 ? "INTEREST_IN" : "INTEREST_OUT";
-  if (/cuota\s+(?:de\s+)?(?:manejo|administracion)|comision|\biva\b|seguro\s+(?:de\s+)?(?:vida|deudor|deudores|tarjeta|proteccion|cuota)|retencion\s+en\s+la\s+fuente|retefuente|reteica|servicio\s+financiero|costo\s+(?:de\s+)?(?:transferencia|transaccion)|tarifa|cobro\s+(?:por|servicio)|cargo\s+por/.test(f)) return "FEE";
+  if (/cuota\s+(?:de\s+)?(?:manejo|administracion)|comision|\biva\b|seguro\s+(?:de\s+)?(?:vida|deudor|deudores|tarjeta|proteccion|cuota)|cobro\s+prima|prima\s*:?\s*(?:de\s+)?(?:vida|seguro)|retencion\s+en\s+la\s+fuente|retefuente|reteica|servicio\s+financiero|costo\s+(?:de\s+)?(?:transferencia|transaccion)|tarifa|cobro\s+(?:por|servicio)|cargo\s+por/.test(f)) return "FEE";
   return "OTHER";
 }
 
@@ -731,4 +731,79 @@ export function registerPayload(line: StatementLine, ctx: RegisterContext) {
     kind: "EXPENSE", amount, occurred_on: line.date, description, account_id: ctx.accountId, tags: [tag],
     splits: [{ amount, category_id: categoryId, responsible_user_id: ctx.userId }],
   };
+}
+
+// ───────────────────── Parejas que solo difieren en el valor ─────────────────────
+
+/** Hasta qué tanto pueden diferir los valores de una pareja "extracto / app" (el avance con comisión, los puntos redimidos, la comisión de cambio). */
+export const PAIR_MAX_DIFF = 0.1;
+/** Días de diferencia para proponer una pareja de otro valor; con el mismo comercio se permite más. */
+export const PAIR_DAYS = 5;
+export const PAIR_DAYS_SAME_MERCHANT = 20;
+
+/**
+ * Una línea del extracto y un movimiento de la app que parecen ser lo mismo pero con otro valor. Es una propuesta: la persona decide
+ * si es la misma compra y qué hacer (corregir el valor de la app o registrar la diferencia).
+ */
+export interface ValuePair {
+  line: StatementLine;
+  entry: AppEntry;
+  /** Extracto − app, con el signo del efecto sobre la cuenta: negativo = el banco cobró más de lo que tiene la app (o abonó menos). */
+  diff: number;
+  /** El movimiento de la app es un gasto o ingreso simple, de esta persona: se le puede poner el valor del extracto sin tocar otra cuenta. */
+  editable: boolean;
+}
+
+export const pairKey = (line: Pick<StatementLine, "id">, tx: Pick<Transaction, "id">) => `${line.id}|${tx.id}`;
+
+/** Gasto o ingreso de esta cuenta, confirmado, de esta persona y sin cuotas: cambiarle el valor no mueve ninguna otra cuenta. */
+export function canSetAmount(account: Account, tx: Transaction, userId: string): boolean {
+  return tx.created_by === userId && tx.status === "CONFIRMED" && (tx.kind === "EXPENSE" || tx.kind === "INCOME")
+    && tx.account_id === account.id && !tx.to_account_id && (tx.installments ?? 1) <= 1;
+}
+
+/**
+ * Propone parejas entre lo que falta en la app y lo que está solo en la app cuando se parecen pero el valor no es igual:
+ * mismo sentido (entra o sale), valores a menos de `PAIR_MAX_DIFF`, fechas cercanas (o el mismo comercio) y, bajo `VALUE_ONLY_MIN`,
+ * el mismo comercio. Una a una: cada línea y cada movimiento salen en una sola pareja, las más parecidas primero.
+ * Solo líneas sin clasificar (los cobros del banco se registran aparte). `skip` son las que la persona descartó ("no es").
+ */
+export function valuePairs(missing: StatementLine[], onlyInApp: AppEntry[], account: Account, userId: string, skip: string[] = []): ValuePair[] {
+  const skipped = new Set(skip);
+  const found: { line: StatementLine; entry: AppEntry; same: boolean; rel: number; gap: number }[] = [];
+  for (const line of missing) {
+    if (!linkable(line) || line.kind !== "OTHER" || line.amount === 0) continue;
+    for (const entry of onlyInApp) {
+      if (Math.sign(entry.amount) !== Math.sign(line.amount) || entry.amount === line.amount || skipped.has(pairKey(line, entry.tx))) continue;
+      const big = Math.max(Math.abs(line.amount), Math.abs(entry.amount));
+      const rel = Math.abs(Math.abs(line.amount) - Math.abs(entry.amount)) / big;
+      if (rel > PAIR_MAX_DIFF) continue;
+      const same = sameMerchant(line.description, entryText(entry));
+      const gap = dayDiff(line.date, entry.date);
+      if (big < VALUE_ONLY_MIN && !same) continue;
+      if (gap > (same ? PAIR_DAYS_SAME_MERCHANT : PAIR_DAYS)) continue;
+      found.push({ line, entry, same, rel, gap });
+    }
+  }
+  found.sort((a, b) => Number(b.same) - Number(a.same) || a.rel - b.rel || a.gap - b.gap || a.line.date.localeCompare(b.line.date) || a.line.id.localeCompare(b.line.id, "en", { numeric: true }));
+  const lines = new Set<string>();
+  const txs = new Set<string>();
+  const out: ValuePair[] = [];
+  for (const f of found) {
+    if (lines.has(f.line.id) || txs.has(f.entry.tx.id)) continue;
+    lines.add(f.line.id);
+    txs.add(f.entry.tx.id);
+    out.push({ line: f.line, entry: f.entry, diff: f.line.amount - f.entry.amount, editable: canSetAmount(account, f.entry.tx, userId) });
+  }
+  return out.sort((a, b) => a.line.date.localeCompare(b.line.date) || a.line.id.localeCompare(b.line.id, "en", { numeric: true }));
+}
+
+/** Etiqueta de los movimientos que registran solo la diferencia de una pareja: la pantalla del extracto no los muestra como "solo en la app". */
+export const DIFFERENCE_TAG = "#diferencia";
+
+/** Parámetros de save_transaction() para registrar solo la diferencia de una pareja (lo que el banco cobró de más o de menos). */
+export function differencePayload(pair: Pick<ValuePair, "line" | "diff">, ctx: RegisterContext) {
+  const label = (pair.line.description || "Movimiento").slice(0, 40);
+  const p = registerPayload({ ...pair.line, id: `D:${pair.line.id}`, kind: "OTHER", amount: pair.diff, description: `Diferencia con el extracto: ${label}` }, ctx);
+  return { ...p, tags: [...p.tags, DIFFERENCE_TAG] };
 }

@@ -9,7 +9,8 @@ import { LinkSelect } from "@/components/LinkSelect";
 import { StatementCrossCheck, StatementFields, emptyDraft, type StatementDraft } from "@/components/CardStatements";
 import type { Account } from "@/lib/types";
 import type { CardStatementData, CardStatementPurchase } from "@/lib/capture/cardStatement";
-import { checkInstallments, knownItem, onlyExtractCandidates, purchaseLinkCandidates, registeredTx, type InstallmentCheck, type InstallmentDiff, type InstallmentVerdict } from "@/lib/finance/cardStatements";
+import { checkInstallments, installmentFix, knownItem, onlyExtractCandidates, purchaseLinkCandidates, registeredTx, type InstallmentCheck, type InstallmentDiff, type InstallmentFix, type InstallmentVerdict } from "@/lib/finance/cardStatements";
+import { editPayload } from "@/lib/finance/txEdit";
 import { installmentsOf, matchedWithItems } from "@/lib/finance/installments";
 import { openingDay } from "@/lib/finance/cardBudget";
 import { formatCop } from "@/lib/finance/money";
@@ -22,13 +23,14 @@ const FIELD_LABEL: Record<InstallmentDiff["field"], string> = { installments: "T
 const diffValue = (field: InstallmentDiff["field"], n: number) => (field === "balance" || field === "charge" || field === "amount" ? formatCop(n) : String(n));
 
 /**
- * Cuotas: lo que dice el extracto contra lo que tiene la app, compra por compra. No guarda ni cambia nada en la base.
+ * Cuotas: lo que dice el extracto contra lo que tiene la app, compra por compra. No cambia nada por sí sola: cuando la diferencia es el
+ * total de cuotas, cada compra trae su botón para poner en la app las cuotas del extracto.
  * Si el cruce automático no unió una compra que sí es la misma (valor o fecha distintos), se vincula a mano desde aquí:
  * el vínculo vale mientras tengas el extracto abierto y deja ver en qué se diferencian.
  */
-function InstallmentChecks({ account, checks, onLink, onUnlink, onSeparate }: { account: Account; checks: InstallmentCheck[]; onLink: (index: number, txId: string) => void; onUnlink: (index: number) => void; onSeparate: (index: number, txId: string) => void }) {
+function InstallmentChecks({ account, checks, fixing, onLink, onUnlink, onSeparate, onFix }: { account: Account; checks: InstallmentCheck[]; fixing: boolean; onLink: (index: number, txId: string) => void; onUnlink: (index: number) => void; onSeparate: (index: number, txId: string) => void; onFix: (fix: InstallmentFix) => void }) {
   const { openTransaction } = useShell();
-  const { transactions, cardItems } = useFinance();
+  const { transactions, cardItems, me } = useFinance();
   const needs = checks.filter((c) => c.verdict !== "OK");
   // Las vinculadas se muestran aunque cuadren, para poder deshacer el vínculo
   const bad = checks.filter((c) => c.verdict !== "OK" || c.linked || c.dateGap !== undefined);
@@ -51,7 +53,9 @@ function InstallmentChecks({ account, checks, onLink, onUnlink, onSeparate }: { 
       </p>
       {bad.length > 0 && (
         <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-surface">
-          {bad.map((c, i) => (
+          {bad.map((c, i) => {
+            const fix = installmentFix(c, account, me.user_id);
+            return (
             <li key={c.purchase ? `${c.purchase.description}|${c.purchase.purchaseDate}|${c.purchase.amount}|${i}` : `app-${c.tx?.id ?? i}`} className="space-y-0.5 px-3 py-1.5">
               <div className="flex items-center justify-between gap-2">
                 <span className="min-w-0 truncate font-medium">{c.purchase?.description ?? c.tx?.merchant ?? c.tx?.description ?? "Compra"}</span>
@@ -90,9 +94,15 @@ function InstallmentChecks({ account, checks, onLink, onUnlink, onSeparate }: { 
                     onPick={(index) => onLink(Number(index), c.tx!.id)} />
                 </>
               )}
+              {fix && (
+                <div>
+                  <Button size="sm" variant="outline" disabled={fixing} onClick={() => onFix(fix)}>Poner {fix.to} cuotas en la app (hoy {fix.from})</Button>
+                </div>
+              )}
               {c.tx && <button className="text-olive underline" onClick={() => openTransaction(c.tx!)}>Abrir el movimiento</button>}
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
     </div>
@@ -109,6 +119,7 @@ function InstallmentChecks({ account, checks, onLink, onUnlink, onSeparate }: { 
 export function CardStatementPdf({ account, onBalance, onStatus, crossCheck = false }: { account: Account; onBalance?: (v: number) => void; onStatus?: (s: string | null) => void; crossCheck?: boolean }) {
   const { cardItems, transactions, supabase, reload, me } = useFinance();
   const [busy, setBusy] = useState(false);
+  const [fixing, setFixing] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [read, setRead] = useState<CardStatementData | null>(null);
   const [draft, setDraft] = useState<StatementDraft>(emptyDraft);
@@ -185,6 +196,18 @@ export function CardStatementPdf({ account, onBalance, onStatus, crossCheck = fa
     void reload();
   }
 
+  /** Pone en la app el total de cuotas que dice el extracto, en una sola compra. */
+  async function fixInstallments(fix: InstallmentFix) {
+    setFixing(true);
+    setErr(null);
+    setNotice(null);
+    const { error } = await supabase.rpc("save_transaction", { p: editPayload(fix.tx, { installments: fix.to }) });
+    setFixing(false);
+    if (error) return setErr(errMsg(error));
+    setNotice(`Puse ${fix.to} cuotas en ${(fix.tx.merchant || fix.tx.description || "la compra").slice(0, 40)} (antes ${fix.from}).`);
+    void reload();
+  }
+
   return (
     <div className={cn("space-y-2", !crossCheck && "rounded-2xl border border-dashed border-border p-3")}>
       <label className={cn("flex cursor-pointer items-center gap-2 text-sm font-medium",
@@ -206,7 +229,7 @@ export function CardStatementPdf({ account, onBalance, onStatus, crossCheck = fa
               <StatementFields value={draft} onChange={setDraft} />
               <StatementCrossCheck account={account} draft={draft} />
               {checks.length > 0 && (
-                <InstallmentChecks account={account} checks={checks}
+                <InstallmentChecks account={account} checks={checks} fixing={fixing} onFix={(f) => void fixInstallments(f)}
                   onLink={(index, txId) => setLinks((l) => ({ ...l, [index]: txId }))}
                   onUnlink={(index) => setLinks((l) => Object.fromEntries(Object.entries(l).filter(([k]) => Number(k) !== index)))}
                   onSeparate={(index, txId) => setApart((a) => [...a, `${index}|${txId}`])} />
