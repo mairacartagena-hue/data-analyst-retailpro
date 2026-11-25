@@ -1464,12 +1464,12 @@ function NewCardStatementImport({ onData }: { onData: (d: CardStatementData) => 
       const payload = isPdf ? { data: await toBase64(file), mime: "application/pdf" } : await shrink(file, 2400);
       if (payload.data.length > 4_200_000) throw new Error("El archivo es muy pesado (máximo ~3 MB). Prueba con una foto o el PDF del banco.");
       const res = await fetch("/api/card-statement", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, today: todayBogota() }) });
-      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; result?: CardStatementData; error?: string };
+      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; result?: CardStatementData; error?: string; source?: string };
       if (!body.ok || !body.result) throw new Error(body.error ?? "No se pudo leer el extracto.");
       const r = body.result;
       if (r.totalDebt === undefined && r.totalPayment === undefined && r.purchases.length === 0) throw new Error("No encontré el saldo ni las compras a cuotas en ese archivo.");
       onData(r);
-      setDone(`Listo: llené el saldo al corte${r.statementDate ? ` (${r.statementDate})` : ""}${r.purchases.length ? ` y ${r.purchases.length} compra${r.purchases.length === 1 ? "" : "s"} a cuotas` : ""}. Revisa y toca Guardar.`);
+      setDone(`Listo${body.source === "local" ? " (leído directo del PDF)" : ""}: llené el saldo al corte${r.statementDate ? ` (${r.statementDate})` : ""}${r.purchases.length ? ` y ${r.purchases.length} compra${r.purchases.length === 1 ? "" : "s"} a cuotas` : ""}. Revisa y toca Guardar.`);
     } catch (e) {
       setErr(errMsg(e));
     } finally {

@@ -27,6 +27,12 @@ function contentSecurityPolicy(): string {
 }
 
 const nextConfig: NextConfig = {
+  // pdf.js (lectura de extractos en PDF, lib/capture/pdf) se carga desde node_modules en el servidor en vez de empaquetarse;
+  // se pide a mano el código del worker porque se importa en el momento de usarlo y el rastreo de archivos no siempre lo ve.
+  serverExternalPackages: ["pdfjs-dist"],
+  outputFileTracingIncludes: {
+    "/api/card-statement": ["./node_modules/pdfjs-dist/legacy/build/pdf.mjs", "./node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs"],
+  },
   async headers() {
     return [
       {
