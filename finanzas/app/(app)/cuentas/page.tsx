@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Building2, ChevronDown, CreditCard, Handshake, Landmark, Lock, Plus, Smartphone, Wallet } from "lucide-react";
+import { ArrowLeft, Building2, ChevronDown, ChevronRight, CreditCard, Handshake, Landmark, Lock, Plus, Smartphone, Wallet } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { AccountSheet, AssetSheet } from "@/components/AccountSheet";
 import { MemberBadge } from "@/components/MemberBadge";
@@ -165,6 +165,15 @@ export default function CuentasPage() {
           <div><p className="text-xs text-muted">Debes en total</p><p className="num font-display text-2xl text-danger">{formatCop(owedTotal)}</p></div>
           <div><p className="text-xs text-muted">Cuotas del mes ≈</p><p className="num font-display text-2xl">{formatCop(cuotaTotal)}</p></div>
         </Card>
+      )}
+      {mine.some((a) => a.kind === "CREDIT") && (
+        <Link href="/ruta-credito" className="mt-2 flex items-center gap-3 rounded-2xl border border-border bg-surface px-4 py-3 hover:bg-surface-2">
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-semibold">Ruta del crédito</span>
+            <span className="block text-xs text-muted">Cuándo terminas de pagar y cuánto ahorras abonando a capital</span>
+          </span>
+          <ChevronRight size={18} className="text-muted" />
+        </Link>
       )}
       <SectionTitle>Mis créditos y préstamos</SectionTitle>
       {mine.length === 0 ? (
