@@ -62,3 +62,80 @@ export function sanitizeCardStatement(raw: Record<string, unknown>, today: strin
   for (const k of Object.keys(r) as (keyof CardStatementData)[]) if (r[k] === undefined) delete r[k];
   return r;
 }
+
+// ───────────────────── Movimientos del extracto (lectura aparte) ─────────────────────
+// Segunda lectura, opcional: la lista de movimientos del periodo (compras, pagos, intereses, cuotas de manejo) para cruzarla
+// con la app como se cruza el CSV. Va en una llamada separada porque con extractos largos tarda más que la lectura de totales.
+
+export type CardLineKind = "PURCHASE" | "PAYMENT" | "INTEREST" | "FEE" | "OTHER";
+
+export interface CardStatementLine {
+  date: string;
+  description: string;
+  /** Valor en pesos, siempre positivo: el sentido lo da `credit`. */
+  amount: number;
+  kind: CardLineKind;
+  /** true = abono a la tarjeta (pago, devolución, reversión): baja la deuda. */
+  credit: boolean;
+  /** Si es la cuota de una compra diferida, el número de cuota. Esas cuotas las revisa la validación de cuotas, no este cruce. */
+  installmentNo?: number;
+}
+
+/** Totales tal como los imprime el extracto en su resumen (para comprobar que la lectura no se dejó movimientos). */
+export interface CardPrintedTotals {
+  purchases?: number;
+  payments?: number;
+  interest?: number;
+  fees?: number;
+}
+
+export interface CardLinesData {
+  institution?: string;
+  last4?: string;
+  periodStart?: string;
+  periodEnd?: string;
+  totals: CardPrintedTotals;
+  lines: CardStatementLine[];
+  /** Movimientos que la IA devolvió sin fecha o valor legibles. */
+  dropped: number;
+}
+
+const KINDS: CardLineKind[] = ["PURCHASE", "PAYMENT", "INTEREST", "FEE", "OTHER"];
+const MAX_LINES = 400;
+
+export function sanitizeCardLines(raw: Record<string, unknown>, today: string): CardLinesData {
+  const year = Number(today.slice(0, 4));
+  const inRange = (d: string) => Math.abs(Number(d.slice(0, 4)) - year) <= 1;
+  const r: CardLinesData = { totals: {}, lines: [], dropped: 0 };
+  if (typeof raw.institution === "string" && raw.institution.trim()) r.institution = raw.institution.trim().slice(0, 60);
+  if (typeof raw.card_number === "string") {
+    const digits = raw.card_number.replace(/\D/g, "");
+    if (digits.length >= 4) r.last4 = digits.slice(-4);
+  }
+  const ps = date(raw.period_start);
+  const pe = date(raw.period_end);
+  if (ps && pe && ps <= pe) { r.periodStart = ps; r.periodEnd = pe; }
+  // Un total impreso de $0 es un dato válido ("intereses: 0"); solo se descarta lo que no es número
+  const printed = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && Math.abs(v) < 100_000_000_000 ? Math.round(Math.abs(v)) : undefined);
+  const totals = (raw.printed_totals ?? {}) as Record<string, unknown>;
+  for (const k of ["purchases", "payments", "interest", "fees"] as const) {
+    const v = printed(totals[k]);
+    if (v !== undefined) r.totals[k] = v;
+  }
+  const items = Array.isArray(raw.lines) ? (raw.lines as Record<string, unknown>[]) : [];
+  for (const it of items.slice(0, MAX_LINES)) {
+    const d = date(it?.date);
+    const value = typeof it?.amount === "number" && Number.isFinite(it.amount) ? it.amount : NaN;
+    const amount = Math.round(Math.abs(value));
+    if (!d || !inRange(d) || !(amount > 0) || amount >= 100_000_000_000) { r.dropped++; continue; }
+    const kind = KINDS.includes(it.kind as CardLineKind) ? (it.kind as CardLineKind) : "OTHER";
+    const description = typeof it.description === "string" ? it.description.replace(/\s+/g, " ").trim().slice(0, 80) : "";
+    // Un valor negativo en el extracto también es un abono, aunque la IA no lo haya marcado
+    const credit = kind === "PAYMENT" || it.is_credit === true || value < 0;
+    const no = typeof it.installment_no === "number" ? Math.round(it.installment_no) : 0;
+    r.lines.push({ date: d, description, amount, kind, credit, ...(no >= 1 && no <= 48 ? { installmentNo: no } : {}) });
+  }
+  if (items.length > MAX_LINES) r.dropped += items.length - MAX_LINES;
+  for (const k of Object.keys(r) as (keyof CardLinesData)[]) if (r[k] === undefined) delete r[k];
+  return r;
+}

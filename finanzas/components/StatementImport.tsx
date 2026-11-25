@@ -11,10 +11,13 @@ import { SwitchRow } from "@/components/ui/switch";
 import type { Account, ReconcilingItem } from "@/lib/types";
 import { CHANNEL_LABEL } from "@/lib/types";
 import { formatCop } from "@/lib/finance/money";
-import { formatDay } from "@/lib/finance/periods";
+import { formatDay, todayBogota } from "@/lib/finance/periods";
 import { cycleRange, monthRange } from "@/lib/finance/reconcile";
 import { ensureCategory } from "@/lib/finance/ensureCategory";
 import { readStatementFile } from "@/lib/finance/statementFile";
+import { shrink, toBase64 } from "@/lib/capture/file";
+import type { CardLinesData } from "@/lib/capture/cardStatement";
+import { parsedFromCardLines } from "@/lib/finance/cardLines";
 import {
   BANK_CATEGORY, INTEREST_CATEGORY, UNKNOWN_CATEGORY, bankCharges, carryOverStatus, closingBalance, coveredRange, isBankLine, parseStatementRows, reconcileStatement, registerPayload,
   type AppEntry, type CarryStatus, type ColumnMap, type LineKind, type StatementLine,
@@ -35,7 +38,7 @@ const CARRY_LABEL: Record<CarryStatus, string> = {
 const signed = (n: number) => `${n < 0 ? "−" : "+"}${formatCop(Math.abs(n))}`;
 
 /**
- * Importa el extracto del banco (CSV) y lo cruza con la app: faltantes, duplicados, 4x1000, intereses y gastos bancarios.
+ * Importa el extracto del banco (CSV, Excel o, en tarjetas, PDF/foto leído con IA) y lo cruza con la app: faltantes, duplicados, 4x1000, intereses y gastos bancarios.
  * En las tarjetas con día de corte se compara el ciclo del extracto (no el mes calendario) y se comprueba si las partidas
  * conciliatorias del cierre anterior (`carryOver`) ya aparecen en este extracto.
  */
@@ -56,10 +59,14 @@ export function StatementImport({ account, month, onBalance, onStatus, carryOver
   const [map, setMap] = useState<Partial<ColumnMap>>({});
   const [showColumns, setShowColumns] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [reading, setReading] = useState(false);
+  /** Movimientos leídos del PDF o la foto con la IA (solo tarjetas); reemplaza a las filas del CSV. */
+  const [pdf, setPdf] = useState<CardLinesData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const parsed = useMemo(() => (rows === null ? null : parseStatementRows(rows, { map, flip, purchasesPositive, isCard, yearHint: Number(month.slice(0, 4)) })), [rows, map, flip, purchasesPositive, isCard, month]);
+  const pdfRead = useMemo(() => (pdf ? parsedFromCardLines(pdf) : null), [pdf]);
+  const parsed = useMemo(() => (pdfRead ? pdfRead.parsed : rows === null ? null : parseStatementRows(rows, { map, flip, purchasesPositive, isCard, yearHint: Number(month.slice(0, 4)) })), [pdfRead, rows, map, flip, purchasesPositive, isCard, month]);
   // Tarjetas: el ciclo del extracto recortado a lo que cubre el archivo (si trae el mes calendario, solo la parte que se cruza con el ciclo)
   const range = useMemo(() => (byCycle && parsed ? coveredRange(base, parsed.lines, parsed.period) : base), [byCycle, parsed, base.start, base.end]); // eslint-disable-line react-hooks/exhaustive-deps
   const inMonth = useMemo(() => (parsed?.lines ?? []).filter((l) => l.date >= range.start && l.date <= range.end), [parsed, range.start, range.end]);
@@ -75,24 +82,50 @@ export function StatementImport({ account, month, onBalance, onStatus, carryOver
   const onlyInApp = (rec?.extra ?? []).filter((e) => !duplicateIds.has(e.tx.id));
   const bankMissing = (rec?.missing ?? []).filter(isBankLine);
 
+  // PDF: si lo leído no suma lo que dice el resumen del extracto, puede faltar algún movimiento y "no falta nada" no sería confiable
+  const totalsOff = (pdfRead?.totals ?? []).filter((t) => !t.ok);
   const status = !rec ? null
-    : rec.missing.length + rec.duplicates.length + carryMissing === 0 ? "Revisado: no falta ni sobra ningún movimiento"
-    : `Revisado: ${[rec.missing.length && `${rec.missing.length} falta${rec.missing.length === 1 ? "" : "n"} en la app`, rec.duplicates.length && `${rec.duplicates.length} repetido${rec.duplicates.length === 1 ? "" : "s"}`, carryMissing && `${carryMissing} partida${carryMissing === 1 ? "" : "s"} del cierre anterior sin aparecer`].filter(Boolean).join(" · ")}`;
+    : rec.missing.length + rec.duplicates.length + carryMissing + totalsOff.length === 0 ? "Revisado: no falta ni sobra ningún movimiento"
+    : `Revisado: ${[rec.missing.length && `${rec.missing.length} falta${rec.missing.length === 1 ? "" : "n"} en la app`, rec.duplicates.length && `${rec.duplicates.length} repetido${rec.duplicates.length === 1 ? "" : "s"}`, carryMissing && `${carryMissing} partida${carryMissing === 1 ? "" : "s"} del cierre anterior sin aparecer`, totalsOff.length && "la lectura del PDF no cuadra con los totales del extracto (puede faltar algún movimiento)"].filter(Boolean).join(" · ")}`;
   useEffect(() => { onStatus?.(status); }, [status]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function pickFile(file: File | undefined) {
     if (!file) return;
     setError(null);
     setNotice(null);
+    const isDoc = file.type === "application/pdf" || file.type.startsWith("image/") || /\.(pdf|jpe?g|png|webp|heic|heif)$/i.test(file.name);
+    if (isDoc && isCard) return readCardPdf(file);
     if (file.size > 5_000_000) return setError("El archivo es muy grande (más de 5 MB). ¿Es el extracto en CSV o Excel?");
     try {
       setRows(await readStatementFile(file));
+      setPdf(null);
       setFileName(file.name);
       setMap({});
       setFlip(false);
     } catch (e) {
       setRows(null);
       setError(e instanceof Error && e.message ? e.message : "No se pudo leer el archivo.");
+    }
+  }
+
+  /** Tarjetas: la IA lee la lista de movimientos del PDF o la foto. Es una lectura aparte de la de totales y cuotas. */
+  async function readCardPdf(file: File) {
+    if (!navigator.onLine) return setError("Sin conexión: para leer el PDF necesitas internet. El Excel o CSV se lee sin conexión.");
+    setReading(true);
+    try {
+      const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+      const payload = isPdf ? { data: await toBase64(file), mime: "application/pdf" } : await shrink(file, 2400);
+      if (payload.data.length > 4_200_000) throw new Error("El archivo es muy pesado (máximo ~3 MB). Prueba con el Excel o CSV del banco.");
+      const res = await fetch("/api/card-statement", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, today: todayBogota(), mode: "lines" }) });
+      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; result?: CardLinesData; error?: string };
+      if (!body.ok || !body.result) throw new Error(body.error ?? "No se pudo leer el extracto.");
+      setPdf(body.result);
+      setRows(null);
+      setFileName(file.name);
+    } catch (e) {
+      setError(e instanceof Error && e.message ? e.message : "No se pudo leer el extracto.");
+    } finally {
+      setReading(false);
     }
   }
 
@@ -161,17 +194,19 @@ export function StatementImport({ account, month, onBalance, onStatus, carryOver
   return (
     <>
       <Button variant="outline" size="sm" className="w-full" onClick={() => setOpen(true)}>
-        <FileUp size={16} /> Subir Excel o CSV de movimientos
+        <FileUp size={16} /> {isCard ? "Subir el extracto (PDF, Excel o CSV)" : "Subir Excel o CSV de movimientos"}
       </Button>
 
       <Sheet open={open} onOpenChange={setOpen} title="Revisar los movimientos" description={`${account.name}${account.last4 ? ` ··${account.last4}` : ""} · ${month}`}>
         <div className="space-y-4 pb-2">
           <div className="space-y-2">
             <label className="flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-border bg-surface px-4 py-5 text-sm font-medium hover:bg-surface-2">
-              <FileUp size={18} /> {fileName || "Elegir el extracto (Excel o CSV)"}
-              <input type="file" accept=".csv,.txt,.xlsx,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="sr-only" onChange={(e) => { void pickFile(e.target.files?.[0]); e.target.value = ""; }} />
+              <FileUp size={18} /> {reading ? "Leyendo el extracto…" : fileName || (isCard ? "Elegir el extracto (PDF, Excel o CSV)" : "Elegir el extracto (Excel o CSV)")}
+              <input type="file" disabled={reading} accept={`.csv,.txt,.xlsx,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet${isCard ? ",application/pdf,.pdf,image/*" : ""}`} className="sr-only" onChange={(e) => { void pickFile(e.target.files?.[0]); e.target.value = ""; }} />
             </label>
-            <p className="text-xs text-muted">El archivo se lee en tu celular; no se sube a ningún lado. Descárgalo desde la página o app de tu banco (extracto en Excel .xlsx o CSV). Si trae varios meses, se compara solo {byCycle ? "el ciclo" : "el mes"} que estás cerrando.</p>
+            <p className="text-xs text-muted">{isCard
+              ? "El Excel o CSV se lee en tu celular y no se sube a ningún lado. El PDF o la foto del extracto sí se envía a la IA (Gemini) para leerlo y no se guarda; la lectura puede tardar hasta un minuto y a veces se equivoca, por eso se compara con los totales del extracto. "
+              : "El archivo se lee en tu celular; no se sube a ningún lado. Descárgalo desde la página o app de tu banco (extracto en Excel .xlsx o CSV). "}Si trae varios meses, se compara solo {byCycle ? "el ciclo" : "el mes"} que estás cerrando.</p>
           </div>
 
           <ErrorText>{error}</ErrorText>
@@ -196,6 +231,35 @@ export function StatementImport({ account, month, onBalance, onStatus, carryOver
                 )}
               </div>
 
+              {pdfRead && (
+                <div className="space-y-2 rounded-2xl border border-border bg-surface p-3 text-sm">
+                  <p className="font-semibold">Leído del PDF con IA</p>
+                  {pdfRead.totals.length > 0 ? (
+                    <div className="space-y-1">
+                      <p className="text-xs text-muted">Lo que sumé de los movimientos contra el resumen que imprime el extracto:</p>
+                      {pdfRead.totals.map((t) => (
+                        <div key={t.key} className="flex items-center justify-between gap-2">
+                          <span className={cn("flex items-center gap-1.5", !t.ok && "text-warning")}>{t.ok ? <CheckCircle2 size={14} className="text-olive" /> : <AlertTriangle size={14} />}{t.label}</span>
+                          <span className="num text-right text-xs">{formatCop(t.read)} · extracto {formatCop(t.printed)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted">Este extracto no trae un resumen de totales, así que no puedo comprobar que la lectura esté completa. Revisa que estén todos los movimientos.</p>
+                  )}
+                  {totalsOff.length > 0 && (
+                    <p className="flex items-start gap-2 rounded-xl bg-warning-soft px-3 py-2"><AlertTriangle size={16} className="mt-0.5 shrink-0" />
+                      Lo leído no cuadra con el resumen: puede que la IA se haya saltado o repetido algún movimiento. Antes de registrar o borrar algo, confírmalo en el extracto. Si insiste, usa el Excel o CSV del banco.
+                    </p>
+                  )}
+                  {pdfRead.installmentLines.length > 0 && (
+                    <p className="text-xs text-muted">{pdfRead.installmentLines.length} cuota{pdfRead.installmentLines.length === 1 ? "" : "s"} de compras a cuotas no se cruzan aquí (en la app la compra es una sola): se revisan en la validación de cuotas del extracto.</p>
+                  )}
+                </div>
+              )}
+
+              {!pdf && (
+              <>
               <div className="rounded-2xl border border-border bg-surface px-3">
                 {isCard ? (
                   <SwitchRow label="Las compras aparecen como valores positivos" hint="Lo más común en tarjetas. Si Entró y Salió se ven al revés, apágalo."
@@ -218,6 +282,8 @@ export function StatementImport({ account, month, onBalance, onStatus, carryOver
                   {columnSelect("debit", "Débitos (salidas)")}
                   {columnSelect("credit", "Créditos (entradas)")}
                 </div>
+              )}
+              </>
               )}
             </>
           )}
