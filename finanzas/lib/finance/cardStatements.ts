@@ -55,6 +55,16 @@ export function squares(diff: number | null): boolean {
   return diff !== null && Math.abs(diff) <= STATEMENT_TOLERANCE;
 }
 
+/**
+ * Veredicto de una diferencia (app − extracto). Dentro de la tolerancia cuadra, pero si no es exacta se dice cuánto es el
+ * redondeo para no esconderlo: `rounding` es el valor absoluto que se está dando por bueno (0 si cuadra exacto).
+ */
+export function diffVerdict(diff: number): { ok: boolean; rounding: number; direction: "MORE" | "LESS" | "NONE" } {
+  const direction = diff > 0 ? "MORE" : diff < 0 ? "LESS" : "NONE";
+  const ok = Math.abs(diff) <= STATEMENT_TOLERANCE;
+  return { ok, rounding: ok ? Math.abs(diff) : 0, direction };
+}
+
 type PurchaseLike = { description: string; purchaseDate: string; amount: number };
 
 /** ¿La compra del extracto ya está en la tarjeta como compra del extracto? (mismo comercio y valor, o mismo valor y fecha) */

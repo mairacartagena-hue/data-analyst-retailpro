@@ -24,7 +24,7 @@ import type { Account } from "@/lib/types";
 import { ACCOUNT_KIND_LABEL } from "@/lib/types";
 import { acceptDrift, accountStatement, cycleRange, effectOn, gmfEstimate, monthRange, reconciliationDrift, shiftMonth, type GmfMode } from "@/lib/finance/reconcile";
 import { formatCop, parseCop } from "@/lib/finance/money";
-import { addDays, monthName, periodFor, todayBogota } from "@/lib/finance/periods";
+import { addDays, formatDay, monthName, periodFor, todayBogota } from "@/lib/finance/periods";
 import { statusesFor } from "@/lib/finance/derive";
 import { isCreditKind } from "@/lib/finance/credit";
 import { cn, errMsg } from "@/lib/utils";
@@ -220,6 +220,8 @@ function AccountClose({ account, month, open, onToggle }: { account: Account; mo
     return supabase.from("account_reconciliations").upsert({
       household_id: account.household_id, account_id: account.id, owner_user_id: account.owner_user_id, month: monthKey,
       statement_balance: statement, app_balance: appBalance, status,
+      // Tarjetas: el cierre es al fin de mes pero el extracto trae el saldo al corte; se guarda contra qué corte se concilió
+      cut_date: cutDate,
       // Conciliar de nuevo empieza de cero: nuevo momento de conciliación y las partidas marcadas
       reconciled_at: new Date().toISOString(), reconciling_items: reconcilingItems,
     }, { onConflict: "account_id,month" });
@@ -341,8 +343,9 @@ function AccountClose({ account, month, open, onToggle }: { account: Account; mo
             <dt className="text-muted">{isCredit ? "Abonos a capital" : isCard ? "Pagos y abonos" : "Entró"}</dt><dd className="num text-right text-olive">+{formatCop(isCredit ? cb.capital : st.inflow)}</dd>
             {isCredit && cb.charges > 0 && (<><dt className="text-muted">Intereses y seguros pagados</dt><dd className="num text-right text-muted">{formatCop(cb.charges)}</dd></>)}
             {(!isCredit || cb.other > 0) && (<><dt className="text-muted">{isCredit ? "Desembolsos y ajustes" : isCard ? "Compras" : "Salió"}</dt><dd className="num text-right">−{formatCop(isCredit ? cb.other : st.outflow)}</dd></>)}
-            <dt className="font-semibold">{isDebt ? "Deuda según la app" : "Saldo según la app"}</dt><dd className="num text-right font-semibold">{formatCop(appValue)}</dd>
+            <dt className="font-semibold">{isDebt ? "Deuda según la app" : "Saldo según la app"} al {Number(range.end.slice(8))} de {monthName(Number(month.slice(5)) - 1, true)}</dt><dd className="num text-right font-semibold">{formatCop(appValue)}</dd>
           </dl>
+          {rec?.cut_date && <p className="text-xs text-muted">Conciliada contra el extracto con corte del {formatDay(rec.cut_date)}.</p>}
           {st.pending > 0 && <p className="text-xs text-warning">{st.pending} movimiento{st.pending === 1 ? "" : "s"} de esta cuenta siguen por revisar.</p>}
           {!isCredit && prevItems.length > 0 && (
             <p className="text-xs text-muted">
