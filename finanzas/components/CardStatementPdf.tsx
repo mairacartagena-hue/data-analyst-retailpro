@@ -6,10 +6,11 @@ import { useFinance } from "@/lib/data/FinanceProvider";
 import { useShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { LinkSelect } from "@/components/LinkSelect";
-import { StatementCrossCheck, StatementFields, emptyDraft, type StatementDraft } from "@/components/CardStatements";
+import { ManualCrossCheck, StatementCrossCheck, StatementFields, emptyDraft, statementOf, type StatementDraft } from "@/components/CardStatements";
+import { ReviewRow, type RowTone } from "@/components/ReviewRow";
 import type { Account } from "@/lib/types";
 import type { CardStatementData, CardStatementPurchase } from "@/lib/capture/cardStatement";
-import { checkInstallments, installmentFix, knownItem, onlyExtractCandidates, purchaseLinkCandidates, registeredTx, type InstallmentCheck, type InstallmentDiff, type InstallmentFix, type InstallmentVerdict } from "@/lib/finance/cardStatements";
+import { checkInstallments, checkStatement, diffVerdict, installmentFix, knownItem, onlyExtractCandidates, purchaseLinkCandidates, registeredTx, type InstallmentCheck, type InstallmentDiff, type InstallmentFix, type InstallmentVerdict } from "@/lib/finance/cardStatements";
 import { editPayload } from "@/lib/finance/txEdit";
 import { installmentsOf, matchedWithItems } from "@/lib/finance/installments";
 import { openingDay } from "@/lib/finance/cardBudget";
@@ -116,8 +117,12 @@ function InstallmentChecks({ account, checks, fixing, onLink, onUnlink, onSepara
  * Las compras que ya están (como compra del extracto o registradas en la app con las mismas cuotas) no se repiten.
  */
 /** `crossCheck`: en el Cierre del mes muestra los valores del extracto y su cruce; en la tarjeta solo las compras a cuotas. */
-export function CardStatementPdf({ account, onBalance, onStatus, crossCheck = false, incoming = null, onFile }: {
+export function CardStatementPdf({ account, onBalance, onStatus, crossCheck = false, incoming = null, onFile, rows = false, month }: {
   account: Account; onBalance?: (v: number) => void; onStatus?: (s: string | null) => void; crossCheck?: boolean;
+  /** Revisión de la tarjeta en un solo paso: no trae su propio botón de subir (lee el `incoming`) y muestra dos filas, Deuda y Cuotas, con el detalle plegado. */
+  rows?: boolean;
+  /** Mes que se cierra (para escribir los valores a mano cuando no hay PDF). Solo con `rows`. */
+  month?: string;
   /** Extracto que la persona subió en el otro paso: se lee aquí también, sin pedirlo otra vez. */
   incoming?: File | null;
   /** Avisa que se subió un extracto para que el otro paso lo lea también. */
@@ -154,6 +159,19 @@ export function CardStatementPdf({ account, onBalance, onStatus, crossCheck = fa
     [crossCheck, read, account, transactions, cardItems, extracted, cutDate, links, apart],
   );
   const noPurchasesRead = crossCheck && !!read && extracted.length === 0;
+  // Resumen de la deuda en una línea (fila "Deuda"): se recalcula al corregir los valores
+  const debtResult = useMemo((): { text: string; tone: RowTone } | null => {
+    if (!read) return null;
+    const st = statementOf(account.id, draft);
+    if (!st) return { text: "Falta la fecha de corte para compararla", tone: "warn" };
+    const c = checkStatement(account, transactions, cardItems, st);
+    const bad: string[] = [];
+    if (c.debtDiff !== null && !diffVerdict(c.debtDiff).ok) bad.push(`la deuda de la app es ${formatCop(Math.abs(c.debtDiff))} ${c.debtDiff > 0 ? "mayor" : "menor"}`);
+    if (c.minimumDiff !== null && !diffVerdict(c.minimumDiff).ok) bad.push("la cuota del mes no coincide con el pago mínimo");
+    if (bad.length > 0) return { text: bad.join(" · ").replace(/^./, (ch) => ch.toUpperCase()), tone: "warn" };
+    if (c.debtDiff === null) return { text: "El extracto no trae la deuda para comparar", tone: "idle" };
+    return { text: "La deuda coincide con la app", tone: "ok" };
+  }, [read, account, draft, transactions, cardItems]);
 
   // El extracto que se subió en el otro paso: se lee aquí también
   useEffect(() => {
@@ -223,6 +241,70 @@ export function CardStatementPdf({ account, onBalance, onStatus, crossCheck = fa
     if (error) return setErr(errMsg(error));
     setNotice(`Puse ${fix.to} cuotas en ${(fix.tx.merchant || fix.tx.description || "la compra").slice(0, 40)} (antes ${fix.from}).`);
     void reload();
+  }
+
+  if (rows) {
+    const reading = { text: "Leyendo el extracto…", tone: "busy" as RowTone };
+    const failed = !read && err ? { text: "No pude leerlo (toca para ver por qué)", tone: "warn" as RowTone } : null;
+    const needs = checks.filter((c) => c.verdict !== "OK").length;
+    const debtRow = busy && !read ? reading : failed ?? debtResult ?? { text: "Sube el extracto o escribe los valores a mano", tone: "idle" as RowTone };
+    const instRow = busy && !read ? reading : failed
+      ?? (!read ? { text: "Sube el extracto para comparar las compras a cuotas", tone: "idle" as RowTone }
+        : noPurchasesRead ? { text: "No pude leer las compras a cuotas (toca para volver a leer)", tone: "warn" as RowTone }
+        : needs === 0 ? { text: `Las ${checks.length} compra${checks.length === 1 ? "" : "s"} a cuotas cuadran`, tone: "ok" as RowTone }
+        : { text: `${needs} por revisar · ${checks.length - needs} cuadra${checks.length - needs === 1 ? "" : "n"}`, tone: "warn" as RowTone });
+    const retry = (
+      <Button size="sm" variant="outline" disabled={busy || !lastFile.current} onClick={() => void pick(lastFile.current ?? undefined, true)}>Volver a leer el extracto</Button>
+    );
+    return (
+      <>
+        <ReviewRow order={1} title="Deuda" status={debtRow.text} tone={debtRow.tone}>
+          {err && !read && <><p className="text-danger">{err}</p>{retry}</>}
+          {read ? (
+            <>
+              <p className="text-muted">Esto es lo que leí del extracto; puedes corregirlo. No se guarda.</p>
+              <StatementFields value={draft} onChange={setDraft} />
+              <StatementCrossCheck account={account} draft={draft} />
+            </>
+          ) : !err && month ? <ManualCrossCheck account={account} month={month} /> : null}
+        </ReviewRow>
+        <ReviewRow order={3} title="Cuotas" status={instRow.text} tone={instRow.tone}>
+          {err && !read && <><p className="text-danger">{err}</p>{retry}</>}
+          {notice && <p className="text-olive">{notice}</p>}
+          {err && read && <p className="text-danger">{err}</p>}
+          {noPurchasesRead && (
+            <div className="space-y-1.5 rounded-xl bg-warning-soft px-3 py-2">
+              <p className="font-medium">No pude leer ninguna compra a cuotas de este extracto.</p>
+              <p className="text-muted">
+                {read?.rawPurchases ? `La IA devolvió ${read.rawPurchases} fila${read.rawPurchases === 1 ? "" : "s"}, pero ninguna pasó la validación.` : "La IA no devolvió ninguna compra."}
+                {" "}Es un fallo de la lectura, no que falten en el extracto, así que no comparo las cuotas. Vuelve a leerlo.
+              </p>
+              {retry}
+            </div>
+          )}
+          {checks.length > 0 && (
+            <InstallmentChecks account={account} checks={checks} fixing={fixing} onFix={(f) => void fixInstallments(f)}
+              onLink={(index, txId) => setLinks((l) => ({ ...l, [index]: txId }))}
+              onUnlink={(index) => setLinks((l) => Object.fromEntries(Object.entries(l).filter(([k]) => Number(k) !== index)))}
+              onSeparate={(index, txId) => setApart((a) => [...a, `${index}|${txId}`])} />
+          )}
+          {fresh.length > 0 && (
+            <div className="space-y-1.5">
+              <p className="font-medium">{fresh.length} compra{fresh.length === 1 ? "" : "s"} a cuotas nueva{fresh.length === 1 ? "" : "s"} del extracto</p>
+              <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-surface">
+                {fresh.map((p, i) => (
+                  <li key={i} className="flex items-center justify-between gap-2 px-3 py-1.5">
+                    <span className="min-w-0 truncate">{p.description} <span className="text-muted">· cuota {p.paidInstallments} de {p.installments}</span></span>
+                    <span className="num shrink-0">{formatCop(p.remainingBalance)}</span>
+                  </li>
+                ))}
+              </ul>
+              <Button size="sm" onClick={() => void addPurchases()} disabled={busy}>Agregar las compras a la proyección</Button>
+            </div>
+          )}
+        </ReviewRow>
+      </>
+    );
   }
 
   return (
