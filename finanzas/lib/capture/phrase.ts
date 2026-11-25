@@ -167,6 +167,16 @@ export function parsePhrase(
   return out;
 }
 
+/**
+ * ¿La lectura local ya trae lo que Gemini aportaría? Con monto, descripción y categoría (o las dos cuentas de una
+ * transferencia) no hace falta llamarlo: la persona igual revisa el formulario antes de guardar.
+ */
+export function isCompleteCapture(r: CaptureResult): boolean {
+  if (!r.amount) return false;
+  if (r.kind === "TRANSFER") return !!r.accountId && !!r.toAccountId;
+  return !!r.description && !!r.categoryId;
+}
+
 function tidy(text: string): string {
   return text
     .replace(/\b(?:a|en)?\s*\d{1,2}\s*cuotas?\b/g, " ")

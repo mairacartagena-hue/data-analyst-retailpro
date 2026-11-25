@@ -17,6 +17,7 @@ import { CHANNEL_LABEL } from "@/lib/types";
 import { categoryLabel } from "@/lib/finance/labels";
 import { appsScript, authHeader, notificationBody } from "@/lib/ingest/templates";
 import { findAmount } from "@/lib/ingest/normalize";
+import { readStats, type ReadStats } from "@/lib/ingest/readStats";
 import { cn, errMsg } from "@/lib/utils";
 
 /** Avisos que no llegaron a ser un movimiento: los cuenta el Cierre del mes y los lista esta pantalla. */
@@ -71,6 +72,7 @@ export default function CapturaPage() {
   const [editingMemory, setEditingMemory] = useState<MemoryGroup | null>(null);
   const [retrying, setRetrying] = useState<{ done: number; total: number } | null>(null);
   const [retrySummary, setRetrySummary] = useState<string | null>(null);
+  const [stats, setStats] = useState<ReadStats | null>(null);
   const recent = logs.filter((l) => !FAILED_RESULTS.includes(l.result));
   const memoryGroups = groupMemory(memory);
 
@@ -78,7 +80,8 @@ export default function CapturaPage() {
   const webhook = `${origin}/api/webhook/android-ingest`;
 
   const load = useCallback(async () => {
-    const [t, l, m, f] = await Promise.all([
+    const since = new Date(Date.now() - 30 * 86_400_000).toISOString();
+    const [t, l, m, f, st] = await Promise.all([
       supabase.from("ingest_tokens").select("token_hint, created_at, last_used_at").eq("user_id", me.user_id).maybeSingle(),
       supabase.from("ingest_logs").select("id, channel, source, raw_text, parser, result, reason, transaction_id, received_at")
         .eq("user_id", me.user_id).order("received_at", { ascending: false }).limit(40),
@@ -87,12 +90,15 @@ export default function CapturaPage() {
       // Todos los avisos que no se pudieron leer (no solo los más recientes): los mismos que cuenta el Cierre del mes
       supabase.from("ingest_logs").select("id, channel, source, raw_text, parser, result, reason, transaction_id, received_at").eq("user_id", me.user_id)
         .in("result", FAILED_RESULTS).order("received_at", { ascending: false }).limit(300),
+      // Con qué se leyó cada aviso de los últimos 30 días: de aquí sale cuánto depende la captura de Gemini
+      supabase.from("ingest_logs").select("parser, source").eq("user_id", me.user_id).gte("received_at", since).limit(5000),
     ]);
     if (t.error || l.error || m.error) setError(errMsg(t.error || l.error || m.error));
     setToken(t.data ?? null);
     setLogs((l.data ?? []) as IngestLog[]);
     setMemory((m.data ?? []) as MerchantMemory[]);
     setFailed((f.data ?? []) as IngestLog[]);
+    setStats(st.error ? null : readStats((st.data ?? []) as { parser: string | null; source: string | null }[]));
   }, [supabase, me.user_id]);
 
   useEffect(() => { void load(); }, [load]);
@@ -253,6 +259,29 @@ export default function CapturaPage() {
         ))}
       </div>
       </>)}
+
+      {stats && stats.total > 0 && (
+        <section aria-label="Cómo se leen los avisos">
+          <SectionTitle>Cómo se leen tus avisos</SectionTitle>
+          <Card className="space-y-2">
+            <p className="text-sm">
+              <strong>{stats.pctWithoutAi}%</strong> de los avisos de los últimos 30 días se leyeron sin IA ({stats.total - stats.withGemini} de {stats.total}).
+              {stats.withGemini > 0 ? ` Gemini leyó ${stats.withGemini}.` : " Gemini no hizo falta."}
+            </p>
+            {stats.geminiSources.length > 0 && (
+              <details className="text-sm text-muted">
+                <summary className="cursor-pointer">Formatos que solo lee Gemini</summary>
+                <ul className="mt-1 space-y-0.5">
+                  {stats.geminiSources.map((g) => (
+                    <li key={g.source} className="flex justify-between gap-3"><span className="min-w-0 truncate">{g.source}</span><span className="tabular-nums">{g.count}</span></li>
+                  ))}
+                </ul>
+                <p className="mt-1">Si una fuente aparece mucho, vale la pena enseñarle ese formato a las reglas.</p>
+              </details>
+            )}
+          </Card>
+        </section>
+      )}
 
       <section id="sin-reconocer" className="scroll-mt-4">
         <SectionTitle>Avisos sin reconocer{failed.length > 0 ? ` (${failed.length})` : ""}</SectionTitle>

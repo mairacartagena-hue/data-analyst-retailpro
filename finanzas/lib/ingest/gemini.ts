@@ -5,6 +5,7 @@ import "server-only";
 
 import type { MovementKind, ParsedEvent, RawEvent } from "./types";
 import { eventText, maskSensitive } from "./normalize";
+import { geminiGenerate, geminiModels } from "@/lib/ai/geminiCall";
 
 // Modelo configurable por variable de entorno; por defecto el alias del Flash-Lite vigente.
 const DEFAULT_MODEL = "gemini-flash-lite-latest";
@@ -39,27 +40,22 @@ export function geminiConfigured(): boolean {
 }
 
 export async function extractWithGemini(ev: RawEvent): Promise<ParsedEvent | null> {
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) return null;
-  const model = process.env.GEMINI_MODEL || DEFAULT_MODEL;
+  if (!process.env.GEMINI_API_KEY) return null;
   const text = maskSensitive(eventText(ev)).slice(0, 3000);
 
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-goog-api-key": key },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: instructions }] },
-      contents: [{ role: "user", parts: [{ text }] }],
-      generationConfig: { responseMimeType: "application/json", responseSchema: schema, temperature: 0 },
-    }),
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!res.ok) throw new Error(`Gemini respondió ${res.status}`);
-  const data = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
-  const out = data.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!out) return null;
+  // Con reintentos y modelo de respaldo (500/503 y cupo agotado), pero sin pasar el límite de la función en Vercel
+  const out = await geminiGenerate(geminiModels(process.env.GEMINI_MODEL, DEFAULT_MODEL), {
+    systemInstruction: { parts: [{ text: instructions }] },
+    contents: [{ role: "user", parts: [{ text }] }],
+    generationConfig: { responseMimeType: "application/json", responseSchema: schema, temperature: 0 },
+  }, { timeoutMs: 10_000, deadlineMs: 25_000 });
 
-  const json = JSON.parse(out) as { kind?: string; amount?: number | null; merchant?: string | null; last4?: string | null };
+  let json: { kind?: string; amount?: number | null; merchant?: string | null; last4?: string | null };
+  try {
+    json = JSON.parse(out);
+  } catch {
+    return null;
+  }
   if (!json.kind || !KINDS.includes(json.kind as MovementKind)) return null;
   if (json.kind === "IGNORE") return { kind: "IGNORE", ignoreReason: "Gemini: no es un movimiento" };
   const amount = typeof json.amount === "number" && json.amount > 0 ? Math.round(json.amount) : undefined;

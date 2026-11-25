@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireApiMember } from "@/lib/supabase/server";
 import { captureWithGemini, type CaptureContext } from "@/lib/capture/gemini";
-import type { CaptureOption } from "@/lib/capture/phrase";
+import { parsePhrase, type CaptureOption } from "@/lib/capture/phrase";
 
 // Registro por voz o foto: Gemini propone los datos y la app llena el formulario para revisarlo.
 export const runtime = "nodejs";
@@ -21,7 +21,6 @@ function options(v: unknown): CaptureOption[] {
 export async function POST(req: NextRequest) {
   const { denied } = await requireApiMember();
   if (denied) return NextResponse.json({ ok: false, error: denied.error }, { status: denied.status });
-  if (!process.env.GEMINI_API_KEY) return NextResponse.json({ ok: false, error: "Gemini no está configurado" }, { status: 503 });
 
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body) return NextResponse.json({ ok: false, error: "Solicitud no válida" }, { status: 400 });
@@ -41,6 +40,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "Falta la frase o la foto" }, { status: 400 });
   }
 
+  // Una frase se puede leer sin IA: si Gemini no está configurado o falla, se responde con la lectura local en vez de un error.
+  // La foto de un recibo sí necesita a Gemini.
+  if ("text" in input) {
+    const local = parsePhrase(input.text, ctx);
+    if (!process.env.GEMINI_API_KEY) return NextResponse.json({ ok: true, result: local, source: "local" });
+    try {
+      const g = await captureWithGemini(input, ctx);
+      return NextResponse.json({ ok: true, result: g ? { ...local, ...Object.fromEntries(Object.entries(g).filter(([, v]) => v != null && v !== "")) } : local, source: g ? "gemini" : "local" });
+    } catch {
+      return NextResponse.json({ ok: true, result: local, source: "local" });
+    }
+  }
+
+  if (!process.env.GEMINI_API_KEY) return NextResponse.json({ ok: false, error: "Gemini no está configurado: la foto de un recibo necesita la IA" }, { status: 503 });
   try {
     const result = await captureWithGemini(input, ctx);
     return NextResponse.json({ ok: true, result: result ?? {} });

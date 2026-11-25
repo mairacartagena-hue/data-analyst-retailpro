@@ -19,19 +19,19 @@ export const bancolombiaParser: BankParser = {
     let m: RegExpExecArray | null;
 
     // Compraste $63.490,00 en GOOGLE *Claude by An con tu T.Deb *7473, el 22/10/2026 a las 14:10.
-    m = new RegExp(`compraste\\s+${AMOUNT}\\s+en\\s+(.+?)\\s+con tu\\s+(?:t\\.?\\s?deb|t\\.?\\s?cred|tarjeta)\\w*\\.?\\s*\\*?(\\d{4})`, "i").exec(text);
+    m = new RegExp(`compraste\\s+${AMOUNT}\\s+en\\s+(.+?)\\s+con tu\\s+(?:t\\.?\\s?deb|t\\.?\\s?cred|tarjeta)\\w*\\.?\\s*\\*{0,2}(\\d{4})`, "i").exec(text);
     if (m) return { ...base, kind: "PURCHASE", amount: parseAmountCo(m[1]) ?? undefined, merchant: m[2], last4: m[3] };
 
     // Pagaste $1,043,000.00 a Banco Davivienda S A Zona Pa desde tu producto 2505 el 23/10/2026 10:42:10.
-    m = new RegExp(`pagaste\\s+${AMOUNT}\\s+a\\s+(.+?)\\s+desde tu producto\\s*\\*?(\\d{4})`, "i").exec(text);
+    m = new RegExp(`pagaste\\s+${AMOUNT}\\s+a\\s+(.+?)\\s+desde tu producto\\s*\\*{0,2}(\\d{4})`, "i").exec(text);
     if (m) return { ...base, kind: "PURCHASE", amount: parseAmountCo(m[1]) ?? undefined, merchant: m[2], last4: m[3] };
 
     // Transferiste $12,900.00 por Boton Bancolombia a Wompi SAS desde producto *2505. 22/10/2026 10:22:05
-    m = new RegExp(`transferiste\\s+${AMOUNT}\\s+por bot[oó]n bancolombia\\s+a\\s+(.+?)\\s+desde (?:tu )?producto\\s*\\*?(\\d{4})`, "i").exec(text);
+    m = new RegExp(`transferiste\\s+${AMOUNT}\\s+por bot[oó]n bancolombia\\s+a\\s+(.+?)\\s+desde (?:tu )?producto\\s*\\*{0,2}(\\d{4})`, "i").exec(text);
     if (m) return { ...base, kind: "PURCHASE", amount: parseAmountCo(m[1]) ?? undefined, merchant: m[2], last4: m[3] };
 
     // MAYRA, transferiste $35,000.00 a la llave @3218164052 desde tu cuenta *2505 a NOMBRE el 21/10/26 a las 19:53.
-    m = new RegExp(`transferiste\\s+${AMOUNT}\\s+a la llave\\s+@?(\\S+)\\s+desde tu cuenta\\s*\\*?(\\d{4})\\s+a\\s+(.+?)\\s+el\\s+\\d`, "i").exec(text);
+    m = new RegExp(`transferiste\\s+${AMOUNT}\\s+a la llave\\s+@?(\\S+)\\s+desde tu cuenta\\s*\\*{0,2}(\\d{4})\\s+a\\s+(.+?)\\s+el\\s+\\d`, "i").exec(text);
     if (m) {
       const key = m[2].replace(/[.,]$/, "");
       const phone = /^3\d{9}$/.test(key) ? key : null;
@@ -46,7 +46,7 @@ export const bancolombiaParser: BankParser = {
     }
 
     // Transferiste $800,000 desde tu cuenta *2505 a la cuenta *0123456789 el 23/10/2026 a las 11:26.
-    m = new RegExp(`transferiste\\s+${AMOUNT}\\s+desde tu cuenta\\s*\\*?(\\d{4})\\s+a la cuenta\\s*\\*?([\\d*]+)`, "i").exec(text);
+    m = new RegExp(`transferiste\\s+${AMOUNT}\\s+desde tu cuenta\\s*\\*{0,2}(\\d{4})\\s+a la cuenta\\s*\\*?([\\d*]+)`, "i").exec(text);
     if (m) {
       const dest = m[3].replace(/\D/g, "");
       return {
@@ -60,11 +60,30 @@ export const bancolombiaParser: BankParser = {
     }
 
     // MAYRA, recibiste una transferencia de NOMBRE por $100,000.00 en tu cuenta *2505 conectada a la llave …
-    m = new RegExp(`recibiste una transferencia de\\s+(.+?)\\s+por\\s+${AMOUNT}\\s+en tu cuenta\\s*\\*?(\\d{4})`, "i").exec(text);
+    m = new RegExp(`recibiste una transferencia de\\s+(.+?)\\s+por\\s+${AMOUNT}\\s+en tu cuenta\\s*\\*{0,2}(\\d{4})`, "i").exec(text);
     if (m) return { ...base, kind: "TRANSFER_IN", amount: parseAmountCo(m[2]) ?? undefined, merchant: m[1], last4: m[3] };
 
+    // Recibiste una transferencia por $1,050,000 de NOMBRE en tu cuenta **2505, el 18/11/2026 a las 19:36. (el monto va antes del nombre)
+    m = new RegExp(`recibiste una transferencia por\\s+${AMOUNT}\\s+de\\s+(.+?)\\s+en tu cuenta\\s*\\*{0,2}(\\d{4})`, "i").exec(text);
+    if (m) return { ...base, kind: "TRANSFER_IN", amount: parseAmountCo(m[1]) ?? undefined, merchant: m[2], last4: m[3] };
+
+    // NOMBRE pagaste $160,611.00 por codigo QR desde tu cuenta *2505 a la llave 3001234567 el 08/11/2026 a las 18:14.
+    m = new RegExp(`pagaste\\s+${AMOUNT}\\s+por c[oó]digo qr desde tu cuenta\\s*\\*{0,2}(\\d{4})\\s+a la llave\\s+@?(\\S+)`, "i").exec(text);
+    if (m) {
+      const key = m[3].replace(/[.,]$/, "");
+      const phone = /^3\d{9}$/.test(key) ? key : null;
+      return {
+        ...base,
+        kind: "PURCHASE",
+        amount: parseAmountCo(m[1]) ?? undefined,
+        merchant: "Pago con QR",
+        last4: m[2],
+        identifiers: phone ? [{ type: "PHONE", value: phone }] : [{ type: "ACCOUNT", value: key.toLowerCase() }],
+      };
+    }
+
     // Recibiste un pago por $6,044,772.00 de EMPRESA a tu cuenta AHORROS, el 10:07 a las 23/10/2026.
-    m = new RegExp(`recibiste un pago por\\s+${AMOUNT}\\s+de\\s+(.+?)\\s+a tu cuenta\\s*(?:\\*?(\\d{4}))?`, "i").exec(text);
+    m = new RegExp(`recibiste un pago por\\s+${AMOUNT}\\s+de\\s+(.+?)\\s+a tu cuenta\\s*(?:\\*{0,2}(\\d{4}))?`, "i").exec(text);
     if (m) return { ...base, kind: "INCOME", amount: parseAmountCo(m[1]) ?? undefined, merchant: m[2], last4: m[3] ?? null };
 
     return null;

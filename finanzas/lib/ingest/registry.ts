@@ -11,7 +11,9 @@ import { cajaSocialParser } from "./parsers/cajaSocial";
 import { googleWalletParser } from "./parsers/googleWallet";
 import { luloParser } from "./parsers/lulo";
 import { nequiParser } from "./parsers/nequi";
+import { pasarelasParser } from "./parsers/pasarelas";
 import { rappicardParser } from "./parsers/rappicard";
+import { isNoMovementSender } from "./senders";
 import { cleanMerchant, detectIgnore, eventText, findDate, findIdentifiers, guessInstitution, normalizeMerchant } from "./normalize";
 
 export const PARSERS: BankParser[] = [
@@ -20,6 +22,7 @@ export const PARSERS: BankParser[] = [
   cajaSocialParser,
   googleWalletParser,
   nequiParser,
+  pasarelasParser,
   luloParser,
   rappicardParser,
   // Banco de Bogotá: se agrega cuando haya ejemplos reales
@@ -48,6 +51,8 @@ export function finishParsed(ev: RawEvent, parsed: ParsedEvent): ParsedEvent {
 
 /** Reglas deterministas y gratis: mensajes a ignorar y luego el parser de la fuente. */
 export function parseWithRules(ev: RawEvent): ParseOutcome {
+  // Remitentes que nunca traen movimientos (marketing, empleo, extractos en PDF): sin leer el texto
+  if (isNoMovementSender(ev.source)) return { parsed: { kind: "IGNORE", ignoreReason: "Remitente sin movimientos" }, parser: "ignore-rules" };
   const text = eventText(ev);
   const ignore = detectIgnore(text);
   if (ignore) return { parsed: { kind: "IGNORE", ignoreReason: ignore }, parser: "ignore-rules" };
