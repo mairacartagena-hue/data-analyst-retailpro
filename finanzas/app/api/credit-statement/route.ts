@@ -1,8 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireApiMember } from "@/lib/supabase/server";
 import { readCreditStatement } from "@/lib/capture/creditStatementGemini";
+import { readCreditStatementLocal } from "@/lib/capture/creditStatementLocal";
 
-// Importar el extracto de un crédito: Gemini lo lee y la app llena el formulario para revisarlo.
+// Importar el extracto de un crédito y llenar el formulario para revisarlo. Un PDF de una entidad conocida (Addi) se lee directo,
+// sin IA; si es otra entidad, una foto, o la lectura no cuadra con los totales del propio extracto, lo lee Gemini.
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
@@ -18,8 +20,10 @@ export async function POST(req: NextRequest) {
   if (!TYPES.includes(mime)) return NextResponse.json({ ok: false, error: "Sube el extracto en PDF o una foto (JPG o PNG)." }, { status: 400 });
   if (!data) return NextResponse.json({ ok: false, error: "Falta el archivo" }, { status: 400 });
   if (data.length > MAX_BASE64) return NextResponse.json({ ok: false, error: "El archivo es muy pesado (máximo ~3 MB)." }, { status: 413 });
+  const local = await readCreditStatementLocal({ data, mime });
+  if (local) return NextResponse.json({ ok: true, source: "local", institution: local.institution, result: local.statement });
   try {
-    return NextResponse.json({ ok: true, result: await readCreditStatement({ data, mime }) });
+    return NextResponse.json({ ok: true, source: "gemini", result: await readCreditStatement({ data, mime }) });
   } catch (e) {
     return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 502 });
   }
