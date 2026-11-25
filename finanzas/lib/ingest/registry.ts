@@ -11,6 +11,7 @@ import { cajaSocialParser } from "./parsers/cajaSocial";
 import { googleWalletParser } from "./parsers/googleWallet";
 import { luloParser } from "./parsers/lulo";
 import { nequiParser } from "./parsers/nequi";
+import { pasarelasParser } from "./parsers/pasarelas";
 import { rappicardParser } from "./parsers/rappicard";
 import { isNoMovementSender } from "./senders";
 import { cleanMerchant, detectIgnore, eventText, findDate, findIdentifiers, guessInstitution, normalizeMerchant } from "./normalize";
@@ -21,6 +22,7 @@ export const PARSERS: BankParser[] = [
   cajaSocialParser,
   googleWalletParser,
   nequiParser,
+  pasarelasParser,
   luloParser,
   rappicardParser,
   // Banco de Bogotá: se agrega cuando haya ejemplos reales

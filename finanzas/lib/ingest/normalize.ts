@@ -76,6 +76,9 @@ export const MAX_MERCHANT = 60;
 export function cleanMerchant(raw: string | null | undefined): string | null {
   if (!raw) return null;
   const original = raw.replace(/\s+/g, " ").trim();
+  // BBVA recorta el nombre a unos 20 caracteres ("Mercado pago*merc"): lo que queda detrás de "*" no dice nada, vale más la pasarela
+  const truncatedGateway = /^(mercado\s?pago)\s*\*\s*[a-z]{1,4}$/i.exec(original);
+  if (truncatedGateway) return truncatedGateway[1];
   let s = original;
   for (let i = 0; i < 3; i++) for (const re of GATEWAY_PREFIXES) s = s.replace(re, "");
   s = s

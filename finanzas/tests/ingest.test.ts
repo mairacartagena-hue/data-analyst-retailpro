@@ -30,6 +30,8 @@ describe("comercios", () => {
     expect(cleanMerchant("PAYU*RAPPI COLOMBIA")).toBe("Rappi Colombia");
     expect(cleanMerchant("MERCADOPAGO*TIENDA XYZ BOGOTA CO")).toBe("Tienda Xyz");
     expect(cleanMerchant("GOOGLE *YouTube")).toBe("YouTube");
+    // BBVA recorta el nombre: detrás de "*" solo queda un pedazo, así que se deja la pasarela
+    expect(cleanMerchant("Mercado pago*merc")).toBe("Mercado pago");
     expect(cleanMerchant("  ")).toBeNull();
     expect(cleanMerchant("Wompi SAS")).toBe("Wompi");
     expect(cleanMerchant("S.A.S")).toBe("S.A.S");
