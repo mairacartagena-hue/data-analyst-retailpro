@@ -188,7 +188,7 @@ function InstallmentChecks({ account, checks, fixing, onLink, onUnlink, onSepara
 /** `crossCheck`: en el Cierre del mes muestra los valores del extracto y su cruce; en la tarjeta solo las compras a cuotas. */
 export function CardStatementPdf({ account, onBalance, onPayoff, onStatus, crossCheck = false, incoming = null, onFile, rows = false, month, idleNote }: {
   account: Account; onBalance?: (v: number) => void;
-  /** Avisa si el extracto leído trae el "pago total" (con intereses y cargos) en vez del saldo de capital (Addi): la deuda no se compara con él. */
+  /** Avisa si el extracto leído trae el "pago total" (lo que se paga para saldar todo ese día) en vez del saldo de capital (Addi): la deuda no se compara con él. */
   onPayoff?: (payoff: boolean) => void; onStatus?: (s: string | null) => void; crossCheck?: boolean;
   /** Revisión de la tarjeta en un solo paso: no trae su propio botón de subir (lee el `incoming`) y muestra dos filas, Deuda y Cuotas, con el detalle plegado. */
   rows?: boolean;
@@ -241,7 +241,7 @@ export function CardStatementPdf({ account, onBalance, onPayoff, onStatus, cross
   // Resumen de la deuda en una línea (fila "Deuda"): se recalcula al corregir los valores
   const debtResult = useMemo((): { text: string; tone: RowTone } | null => {
     if (!read) return null;
-    // Addi no trae el saldo de capital y su "pago total" incluye intereses y cargos: no hay deuda con qué comparar la de la app aquí
+    // Addi no trae el saldo de capital y su "pago total" es para saldar todo ese día: no hay deuda con qué comparar la de la app aquí
     if (payoff) return { text: "Addi no trae el saldo de capital: compáralo abajo con tu app de Addi", tone: "idle" };
     const st = statementOf(account.id, draft);
     if (!st) return { text: "Falta la fecha de corte para compararla", tone: "warn" };
@@ -284,8 +284,8 @@ export function CardStatementPdf({ account, onBalance, onPayoff, onStatus, cross
       setExtracted(r.purchases);
       const s = (v?: number) => (v === undefined ? "" : String(v));
       const isPayoff = !!r.debtIsPayoff || isPayoffIssuer(r.institution, account.institution, account.name);
-      // El "pago total" de Addi trae intereses y cargos además del capital: no es la deuda con que se compara la de la app
-      setDraft({ cut: r.statementDate ?? "", due: r.dueDate ?? "", minimum: s(r.minimumPayment), total: s(r.totalPayment), debt: isPayoff ? "" : s(r.totalDebt) });
+      // El "pago total" de Addi es lo que se paga para saldar todo ese día, no el saldo de capital: no se lee ni se compara; queda en blanco para anotarlo a mano
+      setDraft({ cut: r.statementDate ?? "", due: r.dueDate ?? "", minimum: s(r.minimumPayment), total: isPayoff ? "" : s(r.totalPayment), debt: isPayoff ? "" : s(r.totalDebt) });
       if (r.totalDebt !== undefined && !isPayoff) onBalance?.(r.totalDebt);
       onPayoff?.(isPayoff);
       onStatus?.(`Extracto leído${body.source === "local" ? " directo del PDF" : ""}: revisa el cruce de la deuda abajo`);
@@ -356,7 +356,7 @@ export function CardStatementPdf({ account, onBalance, onPayoff, onStatus, cross
               <p className="text-muted">Esto es lo que leí del extracto; puedes corregirlo. No se guarda.</p>
               <StatementFields value={draft} onChange={setDraft} capitalOnly={payoff} />
               {payoff
-                ? <p className="text-muted">Addi no trae el saldo de capital, y su “pago total” incluye intereses, fianza y otros cargos: por eso no lo comparo con la deuda de la app. El saldo de capital lo escribes una sola vez, abajo, como lo ves en la app de Addi. Las cuotas de cada compra se revisan en “Cuotas”.</p>
+                ? <p className="text-muted">Addi no trae el saldo de capital, y su “pago total” es lo que se paga para saldar todo ese día (cambia con la fecha): por eso no lo leo ni lo comparo con la deuda de la app. El campo “Pago total” de arriba queda vacío para que lo escribas a mano si quieres verlo aquí (no se compara ni se guarda). El saldo de capital lo escribes una sola vez, abajo, como lo ves en la app de Addi. Las cuotas de cada compra se revisan en “Cuotas”.</p>
                 : <StatementCrossCheck account={account} draft={draft} />}
             </>
           ) : !err && month ? <ManualCrossCheck account={account} month={month} /> : null}
