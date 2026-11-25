@@ -183,7 +183,7 @@ function AccountClose({ account, month, open, onToggle }: { account: Account; mo
   const isDebt = isCard || isCredit;
   const [bank, setBank] = useState("");
   const [movesStatus, setMovesStatus] = useState<string | null>(null);
-  // El extracto trae el "pago total" (con intereses y cargos) y no el saldo de capital (Addi): la deuda no se compara con él; el saldo que
+  // El extracto trae el "pago total" (para saldar todo ese día) y no el saldo de capital (Addi): la deuda no se compara con él; el saldo que
   // se pide es el de capital que la persona ve en la app del banco, y se pide una sola vez (aquí).
   // Addi se reconoce por el nombre de la cuenta (sin subir nada); otro emisor, cuando el extracto leído resulta ser así
   const payoffAccount = isPayoffIssuer(account.institution, account.name);
@@ -414,7 +414,7 @@ function AccountClose({ account, month, open, onToggle }: { account: Account; mo
 
           <Field
             label={payoffOnly ? `Saldo de capital que ves hoy en la app de ${account.institution || account.name}` : isCredit ? `Saldo de capital según el extracto al ${Number(range.end.slice(8))} de ${monthName(Number(month.slice(5)) - 1, true)}` : isCard ? `Deuda total según tu extracto${cutDate ? ` (corte del ${Number(cutDate.slice(8))})` : ""}` : `Saldo según tu banco al ${Number(range.end.slice(8))} de ${monthName(Number(month.slice(5)) - 1, true)}`}
-            hint={payoffOnly ? "El extracto no trae el saldo de capital y su “pago total” incluye intereses y cargos, así que no sirve para comparar. Escríbelo aquí una sola vez. Si todavía no pagas la cuota, la app puede deber un poco más por los intereses y la fianza ya registrados." : undefined}>
+            hint={payoffOnly ? "El extracto no trae el saldo de capital y su “pago total” es para saldar todo ese día, así que no sirve para comparar. Escríbelo aquí una sola vez. Si todavía no pagas la cuota, la app puede deber un poco más por los intereses y la fianza ya registrados." : undefined}>
             <AmountInput value={bank} onChange={setBank} />
           </Field>
 
