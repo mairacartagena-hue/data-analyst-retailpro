@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { AlertCircle, ArrowLeft, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Landmark, ListChecks, Receipt } from "lucide-react";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -182,7 +182,17 @@ function AccountClose({ account, month, open, onToggle }: { account: Account; mo
   const isDebt = isCard || isCredit;
   const [bank, setBank] = useState("");
   const [movesStatus, setMovesStatus] = useState<string | null>(null);
-  useEffect(() => { setMovesStatus(null); }, [month]);
+  // El extracto trae el "pago total" (con intereses y cargos) y no el saldo de capital (Addi): la deuda no se compara con él; el saldo que
+  // se pide es el de capital que la persona ve en la app del banco, y se pide una sola vez (aquí).
+  const [payoffOnly, setPayoffOnly] = useState(false);
+  const payoffRef = useRef(false);
+  useEffect(() => { setMovesStatus(null); setPayoffOnly(false); payoffRef.current = false; }, [month]);
+  function onPayoff(v: boolean) {
+    // Al leer un extracto así, lo que hubiera en el campo (de un cierre anterior, o el pago total) no es el capital: se limpia una vez
+    if (v && !payoffRef.current) setBank("");
+    payoffRef.current = v;
+    setPayoffOnly(v);
+  }
   const [fee, setFee] = useState<FeeKey | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -211,7 +221,8 @@ function AccountClose({ account, month, open, onToggle }: { account: Account; mo
 
   // Partidas conciliatorias: movimientos del mes que están en la app pero no en el saldo del banco o del extracto.
   // En tarjetas se sugieren los posteriores al día de corte (el banco los factura en el próximo extracto).
-  const cutDate = isCard && account.statement_day ? cycleRange(account.statement_day, month).end : null;
+  // Con el capital de la app de hoy no hay corte: lo posterior al corte ya está en ese saldo, así que no se marca como partida
+  const cutDate = isCard && !payoffOnly && account.statement_day ? cycleRange(account.statement_day, month).end : null;
   const savedIds = (rec?.reconciling_items ?? []).flatMap((i) => (i.transaction_id ? [i.transaction_id] : []));
   const defaultPicked = (rec?.reconciling_items?.length ? savedIds : cutDate ? st.items.filter((t) => t.occurred_on > cutDate).map((t) => t.id) : []).join(",");
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -389,7 +400,7 @@ function AccountClose({ account, month, open, onToggle }: { account: Account; mo
             </p>
           )}
 
-          {isCard && <CardReview key={month} account={account} month={month} onBalance={(v) => setBank(String(v))} carryOver={prevItems} />}
+          {isCard && <CardReview key={month} account={account} month={month} onBalance={(v) => setBank(String(v))} onPayoff={onPayoff} carryOver={prevItems} />}
           {!isCredit && !isCard && (
             <ReconcileStep icon={<ListChecks size={15} />} title="Revisar los movimientos" done={movesStatus}
               question="¿Están todas tus entradas y salidas? Sube el Excel o CSV de movimientos del banco y te digo cuáles faltan en la app o están repetidos.">
@@ -397,14 +408,16 @@ function AccountClose({ account, month, open, onToggle }: { account: Account; mo
             </ReconcileStep>
           )}
 
-          <Field label={isCredit ? `Saldo de capital según el extracto al ${Number(range.end.slice(8))} de ${monthName(Number(month.slice(5)) - 1, true)}` : isCard ? `Deuda total según tu extracto${cutDate ? ` (corte del ${Number(cutDate.slice(8))})` : ""}` : `Saldo según tu banco al ${Number(range.end.slice(8))} de ${monthName(Number(month.slice(5)) - 1, true)}`}>
+          <Field
+            label={payoffOnly ? `Saldo de capital que ves hoy en la app de ${account.institution || account.name}` : isCredit ? `Saldo de capital según el extracto al ${Number(range.end.slice(8))} de ${monthName(Number(month.slice(5)) - 1, true)}` : isCard ? `Deuda total según tu extracto${cutDate ? ` (corte del ${Number(cutDate.slice(8))})` : ""}` : `Saldo según tu banco al ${Number(range.end.slice(8))} de ${monthName(Number(month.slice(5)) - 1, true)}`}
+            hint={payoffOnly ? "El extracto no trae el saldo de capital y su “pago total” incluye intereses y cargos, así que no sirve para comparar. Escríbelo aquí una sola vez. Si todavía no pagas la cuota, la app puede deber un poco más por los intereses y la fianza ya registrados." : undefined}>
             <AmountInput value={bank} onChange={setBank} />
           </Field>
 
           {!isCredit && diff !== null && (diff !== 0 || picked.size > 0) && st.items.length > 0 && (
             <Collapsible title="Partidas conciliatorias" summary={picked.size ? `${picked.size} · ${formatCop(Math.abs(pickedEffect))}` : undefined} defaultOpen={picked.size > 0}>
               <p className="text-xs text-muted">
-                Marca los movimientos del mes que están en la app pero todavía no en {isCard ? "el extracto" : "el saldo del banco"}.
+                Marca los movimientos del mes que están en la app pero todavía no en {payoffOnly ? "el saldo de la app de Addi" : isCard ? "el extracto" : "el saldo del banco"}.
                 {cutDate ? ` Las compras y pagos después del corte (${Number(cutDate.slice(8))} de ${monthName(Number(month.slice(5)) - 1, true)}) ya vienen marcadas: el banco las cobra en el próximo extracto.` : ""}
               </p>
               <ul className="max-h-72 divide-y divide-border overflow-y-auto rounded-2xl border border-border bg-surface">
@@ -422,14 +435,14 @@ function AccountClose({ account, month, open, onToggle }: { account: Account; mo
                 })}
               </ul>
               <dl className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs">
-                <dt className="text-muted">{isCard ? "Extracto" : "Banco"}</dt><dd className="num text-right">{formatCop(bankValue ?? 0)}</dd>
+                <dt className="text-muted">{payoffOnly ? "Saldo de Addi" : isCard ? "Extracto" : "Banco"}</dt><dd className="num text-right">{formatCop(bankValue ?? 0)}</dd>
                 <dt className="text-muted">Partidas conciliatorias</dt><dd className="num text-right">{(isDebt ? -pickedEffect : pickedEffect) >= 0 ? "+" : "−"}{formatCop(Math.abs(pickedEffect))}</dd>
                 <dt className="font-semibold">Igual a la app</dt><dd className={cn("num text-right font-semibold", rest !== 0 && "text-warning")}>{formatCop((bankValue ?? 0) + (isDebt ? -pickedEffect : pickedEffect))}{rest === 0 ? " ✓" : ""}</dd>
               </dl>
             </Collapsible>
           )}
 
-          {!isCredit && (
+          {!isCredit && !payoffOnly && (
             <BankAppCheck account={account} isDebt={isDebt} extractValue={bankValue} extractDate={cutDate ?? range.end}
               value={bankApp} onValue={setBankApp} date={bankAppDate} onDate={setBankAppDate}
               onSave={rec && bankAppValue !== null && !savedBankApp ? saveBankAppOnly : undefined} busy={busy} />

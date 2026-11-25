@@ -16,7 +16,11 @@ const ACCEPT = ".csv,.txt,.xlsx,text/csv,text/plain,application/vnd.openxmlforma
  * También acepta Excel o CSV: ese archivo solo trae movimientos, así que revisa los movimientos y las filas Deuda y Cuotas piden el PDF.
  */
 
-export function CardReview({ account, month, onBalance, carryOver }: { account: Account; month: string; onBalance: (v: number) => void; carryOver?: ReconcilingItem[] }) {
+export function CardReview({ account, month, onBalance, onPayoff, carryOver }: {
+  account: Account; month: string; onBalance: (v: number) => void;
+  /** El extracto trae el pago total (con intereses y cargos) y no el saldo de capital: el cierre pide el capital de la app del banco. */
+  onPayoff?: (payoff: boolean) => void; carryOver?: ReconcilingItem[];
+}) {
   // `from`: dónde se subió. Quien lo subió ya lo está leyendo; los demás lo leen al enterarse.
   const [file, setFile] = useState<{ file: File; from: "bar" | "moves" } | null>(null);
   const [movesOpen, setMovesOpen] = useState(false);
@@ -36,7 +40,7 @@ export function CardReview({ account, month, onBalance, carryOver }: { account: 
           onChange={(e) => { const f = e.target.files?.[0]; if (f) setFile({ file: f, from: "bar" }); e.target.value = ""; }} />
       </label>
       <div className="flex flex-col gap-2">
-        <CardStatementPdf key={sheet ? `sheet-${file!.file.name}-${file!.file.lastModified}` : "doc"} rows crossCheck account={account} month={month} onBalance={onBalance}
+        <CardStatementPdf key={sheet ? `sheet-${file!.file.name}-${file!.file.lastModified}` : "doc"} rows crossCheck account={account} month={month} onBalance={onBalance} onPayoff={onPayoff}
           incoming={file && isDoc(file.file) ? file.file : null} idleNote={sheet ? "El Excel o CSV no trae la deuda ni las cuotas: sube el PDF o una foto para revisarlas" : undefined} />
         <ReviewRow order={2} title="Movimientos" status={movesRow.text} tone={movesRow.tone} onClick={() => setMovesOpen(true)} />
       </div>

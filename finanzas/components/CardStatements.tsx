@@ -36,15 +36,15 @@ export function statementOf(accountId: string, d: StatementDraft): CardStatement
 }
 
 /** Campos del extracto, editables. */
-export function StatementFields({ value, onChange }: { value: StatementDraft; onChange: (v: StatementDraft) => void }) {
+export function StatementFields({ value, onChange, capitalOnly = false }: { value: StatementDraft; onChange: (v: StatementDraft) => void; capitalOnly?: boolean }) {
   const set = (k: keyof StatementDraft) => (v: string) => onChange({ ...value, [k]: v });
   return (
     <div className="grid grid-cols-2 gap-2">
       <Field label="Fecha de corte"><Input type="date" value={value.cut} onChange={(e) => set("cut")(e.target.value)} /></Field>
       <Field label="Fecha de pago"><Input type="date" value={value.due} onChange={(e) => set("due")(e.target.value)} /></Field>
       <Field label="Pago mínimo"><AmountInput value={value.minimum} onChange={set("minimum")} /></Field>
-      <Field label="Pago total"><AmountInput value={value.total} onChange={set("total")} /></Field>
-      <div className="col-span-2"><Field label="Deuda total del extracto"><AmountInput value={value.debt} onChange={set("debt")} /></Field></div>
+      {!capitalOnly && <Field label="Pago total"><AmountInput value={value.total} onChange={set("total")} /></Field>}
+      {!capitalOnly && <div className="col-span-2"><Field label="Deuda total del extracto"><AmountInput value={value.debt} onChange={set("debt")} /></Field></div>}
     </div>
   );
 }
