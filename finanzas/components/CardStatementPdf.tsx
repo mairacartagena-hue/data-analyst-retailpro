@@ -197,7 +197,7 @@ export function CardStatementPdf({ account, onBalance, onStatus, crossCheck = fa
       const payload = isPdf ? { data: await toBase64(file), mime: "application/pdf" } : await shrink(file, 2400);
       if (payload.data.length > 4_200_000) throw new Error("El archivo es muy pesado (máximo ~3 MB). Prueba con una foto o el PDF del banco.");
       const res = await fetch("/api/card-statement", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, today: todayBogota() }) });
-      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; result?: CardStatementData; error?: string };
+      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; result?: CardStatementData; error?: string; source?: string };
       if (!body.ok || !body.result) throw new Error(body.error ?? "No se pudo leer el extracto.");
       const r = body.result;
       if (r.totalDebt === undefined && r.minimumPayment === undefined && r.purchases.length === 0) throw new Error("No encontré la deuda ni las compras a cuotas en ese archivo.");
@@ -206,7 +206,7 @@ export function CardStatementPdf({ account, onBalance, onStatus, crossCheck = fa
       const s = (v?: number) => (v === undefined ? "" : String(v));
       setDraft({ cut: r.statementDate ?? "", due: r.dueDate ?? "", minimum: s(r.minimumPayment), total: s(r.totalPayment), debt: s(r.totalDebt) });
       if (r.totalDebt !== undefined) onBalance?.(r.totalDebt);
-      onStatus?.("Extracto leído: revisa el cruce de la deuda abajo");
+      onStatus?.(`Extracto leído${body.source === "local" ? " directo del PDF" : ""}: revisa el cruce de la deuda abajo`);
     } catch (e) {
       setErr(errMsg(e));
     } finally {

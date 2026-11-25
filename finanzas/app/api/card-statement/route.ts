@@ -1,8 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireApiMember } from "@/lib/supabase/server";
 import { readCardStatement, readCardStatementLines } from "@/lib/capture/cardStatementGemini";
+import { readCardStatementLocal } from "@/lib/capture/cardStatementLocal";
 
-// Importar el extracto de una tarjeta de crédito: Gemini lo lee y la app muestra lo leído para revisarlo.
+// Importar el extracto de una tarjeta de crédito y mostrar lo leído para revisarlo. Un PDF de un banco conocido (BBVA) se lee directo,
+// sin IA; si es otro banco, una foto, o la lectura no cuadra con el resumen del propio extracto, lo lee Gemini.
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
@@ -21,8 +23,10 @@ export async function POST(req: NextRequest) {
   if (data.length > MAX_BASE64) return NextResponse.json({ ok: false, error: "El archivo es muy pesado (máximo ~3 MB)." }, { status: 413 });
   // mode "lines": segunda lectura (movimientos del periodo para cruzarlos con la app); por defecto, totales y compras diferidas
   const lines = body?.mode === "lines";
+  const local = await readCardStatementLocal({ data, mime }, today);
+  if (local) return NextResponse.json({ ok: true, source: "local", bank: local.bank, result: lines ? local.lines : local.statement });
   try {
-    return NextResponse.json({ ok: true, result: lines ? await readCardStatementLines({ data, mime }, today) : await readCardStatement({ data, mime }, today) });
+    return NextResponse.json({ ok: true, source: "gemini", result: lines ? await readCardStatementLines({ data, mime }, today) : await readCardStatement({ data, mime }, today) });
   } catch (e) {
     return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 502 });
   }
