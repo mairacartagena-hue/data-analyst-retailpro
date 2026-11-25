@@ -1,19 +1,61 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { FileUp } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
+import { useShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { StatementCrossCheck, StatementFields, emptyDraft, type StatementDraft } from "@/components/CardStatements";
 import type { Account } from "@/lib/types";
 import type { CardStatementData, CardStatementPurchase } from "@/lib/capture/cardStatement";
-import { knownItem, registeredTx } from "@/lib/finance/cardStatements";
+import { checkInstallments, knownItem, registeredTx, type InstallmentCheck, type InstallmentDiff, type InstallmentVerdict } from "@/lib/finance/cardStatements";
 import { installmentsOf } from "@/lib/finance/installments";
 import { openingDay } from "@/lib/finance/cardBudget";
 import { formatCop } from "@/lib/finance/money";
 import { todayBogota } from "@/lib/finance/periods";
 import { shrink, toBase64 } from "@/lib/capture/file";
 import { cn, errMsg } from "@/lib/utils";
+
+const VERDICT_LABEL: Record<Exclude<InstallmentVerdict, "OK">, string> = { DIFFERS: "Difiere", ONLY_EXTRACT: "Solo en el extracto", ONLY_APP: "Solo en la app" };
+const FIELD_LABEL: Record<InstallmentDiff["field"], string> = { installments: "Total de cuotas", current: "Cuota de este extracto", balance: "Saldo pendiente" };
+const diffValue = (field: InstallmentDiff["field"], n: number) => (field === "balance" ? formatCop(n) : String(n));
+
+/** Cuotas: lo que dice el extracto contra lo que tiene la app, compra por compra. No guarda ni cambia nada. */
+function InstallmentChecks({ checks }: { checks: InstallmentCheck[] }) {
+  const { openTransaction } = useShell();
+  const bad = checks.filter((c) => c.verdict !== "OK");
+  const ok = checks.length - bad.length;
+  return (
+    <div className="space-y-1.5">
+      <p className="font-medium">Cuotas: extracto vs. app</p>
+      <p className={cn("rounded-lg px-2 py-1", bad.length === 0 ? "bg-olive-soft" : "bg-warning-soft")}>
+        {bad.length === 0
+          ? `Las ${ok} compra${ok === 1 ? "" : "s"} a cuotas cuadran: total de cuotas, cuota de este extracto y saldo pendiente.`
+          : `${bad.length} para revisar · ${ok} cuadra${ok === 1 ? "" : "n"}`}
+      </p>
+      {bad.length > 0 && (
+        <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-surface">
+          {bad.map((c, i) => (
+            <li key={c.purchase ? `${c.purchase.description}|${c.purchase.purchaseDate}|${c.purchase.amount}|${i}` : `app-${c.tx?.id ?? i}`} className="space-y-0.5 px-3 py-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="min-w-0 truncate font-medium">{c.purchase?.description ?? c.tx?.merchant ?? c.tx?.description ?? "Compra"}</span>
+                <span className="shrink-0 text-warning">{VERDICT_LABEL[c.verdict as Exclude<InstallmentVerdict, "OK">]}</span>
+              </div>
+              {c.diffs.map((d) => (
+                <p key={d.field} className="text-muted">{FIELD_LABEL[d.field]}: la app {diffValue(d.field, d.app)} · el extracto {diffValue(d.field, d.extract)}</p>
+              ))}
+              {c.verdict === "ONLY_EXTRACT" && <p className="text-muted">No está en la app ni en las compras guardadas de la tarjeta: puedes agregarla abajo.</p>}
+              {c.verdict === "ONLY_APP" && c.tx && (
+                <p className="text-muted">Compra del {c.tx.occurred_on} a {c.tx.installments} cuotas ({formatCop(c.tx.amount)}): ya debería venir en este extracto y no viene.</p>
+              )}
+              {c.tx && <button className="text-olive underline" onClick={() => openTransaction(c.tx!)}>Abrir el movimiento</button>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 /**
  * La IA lee el extracto de la tarjeta (PDF o foto). Ni el archivo ni los valores del extracto se guardan:
@@ -29,6 +71,8 @@ export function CardStatementPdf({ account, onBalance, onStatus, crossCheck = fa
   const [read, setRead] = useState<CardStatementData | null>(null);
   const [draft, setDraft] = useState<StatementDraft>(emptyDraft);
   const [notice, setNotice] = useState<string | null>(null);
+  // Compras a cuotas tal como las leyó el extracto (se conservan después de agregarlas a la proyección para seguir comparándolas)
+  const [extracted, setExtracted] = useState<CardStatementPurchase[]>([]);
 
   const purchases = read?.purchases ?? [];
   const inCard = (p: CardStatementPurchase) => !!knownItem(p, cardItems, account.id);
@@ -38,12 +82,18 @@ export function CardStatementPdf({ account, onBalance, onStatus, crossCheck = fa
   };
   const fresh = purchases.filter((p) => !inCard(p) && !inApp(p));
   const already = purchases.length - fresh.length;
+  const cutDate = /^\d{4}-\d{2}-\d{2}$/.test(draft.cut) ? draft.cut : null;
+  const checks = useMemo(
+    () => (crossCheck && read ? checkInstallments(account, transactions, cardItems, extracted, cutDate) : []),
+    [crossCheck, read, account, transactions, cardItems, extracted, cutDate],
+  );
 
   async function pick(file: File | undefined) {
     if (!file) return;
     setErr(null);
     setNotice(null);
     setRead(null);
+    setExtracted([]);
     if (!navigator.onLine) return setErr("Sin conexión: para leer el extracto necesitas internet.");
     setBusy(true);
     try {
@@ -56,6 +106,7 @@ export function CardStatementPdf({ account, onBalance, onStatus, crossCheck = fa
       const r = body.result;
       if (r.totalDebt === undefined && r.minimumPayment === undefined && r.purchases.length === 0) throw new Error("No encontré la deuda ni las compras a cuotas en ese archivo.");
       setRead(r);
+      setExtracted(r.purchases);
       const s = (v?: number) => (v === undefined ? "" : String(v));
       setDraft({ cut: r.statementDate ?? "", due: r.dueDate ?? "", minimum: s(r.minimumPayment), total: s(r.totalPayment), debt: s(r.totalDebt) });
       if (r.totalDebt !== undefined) onBalance?.(r.totalDebt);
@@ -106,6 +157,7 @@ export function CardStatementPdf({ account, onBalance, onStatus, crossCheck = fa
               <p className="font-medium">Lo que leí (puedes corregirlo; no se guarda):</p>
               <StatementFields value={draft} onChange={setDraft} />
               <StatementCrossCheck account={account} draft={draft} />
+              {checks.length > 0 && <InstallmentChecks checks={checks} />}
             </>
           )}
           {onBalance && read.totalDebt !== undefined && <p className="text-muted">Ya puse la deuda abajo como deuda según tu extracto.</p>}

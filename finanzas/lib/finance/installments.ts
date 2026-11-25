@@ -185,6 +185,17 @@ export function billingDue(statementDay: number, dueDay: number, purchase: strin
 }
 
 /**
+ * Corte (AAAA-MM-DD) del extracto que factura por primera vez una compra hecha el día `purchase`: el primer corte desde
+ * esa fecha (el mismo día del corte entra). Es el corte de `billingDue`, sin pasar a la fecha de pago.
+ */
+export function billingCut(statementDay: number, purchase: string): string {
+  let [y, m] = purchase.split("-").map(Number);
+  let cut = dayOfMonth(y, m, statementDay);
+  if (purchase > cut) { if (m === 12) { y++; m = 1; } else m++; cut = dayOfMonth(y, m, statementDay); }
+  return cut;
+}
+
+/**
  * Fechas de pago de la tarjeta que caen dentro del periodo y el corte del extracto que se paga ese día
  * (el último corte anterior a la fecha de pago). Ej.: corte el 20 y pago el 5 → el extracto del 20-sep se paga el 5-oct.
  */
