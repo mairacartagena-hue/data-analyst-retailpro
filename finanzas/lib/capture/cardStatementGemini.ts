@@ -2,7 +2,7 @@ import "server-only";
 
 // Gemini lee el extracto de una tarjeta de crédito (PDF o foto). El archivo no se guarda en ningún lado.
 
-import { firstReadWithLines, sanitizeCardLines, sanitizeCardStatement, type CardLinesData, type CardStatementData } from "./cardStatement";
+import { firstReadWithLines, firstReadWithPurchases, sanitizeCardLines, sanitizeCardStatement, type CardLinesData, type CardStatementData } from "./cardStatement";
 import { GeminiError, geminiGenerate, geminiModels } from "@/lib/ai/geminiCall";
 
 const DEFAULT_MODEL = "gemini-flash-latest";
@@ -54,16 +54,20 @@ Los montos van en pesos como número: en Colombia "2.405.745,56" o "2,405,745.56
 
 export async function readCardStatement(file: { data: string; mime: string }, today: string): Promise<CardStatementData> {
   const models = geminiModels(process.env.GEMINI_ASSISTANT_MODEL || DEFAULT_MODEL, process.env.GEMINI_MODEL);
-  const out = await geminiGenerate(models, {
+  const body = {
     systemInstruction: { parts: [{ text: INSTRUCTIONS }] },
     contents: [{ role: "user", parts: [{ inlineData: { mimeType: file.mime, data: file.data } }] }],
     generationConfig: { responseMimeType: "application/json", responseSchema: schema, temperature: 0 },
-  }, { timeoutMs: 40_000, deadlineMs: 55_000 });
-  try {
-    return sanitizeCardStatement(JSON.parse(out) as Record<string, unknown>, today);
-  } catch {
-    throw new Error("No se pudo leer el extracto. Prueba con una foto más nítida o el PDF del banco.");
-  }
+  };
+  // Un modelo saturado o liviano a veces devuelve la deuda y la lista de compras vacía: se prueba el siguiente mientras alcance el tiempo
+  return firstReadWithPurchases(models, async (model, left) => {
+    const out = await geminiGenerate([model], body, { timeoutMs: Math.min(40_000, left), deadlineMs: left });
+    try {
+      return sanitizeCardStatement(JSON.parse(out) as Record<string, unknown>, today);
+    } catch {
+      throw new Error("No se pudo leer el extracto. Prueba con una foto más nítida o el PDF del banco.");
+    }
+  });
 }
 
 // ───────────────────── Movimientos del periodo (segunda lectura, opcional) ─────────────────────
