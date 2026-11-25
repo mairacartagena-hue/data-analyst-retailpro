@@ -160,7 +160,7 @@ export function CardStatementPdf({ account, onBalance, onStatus, crossCheck = fa
     () => (crossCheck && read && extracted.length > 0 ? checkInstallments(account, transactions, cardItems, extracted, cutDate, links, apart) : []),
     [crossCheck, read, account, transactions, cardItems, extracted, cutDate, links, apart],
   );
-  const noPurchasesRead = crossCheck && !!read && extracted.length === 0;
+  const noPurchasesRead = crossCheck && !!read && extracted.length === 0 && !read.installmentsNote;
   // Resumen de la deuda en una línea (fila "Deuda"): se recalcula al corregir los valores
   const debtResult = useMemo((): { text: string; tone: RowTone } | null => {
     if (!read) return null;
@@ -252,6 +252,7 @@ export function CardStatementPdf({ account, onBalance, onStatus, crossCheck = fa
     const debtRow = busy && !read ? reading : failed ?? debtResult ?? { text: idleNote ?? "Sube el extracto o escribe los valores a mano", tone: "idle" as RowTone };
     const instRow = busy && !read ? reading : failed
       ?? (!read ? { text: idleNote ?? "Sube el extracto para comparar las compras a cuotas", tone: "idle" as RowTone }
+        : read.installmentsNote && extracted.length === 0 ? { text: "Este extracto no trae las cuotas por compra (toca para ver)", tone: "idle" as RowTone }
         : noPurchasesRead ? { text: "No pude leer las compras a cuotas (toca para volver a leer)", tone: "warn" as RowTone }
         : needs === 0 ? { text: `Las ${checks.length} compra${checks.length === 1 ? "" : "s"} a cuotas cuadran`, tone: "ok" as RowTone }
         : { text: `${needs} por revisar · ${checks.length - needs} cuadra${checks.length - needs === 1 ? "" : "n"}`, tone: "warn" as RowTone });
@@ -274,6 +275,7 @@ export function CardStatementPdf({ account, onBalance, onStatus, crossCheck = fa
           {err && !read && <><p className="text-danger">{err}</p>{retry}</>}
           {notice && <p className="text-olive">{notice}</p>}
           {err && read && <p className="text-danger">{err}</p>}
+          {read?.installmentsNote && extracted.length === 0 && <p className="text-muted">{read.installmentsNote}</p>}
           {noPurchasesRead && (
             <div className="space-y-1.5 rounded-xl bg-warning-soft px-3 py-2">
               <p className="font-medium">No pude leer ninguna compra a cuotas de este extracto.</p>

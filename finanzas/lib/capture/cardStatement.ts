@@ -31,6 +31,8 @@ export interface CardStatementData {
   rateEa?: number;
   /** Compras diferidas a cuotas que siguen pendientes. */
   purchases: CardStatementPurchase[];
+  /** Si el extracto no imprime el plan de cuotas por compra (Addi), por qué: no es un fallo de la lectura. */
+  installmentsNote?: string;
   /** Cuántas filas de compras devolvió la IA antes de validarlas (para distinguir "no vio ninguna" de "ninguna pasó la validación"). */
   rawPurchases?: number;
 }

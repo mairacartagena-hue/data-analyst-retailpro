@@ -138,7 +138,7 @@ describe("extracto BBVA: lectura local", () => {
     const local = readLocalCardStatement(statement(), TODAY);
     expect(local?.bank).toBe("BBVA");
     expect(local?.statement.totalDebt).toBe(1_397_000);
-    expect(local?.lines.lines).toHaveLength(6);
+    expect(local?.lines?.lines).toHaveLength(6);
   });
 
   it("una fila con fecha pero sin valor se cuenta aparte y no se inventa", () => {

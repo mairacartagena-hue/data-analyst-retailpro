@@ -22,6 +22,8 @@ export interface CreditStatementData {
   amountDue?: number;
   /** Valor inicial del crédito (desembolso), si aparece. */
   originalAmount?: number;
+  /** Valor para cancelar todo el crédito a la fecha del extracto (incluye intereses causados), si aparece. */
+  payoffAmount?: number;
 }
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -48,6 +50,7 @@ export function sanitizeCreditStatement(raw: Record<string, unknown>): CreditSta
   r.monthlyCosts = typeof raw.monthly_costs === "number" && raw.monthly_costs >= 0 && raw.monthly_costs < 1_000_000_000 ? Math.round(raw.monthly_costs * 100) / 100 : undefined;
   r.amountDue = money(raw.amount_due);
   r.originalAmount = money(raw.original_amount);
+  r.payoffAmount = money(raw.payoff_amount);
   if (r.termMonths && r.installmentsPending !== undefined && r.installmentsPending > r.termMonths) r.installmentsPending = undefined;
   for (const k of Object.keys(r) as (keyof CreditStatementData)[]) if (r[k] === undefined) delete r[k];
   return r;

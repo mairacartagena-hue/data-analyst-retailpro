@@ -1231,13 +1231,22 @@ function CreditStatementImport({ account, onData }: { account: Account | null; o
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [read, setRead] = useState<CreditStatementData | null>(null);
+  const [direct, setDirect] = useState(false);
   const [adjusted, setAdjusted] = useState(false);
+  // El extracto de Addi no imprime el saldo a capital: se escribe a mano o se le pide a la IA (se guarda el archivo para eso)
+  const [payload, setPayload] = useState<{ data: string; mime: string } | null>(null);
+  const [manualCapital, setManualCapital] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
+  const [capitalNote, setCapitalNote] = useState<string | null>(null);
 
   async function pick(file: File | undefined) {
     if (!file) return;
     setErr(null);
     setRead(null);
     setAdjusted(false);
+    setPayload(null);
+    setManualCapital("");
+    setCapitalNote(null);
     if (!navigator.onLine) return setErr("Sin conexión: para leer el extracto necesitas internet.");
     setBusy(true);
     try {
@@ -1245,15 +1254,56 @@ function CreditStatementImport({ account, onData }: { account: Account | null; o
       const payload = isPdf ? { data: await toBase64(file), mime: "application/pdf" } : await shrink(file, 2400);
       if (payload.data.length > 4_200_000) throw new Error("El archivo es muy pesado (máximo ~3 MB). Prueba con una foto o el PDF del banco.");
       const res = await fetch("/api/credit-statement", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; result?: CreditStatementData; error?: string };
+      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; source?: string; result?: CreditStatementData; error?: string };
       if (!body.ok || !body.result) throw new Error(body.error ?? "No se pudo leer el extracto.");
       if (Object.keys(body.result).length === 0) throw new Error("No encontré datos del crédito en ese archivo.");
+      setDirect(body.source === "local");
+      setPayload(payload);
       setRead(body.result);
       onData(body.result);
     } catch (e) {
       setErr(errMsg(e));
     } finally {
       setBusy(false);
+    }
+  }
+
+  /** Pone el saldo a capital (escrito a mano o leído por la IA) en lo leído y en el formulario. */
+  function applyCapital(value: number) {
+    if (!read) return;
+    const next = { ...read, capitalBalance: value };
+    setRead(next);
+    setAdjusted(false);
+    onData({ capitalBalance: value, statementDate: next.statementDate });
+  }
+
+  function applyManualCapital() {
+    const v = Number(manualCapital);
+    if (!Number.isFinite(v) || v <= 0) return setCapitalNote("Escribe el saldo a capital.");
+    setCapitalNote(null);
+    applyCapital(v);
+  }
+
+  /** Segunda lectura del mismo archivo, esta vez con la IA, solo para el saldo a capital: lo demás queda como se leyó del PDF. */
+  async function capitalWithAi() {
+    if (!payload) return;
+    if (!navigator.onLine) return setCapitalNote("Sin conexión: para leerlo con la IA necesitas internet.");
+    setAiBusy(true);
+    setCapitalNote(null);
+    try {
+      const res = await fetch("/api/credit-statement", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, engine: "ai" }) });
+      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; result?: CreditStatementData; error?: string };
+      if (!body.ok || !body.result) throw new Error(body.error ?? "La IA no pudo leer el extracto.");
+      if (body.result.capitalBalance === undefined) {
+        setCapitalNote("La IA tampoco encontró el saldo a capital en el extracto. Escríbelo a mano (lo ves en la app de Addi).");
+      } else {
+        applyCapital(body.result.capitalBalance);
+        setCapitalNote("Saldo a capital leído con la IA: revísalo.");
+      }
+    } catch (e) {
+      setCapitalNote(errMsg(e));
+    } finally {
+      setAiBusy(false);
     }
   }
 
@@ -1288,6 +1338,7 @@ function CreditStatementImport({ account, onData }: { account: Account | null; o
     ["Seguros y costos", read.monthlyCosts !== undefined ? formatCop(Math.round(read.monthlyCosts)) : ""],
     ["Total a pagar", read.amountDue ? formatCop(Math.round(read.amountDue)) : ""],
     ["Valor inicial", read.originalAmount ? formatCop(Math.round(read.originalAmount)) : ""],
+    ["Pago total (para cancelar)", read.payoffAmount ? formatCop(Math.round(read.payoffAmount)) : ""],
   ].filter((r): r is [string, string] => !!r[1]) : [];
 
   return (
@@ -1298,13 +1349,26 @@ function CreditStatementImport({ account, onData }: { account: Account | null; o
         <input type="file" accept="application/pdf,image/*" className="hidden" disabled={busy}
           onChange={(e) => { void pick(e.target.files?.[0]); e.target.value = ""; }} />
       </label>
-      {!read && !err && <p className="text-xs text-muted">La IA lee el extracto del banco y llena tasa, cuotas, cuota, seguros y fechas. Revisa antes de guardar. El archivo no se guarda.</p>}
+      {!read && !err && <p className="text-xs text-muted">La app lee el extracto (los PDF de Addi directo, sin IA; los demás con IA) y llena tasa, cuotas, cuota, seguros y fechas. Revisa antes de guardar. El archivo no se guarda.</p>}
       {read && (
         <div className="space-y-2">
           <dl className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs">
             {rows.map(([k, v]) => (<Fragment key={k}><dt className="text-muted">{k}</dt><dd className="num text-right">{v}</dd></Fragment>))}
           </dl>
-          <p className="text-xs text-olive">Listo: revisa los campos de abajo y toca Guardar.</p>
+          <p className="text-xs text-olive">{direct ? "Leído directo del PDF (sin IA). " : ""}Listo: revisa los campos de abajo y toca Guardar.</p>
+          {read.capitalBalance === undefined && (
+            <div className="space-y-1.5 rounded-xl bg-warning-soft px-3 py-2 text-xs">
+              <p>El extracto no trae el saldo a capital. Escríbelo (lo ves en la app de la entidad) o pídeselo a la IA; sin él no se compara con el saldo de la app.</p>
+              <AmountInput value={manualCapital} onChange={setManualCapital} placeholder="Saldo a capital" />
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="outline" onClick={applyManualCapital} disabled={busy || aiBusy || !manualCapital}>Usar este saldo</Button>
+                {direct && payload && (
+                  <Button size="sm" variant="ghost" onClick={() => void capitalWithAi()} disabled={busy || aiBusy}>{aiBusy ? "Leyendo con IA…" : "Leer el capital con IA"}</Button>
+                )}
+              </div>
+            </div>
+          )}
+          {capitalNote && <p className="text-xs text-muted">{capitalNote}</p>}
           {account && appOwed !== null && read.capitalBalance !== undefined && (
             diff === 0 || adjusted ? (
               <p className="text-xs text-muted">{adjusted ? "Saldo ajustado al del extracto." : "El saldo de la app coincide con el extracto."}</p>
