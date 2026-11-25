@@ -170,7 +170,8 @@ describe("Lulo bank (correos reales)", () => {
   });
 
   it("correos de Lulo que no son movimientos no se inventan", () => {
-    expect(parseWithRules(luloMail("Tienes hasta $15,000,000 para desembolsar", "Solicita tu crédito desde la app")).parsed).toBeNull();
+    // Es una oferta de crédito: se descarta como publicidad (antes quedaba para Gemini), nunca como movimiento
+    expect(parseWithRules(luloMail("Tienes hasta $15,000,000 para desembolsar", "Solicita tu crédito desde la app")).parsed).toMatchObject({ kind: "IGNORE", ignoreReason: "Publicidad" });
   });
 });
 

@@ -128,14 +128,21 @@ export function maskSensitive(text: string): string {
 /** Mensajes que no son movimientos: códigos, claves, publicidad o transacciones no aprobadas. */
 export function detectIgnore(text: string): string | null {
   const t = fold(text);
+  // Token digital, tarjeta agregada o quitada de Google Pay, permiso de foto: avisos de seguridad sin monto
+  if (/\b(?:activaste|desactivaste|activacion de)\s+(?:tu\s+)?token\b|\btoken digital\b|\bagregaste con exito tu tarjeta a google pay\b|\beliminaste tu tarjeta de google pay\b|\bautorizaste el uso de tu foto\b/.test(t) &&
+      !/\$\s?\d/.test(t)) return "Aviso de seguridad";
   if (/\b(codigo|clave|otp|token)\b.{0,40}\b(verificacion|seguridad|dinamica|transaccional|es|:)/.test(t) &&
       !/\$\s?\d/.test(t)) return "Código o clave";
+  // Código para conectar la tarjeta a Google Pay ("###### es tu código de autenticación…")
+  if (/\bcodigo de autenticacion\b/.test(t) && !/\$\s?\d/.test(t)) return "Código o clave";
+  // El celular oculta el texto cuando la pantalla está bloqueada: no hay nada que leer (el aviso llega por otro canal)
+  if (/\bcontenido sensible\b/.test(t)) return "Notificación sin contenido";
   // Avisos de seguridad por inicio de sesión (app, banca virtual, canales digitales): no son movimientos
   if (/\b(inicio de sesion|iniciaste (?:otra |una )?sesion|nueva sesion|sesion iniciada|acabas de ingresar|has ingresado|ingresaste (?:a|en)|confirmacion de ingreso|ingreso (?:a|en) (?:tu |la |nuestros |nuestra )?(?:app|aplicacion|banca|canales|portal|sucursal)|ingreso app)\b/.test(t) &&
       !/\$\s?\d/.test(t)) return "Aviso de inicio de sesión";
   if (/\b(olvido de (?:la )?(?:contrasena|clave)|(?:cambio|cambiaste|recuperacion|restablec\w*) (?:de )?(?:tu |la )?(?:contrasena|clave))\b/.test(t) &&
       !/\$\s?\d/.test(t)) return "Aviso de seguridad";
-  if (/\b(rechazad[ao]|declinad[ao]|no (?:fue )?aprobad[ao]|fallid[ao]|no exitos[ao])\b/.test(t)) return "Transacción no aprobada";
+  if (/\b(rechazad[ao]|declinad[ao]|no (?:fue )?aprobad[ao]|fallid[ao]|no (?:fue )?exitos[ao]|no fue posible|no se pudo completar|no pudimos procesar|pago (?:con|en) error|tarjeta congelada|congelaste tu tarjeta|no se afecto)\b/.test(t)) return "Transacción no aprobada";
   // Promociones que piden comprar y ofrecen premios ("Haz 5 compras… aplican TyC"): no son movimientos.
   // Un aviso real va en pasado ("compraste", "pagaste"), así que esa palabra lo deja pasar.
   if (/\b(haz \d+\s+(?:compras|pagos|transacciones)|manten tu racha|racha|participa por|aplican (?:tyc|t&c|terminos)|valido hasta|que no se corte)\b/.test(t) &&
@@ -143,6 +150,14 @@ export function detectIgnore(text: string): string | null {
   if (/\b(aprovecha|promocion|descuento|cashback|oferta|gana|sorteo|felicitaciones)\b/.test(t) && !/\b(compra|pago|transferencia|retiro|recibiste|enviaste)\b/.test(t)) {
     return "Publicidad";
   }
+  const confirmed = /\b(compraste|pagaste|transferiste|recibiste|enviaste|retiraste|realizaste)\b/.test(t);
+  // Frases que solo aparecen en ofertas (Temu, Lulo, Nequi, BBVA…). Un aviso real va en pasado y no las usa.
+  if (!confirmed && /\b(?:ahorra con tus puntos|paga tu compra en .{0,60} con puntos|desembolsa tu credito|para desembolsar|podrias tener ya mismo|sin filas ni codeudor|trae tu plata de paypal|ahora puedes recargar|paga o recarga|recargar? (?:playstation|xbox|roblox)|ahora podras hacer pagos|cancelar suscripcion)\b/.test(t)) return "Publicidad";
+  // Ofertas con enlace y letra pequeña ("Hasta 50% OFF … TyC"); un comprobante real trae detalles de la operación
+  if (!confirmed && /https?:\/\/|\bapp\.temu\.com|\bma\.sv\//.test(t) && /\b\d+%\s*off\b|\bhasta \d+%|\btyc\b|\bt&c\b|\bparticipa por\b|\baplican terminos\b/.test(t) &&
+      !/\b(?:detalles de la operacion|comprobante|establecimiento|valor total|numero de transaccion|referencia)\b/.test(t)) return "Publicidad";
+  // Avisos informativos: el crédito de Addi se cedió a un fondo, o llegó el extracto del mes
+  if (/\bcedimos tu credito\b|\btu extracto del mes\b|\btus extractos (?:bbva|bancolombia)\b/.test(t) && !confirmed) return "Aviso informativo";
   return null;
 }
 
