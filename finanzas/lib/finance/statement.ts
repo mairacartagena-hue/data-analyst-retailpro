@@ -372,7 +372,7 @@ export interface AppEntry {
 
 export interface StatementReconciliation {
   /** `entry` es null cuando el cobro es tan pequeño que no hace falta registrarlo (menos de la tolerancia). */
-  matched: { line: StatementLine; entry: AppEntry | null; /** Coincide con una diferencia pequeña (comisión de cambio en compras internacionales). */ approx?: boolean; /** La persona la vinculó a mano. */ manual?: boolean }[];
+  matched: { line: StatementLine; entry: AppEntry | null; /** Coincide con una diferencia pequeña (comisión de cambio en compras internacionales). */ approx?: boolean; /** La persona la vinculó a mano. */ manual?: boolean; /** Cruzada por valor idéntico con fechas muy distintas (app en un mes, extracto en otro): días de diferencia. */ dateGap?: number }[];
   /** En el extracto y no en la app. */
   missing: StatementLine[];
   /** En la app y no en el extracto (del mes). */
@@ -387,11 +387,23 @@ const dayDiff = (a: string, b: string) => Math.abs(Date.parse(`${a}T00:00:00Z`) 
 
 const entryText = (e: AppEntry) => `${e.tx.description ?? ""} ${e.tx.merchant ?? ""}`;
 
+/** Cruce por valor: máximo de días entre la fecha de la app y la del extracto cuando el valor es idéntico (compras que la app dejó en un mes y el banco cobró en el siguiente). */
+export const VALUE_WINDOW_DAYS = 45;
+/** Por debajo de este valor, un monto igual no basta (hay muchas compras repetidas de $5.000): además debe coincidir el comercio. */
+export const VALUE_ONLY_MIN = 20_000;
+
+export interface ReconcileOptions {
+  /** Movimientos que el cierre anterior dejó como partidas conciliatorias: pueden estar fechados fuera del ciclo y aun así se cruzan por valor. */
+  carryTxIds?: Iterable<string>;
+  /** Parejas que la persona separó ("esta no es"): el cruce por valor no las vuelve a unir. */
+  apart?: { lineId: string; txId: string }[];
+}
+
 const STOP = new Set(["compra", "compras", "intl", "internacional", "pago", "pse", "qr", "transf", "transferencia", "transferencias", "banco", "sas", "ltda", "com", "www", "the", "del", "las", "los", "con", "por"]);
 const words = (t: string) => fold(t).split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !STOP.has(w));
 
 /** ¿La descripción del extracto (a menudo cortada) y el movimiento de la app hablan del mismo comercio? */
-function sameMerchant(statementText: string, appText: string): boolean {
+export function sameMerchant(statementText: string, appText: string): boolean {
   const b = words(appText);
   return words(statementText).some((a) => b.some((w) => (w.startsWith(a) || a.startsWith(w)) && Math.min(a.length, w.length) >= 3));
 }
@@ -408,10 +420,12 @@ function isChargeEntry(kind: LineKind, e: AppEntry): boolean {
  * Cruza el extracto con la app.
  *  · Líneas normales: mismo monto (con signo) y fecha dentro de `tolerance` días (el banco suele registrar un par de
  *    días después). Primero las de la misma fecha, luego 1 día de diferencia, etc., para que una línea no le robe su pareja a otra.
+ *  · Lo que queda sin pareja y vale exactamente lo mismo se une por VALOR aunque la fecha difiera mucho (compra que la app dejó
+ *    en octubre y el banco cobró en noviembre): ver `VALUE_WINDOW_DAYS` y `VALUE_ONLY_MIN`.
  *  · Intereses y 4x1000 (agrupados por mes): se compara el total del mes contra lo registrado en la app,
  *    con una tolerancia pequeña por redondeo; si falta algo, se propone solo la diferencia.
  */
-export function reconcileStatement(account: Account, txs: Transaction[], lines: StatementLine[], range: MonthRange, tolerance = 3): StatementReconciliation {
+export function reconcileStatement(account: Account, txs: Transaction[], lines: StatementLine[], range: MonthRange, tolerance = 3, opts: ReconcileOptions = {}): StatementReconciliation {
   const inRange = lines.filter((l) => l.date >= range.start && l.date <= range.end);
   const lo = addDays(range.start, -tolerance);
   const hi = addDays(range.end, tolerance);
@@ -469,8 +483,44 @@ export function reconcileStatement(account: Account, txs: Transaction[], lines: 
       .sort((a, b) => dayDiff(a.date, line.date) - dayDiff(b.date, line.date) || Math.abs(a.amount - line.amount) - Math.abs(b.amount - line.amount));
     if (near[0]) take(line, near[0], true);
   }
+  // Por valor: lo que sigue sin pareja y vale EXACTAMENTE lo mismo se une aunque las fechas difieran mucho (la app lo dejó en un
+  // mes y el banco lo cobró en el siguiente). Los más cercanos en fecha primero y uno a uno. Solo entra lo del mes que se
+  // cierra y las partidas conciliatorias del cierre anterior (que pueden estar fechadas antes del ciclo).
+  const carry = new Set(opts.carryTxIds ?? []);
+  const apart = new Set((opts.apart ?? []).map((k) => `${k.lineId}|${k.txId}`));
+  const pool = entries.filter((e) => !entryTaken.has(e) && (inMonth(e) || carry.has(e.tx.id)));
+  if (carry.size > 0) {
+    const known = new Set(entries.map((e) => e.tx.id));
+    for (const tx of txs) {
+      if (!carry.has(tx.id) || known.has(tx.id)) continue;
+      const amount = effectOn(account.id, tx);
+      if (amount !== 0) pool.push({ tx, amount, date: tx.occurred_on });
+    }
+  }
+  const gaps = new Map<string, number>();
+  const pairs: { line: StatementLine; entry: AppEntry; slack: number; gap: number }[] = [];
+  for (const line of regular) {
+    if (lineTaken.has(line.id)) continue;
+    for (const e of pool) {
+      if (Math.sign(e.amount) !== Math.sign(line.amount)) continue;
+      const slack = Math.abs(e.amount - line.amount);
+      if (slack > 1 || (slack === 1 && Math.abs(line.amount) < 1000)) continue;
+      const gap = dayDiff(e.date, line.date);
+      if (gap > VALUE_WINDOW_DAYS || apart.has(`${line.id}|${e.tx.id}`)) continue;
+      if (Math.abs(line.amount) < VALUE_ONLY_MIN && !sameMerchant(line.description, entryText(e))) continue;
+      pairs.push({ line, entry: e, slack, gap });
+    }
+  }
+  pairs.sort((a, b) => a.slack - b.slack || a.gap - b.gap || a.line.date.localeCompare(b.line.date) || a.line.id.localeCompare(b.line.id));
+  for (const p of pairs) {
+    if (lineTaken.has(p.line.id) || entryTaken.has(p.entry)) continue;
+    take(p.line, p.entry, false);
+    gaps.set(p.line.id, p.gap);
+  }
+
   for (const l of regular) {
-    if (lineTaken.has(l.id)) matched.push({ line: l, entry: lineTaken.get(l.id)!.entry, approx: lineTaken.get(l.id)!.approx || undefined });
+    const t = lineTaken.get(l.id);
+    if (t) matched.push({ line: l, entry: t.entry, approx: t.approx || undefined, ...(gaps.has(l.id) ? { dateGap: gaps.get(l.id) } : {}) });
     else missing.push(l);
   }
   missing.sort((a, b) => a.date.localeCompare(b.date));
@@ -521,6 +571,12 @@ export function withManualLinks(rec: StatementReconciliation, links: ManualLink[
   };
 }
 
+/** El movimiento como entrada de la cuenta (con su efecto sobre el saldo), o null si no la toca. */
+export function appEntryOf(account: Account, tx: Transaction): AppEntry | null {
+  const amount = effectOn(account.id, tx);
+  return amount === 0 ? null : { tx, amount, date: tx.occurred_on };
+}
+
 const closeness = (amount: number, date: string, ref: { amount: number; date: string }) => [Math.abs(Math.abs(amount) - Math.abs(ref.amount)), dayDiff(date, ref.date)] as const;
 
 /**
@@ -540,10 +596,10 @@ export function appCandidatesFor(line: StatementLine, account: Account, txs: Tra
 }
 
 /** Lo mismo al revés: líneas del extracto que faltan en la app y pueden ser este movimiento. */
-export function lineCandidatesFor(entry: AppEntry, rec: StatementReconciliation, limit = 8): StatementLine[] {
+export function lineCandidatesFor(entry: AppEntry, rec: StatementReconciliation, limit = 8, days = 10): StatementLine[] {
   const key = (l: StatementLine) => closeness(l.amount, l.date, entry);
   return rec.missing
-    .filter((l) => linkable(l) && Math.sign(l.amount) === Math.sign(entry.amount) && dayDiff(l.date, entry.date) <= 10)
+    .filter((l) => linkable(l) && Math.sign(l.amount) === Math.sign(entry.amount) && dayDiff(l.date, entry.date) <= days)
     .sort((a, b) => key(a)[0] - key(b)[0] || key(a)[1] - key(b)[1])
     .slice(0, limit);
 }
