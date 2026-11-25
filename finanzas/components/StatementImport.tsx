@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { LinkSelect } from "@/components/LinkSelect";
 import { ErrorText, Select } from "@/components/ui/input";
 import { Sheet } from "@/components/ui/sheet";
+import type { RowSummary } from "@/components/ReviewRow";
 import { SwitchRow } from "@/components/ui/switch";
 import type { Account, ReconcilingItem } from "@/lib/types";
 import { CHANNEL_LABEL } from "@/lib/types";
@@ -44,8 +45,14 @@ const signed = (n: number) => `${n < 0 ? "−" : "+"}${formatCop(Math.abs(n))}`;
  * En las tarjetas con día de corte se compara el ciclo del extracto (no el mes calendario) y se comprueba si las partidas
  * conciliatorias del cierre anterior (`carryOver`) ya aparecen en este extracto.
  */
-export function StatementImport({ account, month, onBalance, onStatus, carryOver, incoming = null, onFile }: {
+export function StatementImport({ account, month, onBalance, onStatus, carryOver, incoming = null, onFile, onSummary, hideButton = false, open: openProp, onOpenChange }: {
   account: Account; month: string; onBalance: (v: number) => void; onStatus?: (s: string | null) => void; carryOver?: ReconcilingItem[];
+  /** Resumen corto (para una fila de la revisión): qué falta, qué sobra, o que todo está en la app. */
+  onSummary?: (s: RowSummary | null) => void;
+  /** Sin su propio botón: la pantalla la abre quien la usa (con `open` y `onOpenChange`). */
+  hideButton?: boolean;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
   /** Extracto (PDF o foto) que la persona subió en el otro paso: se lee aquí también, sin pedirlo otra vez. */
   incoming?: File | null;
   /** Avisa que se subió un extracto (PDF o foto) para que el otro paso lo lea también. */
@@ -59,7 +66,9 @@ export function StatementImport({ account, month, onBalance, onStatus, carryOver
   const base = isCard ? cycleRange(account.statement_day, month) : monthRange(month);
   const scope = byCycle ? "ciclo" : "mes";
 
-  const [open, setOpen] = useState(false);
+  const [openState, setOpenState] = useState(false);
+  const open = openProp ?? openState;
+  const setOpen = onOpenChange ?? setOpenState;
   const [rows, setRows] = useState<string[][] | null>(null);
   const [fileName, setFileName] = useState("");
   const [flip, setFlip] = useState(false);
@@ -124,6 +133,21 @@ export function StatementImport({ account, month, onBalance, onStatus, carryOver
     : rec.missing.length + rec.duplicates.length + carryMissing + totalsOff.length === 0 ? "Revisado: no falta ni sobra ningún movimiento"
     : `Revisado: ${[rec.missing.length && `${rec.missing.length} falta${rec.missing.length === 1 ? "" : "n"} en la app`, rec.duplicates.length && `${rec.duplicates.length} repetido${rec.duplicates.length === 1 ? "" : "s"}`, carryMissing && `${carryMissing} partida${carryMissing === 1 ? "" : "s"} del cierre anterior sin aparecer`, totalsOff.length && "la lectura del PDF no cuadra con los totales del extracto (puede faltar algún movimiento)"].filter(Boolean).join(" · ")}`;
   useEffect(() => { onStatus?.(status); }, [status]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Lo mismo en una línea: qué falta, qué sobra y qué tiene otro valor
+  const summary: RowSummary | null = reading ? { text: "Leyendo el extracto…", tone: "busy" }
+    : !rec ? (error && !open ? { text: "No pude revisarlo (toca para ver por qué)", tone: "warn" } : null)
+    : (() => {
+      const sobran = onlyInAppShown.length + rec.duplicates.length;
+      const parts = [
+        pairs.length > 0 && `${pairs.length} con otro valor`,
+        missingShown.length > 0 && `${missingShown.length} falta${missingShown.length === 1 ? "" : "n"}`,
+        sobran > 0 && `${sobran} sobra${sobran === 1 ? "" : "n"}`,
+        carryMissing > 0 && `${carryMissing} del cierre anterior sin aparecer`,
+        totalsOff.length > 0 && "la lectura no cuadra con los totales del extracto",
+      ].filter(Boolean);
+      return parts.length ? { text: parts.join(" · "), tone: "warn" } : { text: "Todo está en la app", tone: "ok" };
+    })();
+  useEffect(() => { onSummary?.(summary); }, [summary?.text, summary?.tone]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // El extracto que se subió en el otro paso: se lee aquí también
   useEffect(() => {
@@ -262,9 +286,9 @@ export function StatementImport({ account, month, onBalance, onStatus, carryOver
 
   return (
     <>
-      <Button variant="outline" size="sm" className="w-full" onClick={() => setOpen(true)}>
+      {!hideButton && <Button variant="outline" size="sm" className="w-full" onClick={() => setOpen(true)}>
         <FileUp size={16} /> {reading ? "Leyendo los movimientos del extracto…" : rec ? "Ver qué falta y qué sobra" : isCard ? "Subir el extracto (PDF, Excel o CSV)" : "Subir Excel o CSV de movimientos"}
-      </Button>
+      </Button>}
 
       <Sheet open={open} onOpenChange={setOpen} title="Revisar los movimientos" description={`${account.name}${account.last4 ? ` ··${account.last4}` : ""} · ${month}`}>
         <div className="space-y-4 pb-2">
