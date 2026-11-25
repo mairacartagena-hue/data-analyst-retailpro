@@ -6,7 +6,7 @@ import { readLocalCardStatement } from "@/lib/capture/cardStatementLocal";
 import type { CardChargeLine } from "@/lib/capture/cardStatement";
 import { checkMonthlyCharges } from "@/lib/finance/cardStatements";
 import { parsedFromCardLines } from "@/lib/finance/cardLines";
-import type { Account, Transaction } from "@/lib/types";
+import type { Account, CardStatementItem, Transaction } from "@/lib/types";
 
 // Extracto sintético con la misma disposición del de Addi (posiciones en puntos como las entrega pdf.js: x a la izquierda,
 // y hacia arriba). Nombres, comercios, IDs y valores son inventados.
@@ -137,17 +137,50 @@ describe("cobro del mes por compra contra la app (Addi)", () => {
   const line = (over: Partial<CardChargeLine> = {}): CardChargeLine => ({ purchaseDate: "2026-10-05", description: "Tienda Inventada", capital: 50_000, interest: 0, fees: 0, ...over });
 
   it("la compra de 3 cuotas sin intereses: la cuota 1 de $50.000 cuadra", () => {
-    const [c] = checkMonthlyCharges(addi, [tx({})], [line()], "2026-10-10");
+    const [c] = checkMonthlyCharges(addi, [tx({})], [], [line()], "2026-10-10");
     expect(c).toMatchObject({ verdict: "OK", installment: 1, of: 3, appCharge: 50000, extractCharge: 50000 });
   });
 
   it("si la app tiene otro número de cuotas, la cuota no cuadra", () => {
-    const [c] = checkMonthlyCharges(addi, [tx({ installments: 2 })], [line()], "2026-10-10");
+    const [c] = checkMonthlyCharges(addi, [tx({ installments: 2 })], [], [line()], "2026-10-10");
     expect(c).toMatchObject({ verdict: "DIFFERS", appCharge: 75000 });
   });
 
-  it("sin la compra en la app (otra fecha) queda como solo en el extracto", () => {
-    const [c] = checkMonthlyCharges(addi, [tx({ occurred_on: "2026-09-20" })], [line()], "2026-10-10");
+  it("sin la compra en la app ni en el proyectado (otra fecha) queda como solo en el extracto", () => {
+    const [c] = checkMonthlyCharges(addi, [tx({ occurred_on: "2026-09-20" })], [], [line()], "2026-10-10");
     expect(c.verdict).toBe("ONLY_EXTRACT");
+  });
+
+  // Addi real: la tarjeta se registró el 16-oct con las compras de antes en el proyectado, todas con la fecha del registro
+  it("compras de antes de la app: se cruzan con el proyectado por comercio o por el valor de la cuota, no por la fecha", () => {
+    const real: Account = { ...addi, statement_day: 15, due_day: 22, opening_balance: -1_885_015, opening_at: "2026-10-16T05:00:00+00:00" } as Account;
+    const item = (over: Partial<CardStatementItem>): CardStatementItem => ({
+      id: "x", account_id: "addi", description: "", purchase_date: "2026-10-15", amount: 0, installments: 3, paid_installments: 2, remaining_balance: 0, rate_ea: null, ...over,
+    });
+    const items = [
+      item({ id: "sofa", description: "Sofá", amount: 2_530_000, installments: 24, paid_installments: 7, remaining_balance: 1_829_240, rate_ea: 33 }),
+      item({ id: "linea", description: "Línea estética", amount: 103_425, remaining_balance: 34_475 }),
+      item({ id: "feria", description: "Feria del brasier", amount: 63_900, remaining_balance: 21_300, rate_ea: 0 }),
+    ];
+    const lines: CardChargeLine[] = [
+      { purchaseDate: "2026-08-19", description: "Feria del Brasier", capital: 21_300, interest: 0, fees: 0 },
+      { purchaseDate: "2026-08-09", description: "Linea Estética", capital: 34_475, interest: 0, fees: 0 },
+      { purchaseDate: "2026-01-29", description: "Muebles La Semana MS", capital: 95_091.25, interest: 43_992.37, fees: 13_759.01, rateEa: 33 },
+    ];
+    const checks = checkMonthlyCharges(real, [], items, lines, "2026-11-15");
+    // El Sofá (Muebles La Semana, 33 %): los intereses cuadran ($43.992) pero la app amortiza el saldo en 17 cuotas y Addi cobra como si
+    // quedaran 16 ($139.084 contra $132.364): se marca para corregir las cuotas pagadas o el plazo del proyectado
+    expect(checks.map((c) => [c.line.description, c.item?.id, c.verdict, c.installment, c.of, c.appCharge])).toEqual([
+      ["Muebles La Semana MS", "sofa", "DIFFERS", 8, 24, 132364],
+      ["Feria del Brasier", "feria", "OK", 3, 3, 21300],
+      ["Linea Estética", "linea", "OK", 3, 3, 34475],
+    ]);
+  });
+
+  it("un valor del proyectado distinto al del extracto no se da por bueno, aunque el comercio coincida", () => {
+    const real: Account = { ...addi, statement_day: 15, due_day: 22, opening_at: "2026-10-16T05:00:00+00:00" } as Account;
+    const bad: CardStatementItem = { id: "linea", account_id: "addi", description: "Línea estética", purchase_date: "2026-10-15", amount: 90_000, installments: 3, paid_installments: 2, remaining_balance: 30_000, rate_ea: null };
+    const [c] = checkMonthlyCharges(real, [], [bad], [{ purchaseDate: "2026-08-09", description: "Linea Estética", capital: 34_475, interest: 0, fees: 0 }], "2026-11-15");
+    expect(c).toMatchObject({ verdict: "DIFFERS", appCharge: 30000, extractCharge: 34475 });
   });
 });

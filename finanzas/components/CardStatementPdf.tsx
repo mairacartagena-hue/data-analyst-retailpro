@@ -35,17 +35,17 @@ function ChargeChecks({ checks }: { checks: ChargeCheck[] }) {
   const ok = checks.filter((c) => c.verdict === "OK").length;
   const needs = checks.length - ok;
   const status = (c: ChargeCheck) =>
-    c.verdict === "OK" ? `Cuota ${c.installment} de ${c.of}: cuadra`
-    : c.verdict === "DIFFERS" ? `Cuota ${c.installment} de ${c.of}: la app espera ${formatCop(c.appCharge ?? 0)}`
+    c.verdict === "OK" ? `Cuota ${c.installment} de ${c.of}: cuadra${c.item ? " con el proyectado" : ""}`
+    : c.verdict === "DIFFERS" ? `Cuota ${c.installment} de ${c.of}: ${c.item ? "el proyectado" : "la app"} espera ${formatCop(c.appCharge ?? 0)}`
     : c.verdict === "NO_CHARGE" ? `En la app no le toca cuota en este corte (${c.of} cuota${c.of === 1 ? "" : "s"}): revisa el número de cuotas o la fecha`
-    : "No encontré la compra en la app (misma fecha)";
+    : "No encontré la compra en la app ni en el proyectado (misma fecha o mismo valor de cuota)";
   return (
     <div className="space-y-1.5">
       <p className="font-medium">Cuotas del mes: extracto vs. app</p>
       <p className={cn("rounded-lg px-2 py-1", needs === 0 ? "bg-olive-soft" : "bg-warning-soft")}>
         {needs === 0 ? `Las ${ok} cuota${ok === 1 ? "" : "s"} del mes cuadran con la app.` : `${needs} para revisar · ${ok} cuadra${ok === 1 ? "" : "n"}`}
       </p>
-      <p className="text-muted">El extracto no trae el valor de cada compra ni su número de cuotas: se compara lo que cobra este mes (capital + intereses, sin fianza) con la cuota que la app espera de la compra del mismo día.</p>
+      <p className="text-muted">El extracto no trae el valor de cada compra ni su número de cuotas: se compara lo que cobra este mes (capital + intereses, sin fianza) con la cuota que la app espera de la compra del mismo día o, si es de antes de la app, de la compra del proyectado con el mismo comercio o valor de cuota.</p>
       <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-surface">
         {checks.map((c, i) => (
           <li key={`${c.line.purchaseDate}|${c.line.description}|${i}`} className="space-y-0.5 px-3 py-1.5">
@@ -55,6 +55,9 @@ function ChargeChecks({ checks }: { checks: ChargeCheck[] }) {
             </div>
             <p className={cn(c.verdict === "OK" ? "text-olive" : "text-warning")}>{status(c)}</p>
             {c.line.fees > 0 && <p className="text-muted">Además cobra {formatCop(Math.round(c.line.fees))} de fianza y otros cargos (se revisan en Movimientos).</p>}
+            {c.item && c.verdict === "DIFFERS" && (
+              <p className="text-muted">Los intereses y la cuota dependen de las cuotas que faltan: revisa en la tarjeta, en las compras a cuotas del proyectado, las cuotas pagadas y el saldo pendiente de esta compra (Addi cobra como si faltaran menos).</p>
+            )}
             {c.tx && c.verdict !== "OK" && (
               <Button size="sm" variant="ghost" onClick={() => openTransaction(c.tx)}>Abrir la compra de la app</Button>
             )}
@@ -197,8 +200,8 @@ export function CardStatementPdf({ account, onBalance, onStatus, crossCheck = fa
     [crossCheck, read, account, transactions, cardItems, extracted, cutDate, links, apart],
   );
   const chargeChecks = useMemo(
-    () => (crossCheck && read?.chargeLines?.length ? checkMonthlyCharges(account, transactions, read.chargeLines, cutDate) : null),
-    [crossCheck, read, account, transactions, cutDate],
+    () => (crossCheck && read?.chargeLines?.length ? checkMonthlyCharges(account, transactions, cardItems, read.chargeLines, cutDate) : null),
+    [crossCheck, read, account, transactions, cardItems, cutDate],
   );
   const noPurchasesRead = crossCheck && !!read && extracted.length === 0 && !read.installmentsNote && !read.chargeLines?.length;
   // Resumen de la deuda en una línea (fila "Deuda"): se recalcula al corregir los valores
