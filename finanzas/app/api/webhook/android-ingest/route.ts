@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import type { Channel, RawEvent } from "@/lib/ingest/types";
 import { interpret, toDbEvent } from "@/lib/ingest/pipeline";
 import { dropUnfilled } from "@/lib/ingest/normalize";
+import { geminiDailyCap } from "@/lib/ingest/prefilter";
 
 // Webhook único de ingesta: MacroDroid (notificaciones, incluidos los SMS vía la app de Mensajes), barrido del celular y Google Apps Script (Gmail).
 // Autenticación: "Authorization: Bearer <token de la persona>". La identidad la resuelve
@@ -70,7 +71,16 @@ export async function POST(req: NextRequest) {
   const { data: valid, error: tokenError } = await sb.rpc("ingest_token_valid", { p_token: token });
   if (!tokenError && valid === false) return NextResponse.json({ ok: false, error: "Token no válido" }, { status: 401 });
 
-  const it = await interpret(ev);
+  // Tope diario de lecturas con Gemini por persona (GEMINI_DAILY_CAP, 30 por defecto; 0 = sin tope).
+  // Si la función aún no existe en la base de datos, o falla, no se limita: mejor leer que perder un aviso.
+  const cap = geminiDailyCap();
+  const canUseGemini = cap > 0
+    ? async () => {
+        const { data: used, error: usedError } = await sb.rpc("ingest_gemini_today", { p_token: token });
+        return usedError || typeof used !== "number" || used < cap;
+      }
+    : undefined;
+  const it = await interpret(ev, { canUseGemini });
   const { data, error } = await sb.rpc("ingest_event", { p_token: token, p_event: toDbEvent(ev, it) });
 
   if (error) {

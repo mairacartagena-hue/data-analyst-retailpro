@@ -7,6 +7,7 @@ import type { ParsedEvent, RawEvent } from "./types";
 import { eventText } from "./normalize";
 import { finishParsed, parseWithRules } from "./registry";
 import { extractWithGemini } from "./gemini";
+import { prefilterBeforeGemini } from "./prefilter";
 
 export interface Interpretation {
   parsed: ParsedEvent | null;
@@ -14,9 +15,21 @@ export interface Interpretation {
   reason?: string;
 }
 
-export async function interpret(ev: RawEvent): Promise<Interpretation> {
+export interface InterpretOptions {
+  /**
+   * Se consulta justo antes de llamar a Gemini (no en cada aviso). Si responde false, la persona ya llegó al tope diario
+   * de lecturas con IA: el aviso queda sin reconocer y se puede reintentar con el botón.
+   */
+  canUseGemini?: () => Promise<boolean>;
+}
+
+export async function interpret(ev: RawEvent, opts: InterpretOptions = {}): Promise<Interpretation> {
   const rules = parseWithRules(ev);
   if (rules.parsed) return rules;
+  // Sin monto no puede ser un movimiento: no se le gasta el cupo a Gemini
+  const skipped = prefilterBeforeGemini(ev);
+  if (skipped) return { parsed: skipped, parser: "ignore-rules" };
+  if (opts.canUseGemini && !(await opts.canUseGemini())) return { parsed: null, parser: null, reason: "Se llegó al tope diario de lecturas con Gemini; se puede reintentar mañana" };
   try {
     const g = await extractWithGemini(ev);
     if (g) return { parsed: g.kind === "IGNORE" ? g : finishParsed(ev, g), parser: "gemini" };
