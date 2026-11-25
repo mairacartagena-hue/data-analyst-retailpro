@@ -5,16 +5,17 @@ import { FileUp } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { useShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
+import { Field, Input } from "@/components/ui/input";
 import { LinkSelect } from "@/components/LinkSelect";
 import { ManualCrossCheck, StatementCrossCheck, StatementFields, emptyDraft, statementOf, type StatementDraft } from "@/components/CardStatements";
 import { ReviewRow, type RowTone } from "@/components/ReviewRow";
 import type { Account } from "@/lib/types";
 import { isPayoffIssuer, type CardStatementData, type CardStatementPurchase } from "@/lib/capture/cardStatement";
-import { checkInstallments, checkMonthlyCharges, checkStatement, diffVerdict, installmentFix, knownItem, onlyExtractCandidates, purchaseLinkCandidates, registeredTx, type ChargeCheck, type InstallmentCheck, type InstallmentDiff, type InstallmentFix, type InstallmentVerdict } from "@/lib/finance/cardStatements";
+import { appDebtAt, checkInstallments, checkMonthlyCharges, checkStatement, diffVerdict, installmentFix, knownItem, onlyExtractCandidates, purchaseLinkCandidates, registeredTx, STATEMENT_TOLERANCE, type ChargeCheck, type InstallmentCheck, type InstallmentDiff, type InstallmentFix, type InstallmentVerdict } from "@/lib/finance/cardStatements";
 import { editPayload } from "@/lib/finance/txEdit";
 import { installmentsOf, matchedWithItems } from "@/lib/finance/installments";
 import { openingDay } from "@/lib/finance/cardBudget";
-import { formatCop } from "@/lib/finance/money";
+import { formatCop, parseCop } from "@/lib/finance/money";
 import { formatDay, todayBogota } from "@/lib/finance/periods";
 import { shrink, toBase64 } from "@/lib/capture/file";
 import { cn, errMsg } from "@/lib/utils";
@@ -94,6 +95,34 @@ function ChargeChecks({ checks }: { checks: ChargeCheck[] }) {
         ))}
       </ul>
       {err && <p className="text-danger">{err}</p>}
+    </div>
+  );
+}
+
+/** Addi: el "pago total" que la persona escribe (el del extracto o el de hoy en la app de Addi) contra la deuda de la app el mismo día. */
+function PayoffCheck({ account, total, cut }: { account: Account; total: string; cut: string | null }) {
+  const { transactions } = useFinance();
+  const [picked, setPicked] = useState("");
+  const date = picked || cut || todayBogota();
+  const value = parseCop(total);
+  const app = value === null ? null : appDebtAt(account, transactions, date);
+  const diff = value === null || app === null ? null : Math.round(app - value);
+  const ok = diff !== null && Math.abs(diff) <= STATEMENT_TOLERANCE;
+  return (
+    <div className="space-y-2">
+      <Field label="El pago total que escribiste es del día" hint="Cambia con la fecha: pon el día del extracto, o el de hoy si lo copiaste de la app de Addi.">
+        <Input type="date" value={date} max={todayBogota()} onChange={(e) => e.target.value && setPicked(e.target.value)} />
+      </Field>
+      {diff !== null && app !== null && (
+        <>
+          <p className={cn("rounded-lg px-2 py-1", ok ? "bg-olive-soft" : "bg-warning-soft")}>
+            {ok
+              ? `Cuadra: al ${formatDay(date)} la app debe ${formatCop(Math.round(app))}, igual al pago total de Addi.`
+              : `Al ${formatDay(date)} la app debe ${formatCop(Math.round(app))}: ${formatCop(Math.abs(diff))} ${diff > 0 ? "más" : "menos"} que el pago total de Addi.`}
+          </p>
+          {!ok && <p className="text-muted">Entre cortes Addi ya cuenta los intereses que se van causando y la app los registra con el extracto: unos pocos pesos de diferencia son normales.</p>}
+        </>
+      )}
     </div>
   );
 }
@@ -356,7 +385,12 @@ export function CardStatementPdf({ account, onBalance, onPayoff, onStatus, cross
               <p className="text-muted">Esto es lo que leí del extracto; puedes corregirlo. No se guarda.</p>
               <StatementFields value={draft} onChange={setDraft} capitalOnly={payoff} />
               {payoff
-                ? <p className="text-muted">Addi no trae el saldo de capital, y su “pago total” es lo que se paga para saldar todo ese día (cambia con la fecha): por eso no lo leo ni lo comparo con la deuda de la app. El campo “Pago total” de arriba queda vacío para que lo escribas a mano si quieres verlo aquí (no se compara ni se guarda). El saldo de capital lo escribes una sola vez, abajo, como lo ves en la app de Addi. Las cuotas de cada compra se revisan en “Cuotas”.</p>
+                ? (
+                  <>
+                    <p className="text-muted">Addi no trae el saldo de capital, y su “pago total” es lo que se paga para saldar todo ese día (cambia con la fecha): por eso no lo leo del PDF. Escríbelo a mano arriba, con el día al que corresponde, y lo comparo con la deuda de la app de ese mismo día. El saldo de capital lo escribes una sola vez, abajo, como lo ves en la app de Addi. Las cuotas de cada compra se revisan en “Cuotas”.</p>
+                    <PayoffCheck account={account} total={draft.total} cut={cutDate} />
+                  </>
+                )
                 : <StatementCrossCheck account={account} draft={draft} />}
             </>
           ) : !err && month ? <ManualCrossCheck account={account} month={month} /> : null}
