@@ -471,3 +471,17 @@ export function checkMonthlyCharges(account: Account, txs: Transaction[], items:
     ?? { line, installment: null, of: null, appCharge: null, extractCharge: Math.round(line.capital + line.interest), verdict: "ONLY_EXTRACT" })
     .sort((a, b) => rank[a.verdict] - rank[b.verdict]);
 }
+
+/**
+ * Lo que separa el pago total de Addi, el día del corte, de la deuda que lleva la app: las cuotas del mes de las compras de antes de la
+ * app (las guardadas en el proyectado de la tarjeta), que son las que se cruzaron con un `item`. Se suman tal como las cobra el extracto,
+ * con el proyectado ya actualizado o sin actualizar (actualizarlo no cambia la deuda). Las compras de la app no entran: su valor completo
+ * ya está en la deuda. Se arma con cada extracto, así que sirve igual en los meses que siguen.
+ */
+export function payoffExplained(checks: readonly ChargeCheck[] | null | undefined): { total: number; parts: { description: string; charge: number }[] } {
+  const parts = (checks ?? [])
+    .filter((c) => c.item)
+    .map((c) => ({ description: c.item?.description || c.line.description, charge: c.extractCharge }))
+    .sort((a, b) => b.charge - a.charge);
+  return { total: parts.reduce((s, p) => s + p.charge, 0), parts };
+}

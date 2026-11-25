@@ -11,7 +11,7 @@ import { ManualCrossCheck, StatementCrossCheck, StatementFields, emptyDraft, sta
 import { ReviewRow, type RowTone } from "@/components/ReviewRow";
 import type { Account } from "@/lib/types";
 import { isPayoffIssuer, type CardStatementData, type CardStatementPurchase } from "@/lib/capture/cardStatement";
-import { appDebtAt, checkInstallments, checkMonthlyCharges, checkStatement, diffVerdict, installmentFix, knownItem, onlyExtractCandidates, purchaseLinkCandidates, registeredTx, STATEMENT_TOLERANCE, type ChargeCheck, type InstallmentCheck, type InstallmentDiff, type InstallmentFix, type InstallmentVerdict } from "@/lib/finance/cardStatements";
+import { appDebtAt, checkInstallments, checkMonthlyCharges, checkStatement, diffVerdict, installmentFix, knownItem, onlyExtractCandidates, payoffExplained, purchaseLinkCandidates, registeredTx, type ChargeCheck, type InstallmentCheck, type InstallmentDiff, type InstallmentFix, type InstallmentVerdict } from "@/lib/finance/cardStatements";
 import { editPayload } from "@/lib/finance/txEdit";
 import { installmentsOf, matchedWithItems } from "@/lib/finance/installments";
 import { openingDay } from "@/lib/finance/cardBudget";
@@ -100,14 +100,19 @@ function ChargeChecks({ checks }: { checks: ChargeCheck[] }) {
 }
 
 /** Addi: el "pago total" que la persona escribe (el del extracto o el de hoy en la app de Addi) contra la deuda de la app el mismo día. */
-function PayoffCheck({ account, total, cut }: { account: Account; total: string; cut: string | null }) {
+function PayoffCheck({ account, total, cut, explained }: { account: Account; total: string; cut: string | null; explained: ReturnType<typeof payoffExplained> }) {
   const { transactions } = useFinance();
   const [picked, setPicked] = useState("");
   const date = picked || cut || todayBogota();
   const value = parseCop(total);
   const app = value === null ? null : appDebtAt(account, transactions, date);
-  const diff = value === null || app === null ? null : Math.round(app - value);
-  const ok = diff !== null && Math.abs(diff) <= STATEMENT_TOLERANCE;
+  // Al día del corte, a la deuda de la app se le suman las cuotas del mes de las compras de antes de la app: son lo que separa ambas
+  // cifras. Otro día no aplica (son las cuotas de ese extracto), y ahí se compara la deuda sola.
+  const extra = cut && date === cut ? explained.total : 0;
+  const diff = value === null || app === null ? null : Math.round(app + extra - value);
+  const verdict = diff === null ? null : diffVerdict(diff);
+  const ok = !!verdict?.ok;
+  const mine = app === null ? 0 : Math.round(app);
   return (
     <div className="space-y-2">
       <Field label="El pago total que escribiste es del día" hint="Cambia con la fecha: pon el día del extracto, o el de hoy si lo copiaste de la app de Addi.">
@@ -117,9 +122,17 @@ function PayoffCheck({ account, total, cut }: { account: Account; total: string;
         <>
           <p className={cn("rounded-lg px-2 py-1", ok ? "bg-olive-soft" : "bg-warning-soft")}>
             {ok
-              ? `Cuadra: al ${formatDay(date)} la app debe ${formatCop(Math.round(app))}, igual al pago total de Addi.`
-              : `Al ${formatDay(date)} la app debe ${formatCop(Math.round(app))}: ${formatCop(Math.abs(diff))} ${diff > 0 ? "más" : "menos"} que el pago total de Addi.`}
+              ? extra > 0
+                ? `Cuadra: al ${formatDay(date)} la app debe ${formatCop(mine)} y las cuotas del mes de tus compras anteriores suman ${formatCop(extra)}: ${formatCop(mine + extra)}, el pago total de Addi.`
+                : `Cuadra: al ${formatDay(date)} la app debe ${formatCop(mine)}, igual al pago total de Addi.`
+              : extra > 0
+                ? `Al ${formatDay(date)} la app debe ${formatCop(mine)} más ${formatCop(extra)} de cuotas de tus compras anteriores: ${formatCop(Math.abs(diff))} ${diff > 0 ? "más" : "menos"} que el pago total de Addi.`
+                : `Al ${formatDay(date)} la app debe ${formatCop(mine)}: ${formatCop(Math.abs(diff))} ${diff > 0 ? "más" : "menos"} que el pago total de Addi.`}
           </p>
+          {ok && verdict && verdict.rounding > 0 && <p className="text-muted">Quedan {formatCop(verdict.rounding)} de diferencia ({verdict.direction === "MORE" ? "la app suma de más" : "la app suma de menos"}): se da por redondeo.</p>}
+          {extra > 0 && (
+            <p className="text-muted">Cuotas del mes de las compras anteriores: {explained.parts.map((p) => `${p.description} ${formatCop(p.charge)}`).join(" · ")}.</p>
+          )}
           {!ok && <p className="text-muted">Entre cortes Addi ya cuenta los intereses que se van causando y la app los registra con el extracto: unos pocos pesos de diferencia son normales.</p>}
         </>
       )}
@@ -387,8 +400,8 @@ export function CardStatementPdf({ account, onBalance, onPayoff, onStatus, cross
               {payoff
                 ? (
                   <>
-                    <p className="text-muted">Addi no trae el saldo de capital, y su “pago total” es lo que se paga para saldar todo ese día (cambia con la fecha): por eso no lo leo del PDF. Escríbelo a mano arriba, con el día al que corresponde, y lo comparo con la deuda de la app de ese mismo día. El saldo de capital lo escribes una sola vez, abajo, como lo ves en la app de Addi. Las cuotas de cada compra se revisan en “Cuotas”.</p>
-                    <PayoffCheck account={account} total={draft.total} cut={cutDate} />
+                    <p className="text-muted">Addi no trae el saldo de capital, y su “pago total” es lo que se paga para saldar todo ese día (cambia con la fecha): por eso no lo leo del PDF. Escríbelo a mano arriba, con el día al que corresponde, y lo comparo con la deuda de la app de ese mismo día. Si es el día del corte, a la deuda de la app le sumo las cuotas del mes de tus compras anteriores a la app, que es lo que separa ambas cifras. El saldo de capital lo escribes una sola vez, abajo, como lo ves en la app de Addi. Las cuotas de cada compra se revisan en “Cuotas”.</p>
+                    <PayoffCheck account={account} total={draft.total} cut={cutDate} explained={payoffExplained(chargeChecks)} />
                   </>
                 )
                 : <StatementCrossCheck account={account} draft={draft} />}
