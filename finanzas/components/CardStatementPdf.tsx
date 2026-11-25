@@ -117,12 +117,14 @@ function InstallmentChecks({ account, checks, fixing, onLink, onUnlink, onSepara
  * Las compras que ya están (como compra del extracto o registradas en la app con las mismas cuotas) no se repiten.
  */
 /** `crossCheck`: en el Cierre del mes muestra los valores del extracto y su cruce; en la tarjeta solo las compras a cuotas. */
-export function CardStatementPdf({ account, onBalance, onStatus, crossCheck = false, incoming = null, onFile, rows = false, month }: {
+export function CardStatementPdf({ account, onBalance, onStatus, crossCheck = false, incoming = null, onFile, rows = false, month, idleNote }: {
   account: Account; onBalance?: (v: number) => void; onStatus?: (s: string | null) => void; crossCheck?: boolean;
   /** Revisión de la tarjeta en un solo paso: no trae su propio botón de subir (lee el `incoming`) y muestra dos filas, Deuda y Cuotas, con el detalle plegado. */
   rows?: boolean;
   /** Mes que se cierra (para escribir los valores a mano cuando no hay PDF). Solo con `rows`. */
   month?: string;
+  /** Lo que dicen las filas mientras no hay extracto leído (por ejemplo, que se subió un Excel que no trae la deuda). Solo con `rows`. */
+  idleNote?: string;
   /** Extracto que la persona subió en el otro paso: se lee aquí también, sin pedirlo otra vez. */
   incoming?: File | null;
   /** Avisa que se subió un extracto para que el otro paso lo lea también. */
@@ -247,9 +249,9 @@ export function CardStatementPdf({ account, onBalance, onStatus, crossCheck = fa
     const reading = { text: "Leyendo el extracto…", tone: "busy" as RowTone };
     const failed = !read && err ? { text: "No pude leerlo (toca para ver por qué)", tone: "warn" as RowTone } : null;
     const needs = checks.filter((c) => c.verdict !== "OK").length;
-    const debtRow = busy && !read ? reading : failed ?? debtResult ?? { text: "Sube el extracto o escribe los valores a mano", tone: "idle" as RowTone };
+    const debtRow = busy && !read ? reading : failed ?? debtResult ?? { text: idleNote ?? "Sube el extracto o escribe los valores a mano", tone: "idle" as RowTone };
     const instRow = busy && !read ? reading : failed
-      ?? (!read ? { text: "Sube el extracto para comparar las compras a cuotas", tone: "idle" as RowTone }
+      ?? (!read ? { text: idleNote ?? "Sube el extracto para comparar las compras a cuotas", tone: "idle" as RowTone }
         : noPurchasesRead ? { text: "No pude leer las compras a cuotas (toca para volver a leer)", tone: "warn" as RowTone }
         : needs === 0 ? { text: `Las ${checks.length} compra${checks.length === 1 ? "" : "s"} a cuotas cuadran`, tone: "ok" as RowTone }
         : { text: `${needs} por revisar · ${checks.length - needs} cuadra${checks.length - needs === 1 ? "" : "n"}`, tone: "warn" as RowTone });
