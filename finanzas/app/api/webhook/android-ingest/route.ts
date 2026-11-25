@@ -77,7 +77,7 @@ export async function POST(req: NextRequest) {
   const canUseGemini = cap > 0
     ? async () => {
         const { data: used, error: usedError } = await sb.rpc("ingest_gemini_today", { p_token: token });
-        return usedError || typeof used !== "number" || used < cap;
+        return Boolean(usedError) || typeof used !== "number" || used < cap;
       }
     : undefined;
   const it = await interpret(ev, { canUseGemini });
