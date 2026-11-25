@@ -15,6 +15,20 @@ export interface CardStatementPurchase {
   rateEa?: number;
 }
 
+/**
+ * Lo que una compra a cuotas factura en el extracto, cuando el extracto no imprime su plan (Addi: ni valor de la compra ni número de
+ * cuotas, solo lo que cobra este mes de cada una). Se cruza con la app por la fecha de la compra.
+ */
+export interface CardChargeLine {
+  purchaseDate: string;
+  description: string;
+  capital: number;
+  interest: number;
+  /** Fianza, seguros y otros cargos de esa compra en el mes. */
+  fees: number;
+  rateEa?: number;
+}
+
 export interface CardStatementData {
   institution?: string;
   last4?: string;
@@ -33,6 +47,8 @@ export interface CardStatementData {
   purchases: CardStatementPurchase[];
   /** Si el extracto no imprime el plan de cuotas por compra (Addi), por qué: no es un fallo de la lectura. */
   installmentsNote?: string;
+  /** Cobro del mes de cada compra a cuotas, cuando el extracto lo trae así (Addi). Se cruza con `checkMonthlyCharges`. */
+  chargeLines?: CardChargeLine[];
   /** Cuántas filas de compras devolvió la IA antes de validarlas (para distinguir "no vio ninguna" de "ninguna pasó la validación"). */
   rawPurchases?: number;
 }
@@ -116,6 +132,12 @@ export interface CardLinesData {
   lines: CardStatementLine[];
   /** Movimientos que la IA devolvió sin fecha o valor legibles. */
   dropped: number;
+  /**
+   * El extracto solo trae los cobros del banco (intereses, fianza, comisiones), no las compras ni los pagos (Addi): lo que la app
+   * tenga de más en el periodo no es "solo en la app". `note` dice por qué.
+   */
+  chargesOnly?: boolean;
+  note?: string;
 }
 
 const KINDS: CardLineKind[] = ["PURCHASE", "PAYMENT", "INTEREST", "FEE", "OTHER"];

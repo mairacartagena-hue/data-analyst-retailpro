@@ -4,7 +4,7 @@
 
 import { parsedFromCardLines } from "@/lib/finance/cardLines";
 import { sanitizeCardLines, sanitizeCardStatement, type CardLinesData, type CardStatementData } from "./cardStatement";
-import { ADDI_NO_INSTALLMENTS, ADDI_NO_LINES, addiAsCardStatement, parseAddiCreditStatement } from "./pdf/addiCredit";
+import { ADDI_LINES_NOTE, addiAsCardLines, addiAsCardStatement, addiChargeLines, parseAddiCreditStatement } from "./pdf/addiCredit";
 import { parseBbvaCardStatement } from "./pdf/bbvaCard";
 import { extractPdfItems } from "./pdf/extract";
 import type { PdfTextItem } from "./pdf/rows";
@@ -43,7 +43,12 @@ export function readLocalCardStatement(items: PdfTextItem[], today: string): Loc
   if (addi) {
     const statement = sanitizeCardStatement(addiAsCardStatement(addi), today);
     if (!statement.statementDate || !statement.totalDebt || !statement.minimumPayment) return null;
-    return { bank: "Addi", statement: { ...statement, installmentsNote: ADDI_NO_INSTALLMENTS }, lines: null, linesNote: ADDI_NO_LINES };
+    const lines = sanitizeCardLines(addiAsCardLines(addi), today);
+    return {
+      bank: "Addi",
+      statement: { ...statement, chargeLines: addiChargeLines(addi) },
+      lines: { ...lines, chargesOnly: true, note: ADDI_LINES_NOTE },
+    };
   }
   for (const reader of READERS) {
     const raw = reader.parse(items);
