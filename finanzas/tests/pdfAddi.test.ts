@@ -192,12 +192,20 @@ describe("cobro del mes por compra contra la app (Addi)", () => {
       { purchaseDate: "2026-01-29", description: "Muebles La Semana MS", capital: 95_091.25, interest: 43_992.37, fees: 13_759.01, rateEa: 33 },
     ];
 
-    it("cada compra queda con una cuota más y el capital abonado menos de saldo, al corte del extracto", () => {
+    it("la que no cuadra queda con una cuota más y el capital abonado menos de saldo, al corte del extracto", () => {
       const checks = checkMonthlyCharges(real, [], [sofa, linea, feria], lines, "2026-11-15");
-      const byId = Object.fromEntries(checks.map((c) => [c.item?.id, c.update]));
-      expect(byId.sofa).toEqual({ id: "sofa", paid: 8, remaining: 1_734_149, asOf: "2026-11-15" });
-      expect(byId.linea).toEqual({ id: "linea", paid: 3, remaining: 0, asOf: "2026-11-15" });
-      expect(byId.feria).toEqual({ id: "feria", paid: 3, remaining: 0, asOf: "2026-11-15" });
+      const byId = Object.fromEntries(checks.map((c) => [c.item?.id, c]));
+      expect(byId.sofa.verdict).toBe("DIFFERS");
+      expect(byId.sofa.update).toEqual({ id: "sofa", paid: 8, remaining: 1_734_149, asOf: "2026-11-15" });
+    });
+
+    it("si la cuota cuadra no se pide actualizar: el proyectado avanza solo con los cortes", () => {
+      const checks = checkMonthlyCharges(real, [], [sofa, linea, feria], lines, "2026-11-15");
+      const byId = Object.fromEntries(checks.map((c) => [c.item?.id, c]));
+      expect(byId.linea).toMatchObject({ verdict: "OK" });
+      expect(byId.feria).toMatchObject({ verdict: "OK" });
+      expect(byId.linea.update).toBeUndefined();
+      expect(byId.feria.update).toBeUndefined();
     });
 
     it("ya actualizadas con ese extracto se reconocen y no se vuelven a actualizar", () => {
@@ -215,15 +223,18 @@ describe("cobro del mes por compra contra la app (Addi)", () => {
     });
 
     it("si a la compra le faltan además extractos de meses anteriores no se ofrece actualizar", () => {
-      const old = { ...linea, as_of: "2026-09-15", paid_installments: 1, remaining_balance: 68_950 };
-      const [c] = checkMonthlyCharges(real, [], [old], [lines[1]], "2026-11-15");
+      const old = { ...sofa, as_of: "2026-09-15" };
+      const [c] = checkMonthlyCharges(real, [], [old], [lines[2]], "2026-11-15");
+      expect(c.verdict).toBe("DIFFERS");
       expect(c.cuts).toBe(2);
       expect(c.update).toBeUndefined();
     });
 
     it("la última cuota no pasa del número de cuotas ni deja el saldo negativo", () => {
-      const last = item({ id: "ultima", description: "Línea estética", amount: 103_425, installments: 3, paid_installments: 3, remaining_balance: 10_000 });
+      // Saldo de $10.000 en la última cuota (esperada $10.000), pero Addi cobra $34.475: no cuadra y se ofrece cerrarla
+      const last = item({ id: "ultima", description: "Línea estética", amount: 103_425, installments: 3, paid_installments: 2, remaining_balance: 10_000 });
       const [c] = checkMonthlyCharges(real, [], [last], [lines[1]], "2026-11-15");
+      expect(c.verdict).toBe("DIFFERS");
       expect(c.update).toMatchObject({ paid: 3, remaining: 0 });
     });
   });

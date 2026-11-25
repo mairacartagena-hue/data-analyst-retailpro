@@ -78,7 +78,7 @@ function ChargeChecks({ checks }: { checks: ChargeCheck[] }) {
             {c.item && c.verdict === "DIFFERS" && (
               <p className="text-muted">El proyectado calcula la cuota con el saldo y las cuotas que faltan; Addi la calcula a su manera y puede salir distinta. Al actualizar, el saldo pasa a ser el que Addi realmente cobra.</p>
             )}
-            {c.item && c.cuts !== undefined && c.cuts > 1 && !c.update && (
+            {c.item && c.verdict === "DIFFERS" && c.cuts !== undefined && c.cuts > 1 && !c.update && (
               <p className="text-muted">Esta compra lleva {c.cuts} cortes sin actualizar: actualízala primero con los extractos de los meses anteriores.</p>
             )}
             {c.update && (

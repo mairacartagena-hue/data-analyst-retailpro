@@ -367,7 +367,7 @@ export interface ChargeCheck {
   verdict: "OK" | "DIFFERS" | "ONLY_EXTRACT" | "NO_CHARGE" | "UPDATED";
   /** Cortes que la compra del proyectado lleva sin aplicar hasta este extracto (1 = el de este extracto). */
   cuts?: number;
-  /** Lo que se guarda en la compra del proyectado para dejarla como la dice este extracto (solo si le falta justo este corte). */
+  /** Lo que se guarda en la compra del proyectado para dejarla como la dice este extracto (solo si la cuota no cuadra y le falta justo este corte). */
   update?: ChargeUpdate;
 }
 
@@ -458,11 +458,13 @@ export function checkMonthlyCharges(account: Account, txs: Transaction[], items:
       out[c.index] = { line, item: c.item, installment: c.current, of: c.item.installments, appCharge: null, extractCharge, verdict: "UPDATED" };
       continue;
     }
-    // Se puede actualizar solo si a la compra le falta justo este corte: con más, faltan los extractos de los meses de antes
-    const update: ChargeUpdate | undefined = cut && c.cuts === 1
+    // Si la cuota cuadra, el proyectado ya avanza solo con los cortes: no hay nada que actualizar. Solo cuando no cuadra se ofrece dejar la
+    // compra como la cobra Addi, y solo si le falta justo este corte (con más, faltan los extractos de los meses de antes).
+    const verdict = verdictOf(c.charge, extractCharge);
+    const update: ChargeUpdate | undefined = verdict === "DIFFERS" && cut && c.cuts === 1
       ? { id: c.item.id, paid: Math.min(c.item.installments, c.item.paid_installments + 1), remaining: Math.max(0, Math.round(c.item.remaining_balance - line.capital)), asOf: cut }
       : undefined;
-    out[c.index] = { line, item: c.item, installment: c.current, of: c.item.installments, appCharge: c.charge, extractCharge, verdict: verdictOf(c.charge, extractCharge), cuts: c.cuts, ...(update ? { update } : {}) };
+    out[c.index] = { line, item: c.item, installment: c.current, of: c.item.installments, appCharge: c.charge, extractCharge, verdict, cuts: c.cuts, ...(update ? { update } : {}) };
   }
 
   return lines.map((line, index): ChargeCheck => out[index]
