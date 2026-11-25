@@ -85,10 +85,11 @@ export type ExtractPurchase = Pick<CardStatementPurchase, "description" | "purch
 
 export type InstallmentVerdict = "OK" | "DIFFERS" | "ONLY_EXTRACT" | "ONLY_APP";
 /**
- * installments: total de cuotas · current: cuota que se factura en este extracto · charge: cargo del mes por esa compra
+ * installments: total de cuotas · amount: valor de la compra (solo se compara en compras vinculadas a mano; las demás se emparejan
+ * justamente por tener el mismo valor) · current: cuota que se factura en este extracto · charge: cargo del mes por esa compra
  * (cuota con intereses) · balance: saldo diferido pendiente después de esa cuota.
  */
-export type InstallmentField = "installments" | "current" | "charge" | "balance";
+export type InstallmentField = "installments" | "amount" | "current" | "charge" | "balance";
 
 /** El banco calcula el interés por días y la app por mes: el cargo del mes se perdona hasta este % (y nunca menos de $1.000). */
 export const CHARGE_TOLERANCE_PCT = 0.03;
@@ -104,6 +105,10 @@ export interface InstallmentDiff {
 
 export interface InstallmentCheck {
   verdict: InstallmentVerdict;
+  /** Posición de la compra en la lista del extracto (para vincularla a mano). No hay en ONLY_APP. */
+  index?: number;
+  /** La persona la vinculó a mano con este movimiento de la app (el cruce automático no las unió). */
+  linked?: boolean;
   /** Compra del extracto (no hay en ONLY_APP). */
   purchase?: ExtractPurchase;
   /** Con qué se comparó: la compra del extracto ya guardada en la tarjeta (ITEM) o el movimiento de la app (APP). */
@@ -138,9 +143,15 @@ function expectedForItem(it: CardStatementItem, account: Account, cut: string | 
 }
 
 /** Diferencias de una compra del extracto con lo que espera la app. Si el total de cuotas no coincide solo se informa eso: lo demás es consecuencia. */
-function compareWith(p: ExtractPurchase, appInstallments: number, e: { current: number | null; balance: number | null; charge: number | null }): InstallmentDiff[] {
+function compareWith(p: ExtractPurchase, appInstallments: number, e: { current: number | null; balance: number | null; charge: number | null }, appAmount?: number): InstallmentDiff[] {
   if (appInstallments !== p.installments) return [{ field: "installments", app: appInstallments, extract: p.installments }];
   const diffs: InstallmentDiff[] = [];
+  // Vinculada a mano con otro valor: el cargo y el saldo de la app salen de ese valor, así que serían consecuencia y no se comparan
+  if (appAmount !== undefined && Math.abs(appAmount - p.amount) > 1) {
+    diffs.push({ field: "amount", app: appAmount, extract: p.amount });
+    if (e.current !== null && e.current !== p.paidInstallments) diffs.push({ field: "current", app: e.current, extract: p.paidInstallments });
+    return diffs;
+  }
   if (e.current !== null && e.current !== p.paidInstallments) diffs.push({ field: "current", app: e.current, extract: p.paidInstallments });
   // El cargo del mes solo se compara si es la misma cuota: con otra cuota la diferencia sería consecuencia, no un dato nuevo
   else if (e.charge !== null && p.monthlyCharge !== undefined && Math.abs(e.charge - p.monthlyCharge) > chargeTolerance(p.monthlyCharge)) diffs.push({ field: "charge", app: e.charge, extract: p.monthlyCharge });
@@ -157,32 +168,37 @@ function compareWith(p: ExtractPurchase, appInstallments: number, e: { current: 
  *  · ONLY_APP: la app tiene una compra a cuotas que ya debería venir en este extracto (y todavía no es su última cuota) y no viene.
  * Una compra del extracto se compara primero con la compra ya guardada de la tarjeta y, si no hay, con el movimiento de la app.
  * `cutDate` es el corte del extracto; sin él (o sin día de corte en la tarjeta) solo se compara el total de cuotas.
+ * `links`: vínculos hechos a mano (posición de la compra en `purchases` → id del movimiento de la app), para cuando el valor o la
+ * fecha no coinciden y el cruce automático no las unió. Un vínculo manda sobre el cruce automático.
  */
-export function checkInstallments(account: Account, txs: Transaction[], items: CardStatementItem[], purchases: ExtractPurchase[], cutDate: string | null): InstallmentCheck[] {
+export function checkInstallments(account: Account, txs: Transaction[], items: CardStatementItem[], purchases: ExtractPurchase[], cutDate: string | null, links: Record<number, string> = {}): InstallmentCheck[] {
   const sd = account.statement_day ?? null;
   const cut = cutDate && /^\d{4}-\d{2}-\d{2}$/.test(cutDate) ? cutDate : null;
   const mine = txs.filter((t) => t.account_id === account.id);
   const myItems = items.filter((i) => i.account_id === account.id);
   const used = new Set<string>();
   const out: InstallmentCheck[] = [];
+  // Movimientos que la persona vinculó a mano: ninguna otra compra se los lleva sola
+  const reserved = new Set(Object.values(links));
 
-  for (const p of purchases) {
-    const item = knownItem(p, myItems, account.id);
+  purchases.forEach((p, index) => {
+    const linkedTx = links[index] ? mine.find((t) => t.id === links[index]) : undefined;
+    const item = linkedTx ? undefined : knownItem(p, myItems, account.id);
     if (item) {
       const diffs = compareWith(p, item.installments, expectedForItem(item, account, cut));
-      out.push({ verdict: diffs.length ? "DIFFERS" : "OK", purchase: p, source: "ITEM", item, diffs });
+      out.push({ verdict: diffs.length ? "DIFFERS" : "OK", index, purchase: p, source: "ITEM", item, diffs });
       for (const t of mine) if (Math.abs(t.amount - item.amount) <= 1 && daysApart(t.occurred_on, item.purchase_date) <= 1) used.add(t.id);
-      continue;
+      return;
     }
-    const tx = mine
-      .filter((t) => (t.kind === "EXPENSE" || isCardAdvance(t)) && Math.abs(t.amount - p.amount) <= 1 && daysApart(t.occurred_on, p.purchaseDate) <= 1)
+    const tx = linkedTx ?? mine
+      .filter((t) => !reserved.has(t.id) && (t.kind === "EXPENSE" || isCardAdvance(t)) && Math.abs(t.amount - p.amount) <= 1 && daysApart(t.occurred_on, p.purchaseDate) <= 1)
       .sort((a, b) => daysApart(a.occurred_on, p.purchaseDate) - daysApart(b.occurred_on, p.purchaseDate) || Math.abs(a.amount - p.amount) - Math.abs(b.amount - p.amount))[0];
-    if (!tx) { out.push({ verdict: "ONLY_EXTRACT", purchase: p, diffs: [] }); continue; }
+    if (!tx) { out.push({ verdict: "ONLY_EXTRACT", index, purchase: p, diffs: [] }); return; }
     used.add(tx.id);
     const e = expectedForTx(tx, account, cut);
-    const diffs = compareWith(p, e.n, e);
-    out.push({ verdict: diffs.length ? "DIFFERS" : "OK", purchase: p, source: "APP", tx, diffs });
-  }
+    const diffs = compareWith(p, e.n, e, linkedTx ? tx.amount : undefined);
+    out.push({ verdict: diffs.length ? "DIFFERS" : "OK", index, ...(linkedTx ? { linked: true } : {}), purchase: p, source: "APP", tx, diffs });
+  });
 
   // En la app y no en el extracto: compras a cuotas hechas antes del corte, ya facturadas y con cuotas por pagar todavía
   if (sd && cut) {
@@ -204,4 +220,25 @@ export function checkInstallments(account: Account, txs: Transaction[], items: C
 
   const rank: Record<InstallmentVerdict, number> = { DIFFERS: 0, ONLY_APP: 1, ONLY_EXTRACT: 2, OK: 3 };
   return out.sort((a, b) => rank[a.verdict] - rank[b.verdict]);
+}
+
+/**
+ * Movimientos de la app que pueden ser una compra del extracto que no se emparejó sola: gastos de esta tarjeta que todavía no
+ * están emparejados, hasta un mes antes o después, y los de valor y fecha más parecidos primero.
+ * `taken`: movimientos que ya tienen su pareja (para no ofrecerlos).
+ */
+export function purchaseLinkCandidates(account: Account, txs: Transaction[], p: Pick<ExtractPurchase, "purchaseDate" | "amount">, taken: ReadonlySet<string>, limit = 8): Transaction[] {
+  return txs
+    .filter((t) => t.account_id === account.id && (t.kind === "EXPENSE" || isCardAdvance(t)) && !taken.has(t.id) && daysApart(t.occurred_on, p.purchaseDate) <= 31)
+    .sort((a, b) => Math.abs(a.amount - p.amount) - Math.abs(b.amount - p.amount) || daysApart(a.occurred_on, p.purchaseDate) - daysApart(b.occurred_on, p.purchaseDate))
+    .slice(0, limit);
+}
+
+/** Lo mismo al revés: compras del extracto sin pareja que puede ser este movimiento de la app (de `checks`, las "solo en el extracto"). */
+export function onlyExtractCandidates(checks: InstallmentCheck[], tx: Pick<Transaction, "amount" | "occurred_on">, limit = 8): InstallmentCheck[] {
+  return checks
+    .filter((c) => c.verdict === "ONLY_EXTRACT" && c.purchase !== undefined && c.index !== undefined)
+    .sort((a, b) => Math.abs(a.purchase!.amount - tx.amount) - Math.abs(b.purchase!.amount - tx.amount)
+      || daysApart(a.purchase!.purchaseDate, tx.occurred_on) - daysApart(b.purchase!.purchaseDate, tx.occurred_on))
+    .slice(0, limit);
 }
