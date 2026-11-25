@@ -184,3 +184,25 @@ export function parseAddiCreditStatement(items: PdfTextItem[]): AddiCreditRead |
   };
   return { statement, purchases };
 }
+
+/**
+ * El mismo extracto en el formato de la revisión de tarjetas (`sanitizeCardStatement`): la deuda es el pago total a la fecha del
+ * extracto. Addi no imprime el plan de cuotas de cada compra (número de cuotas ni saldo por compra) ni la lista de movimientos
+ * del periodo, así que esas dos partes no se leen: se avisa en vez de mandarlas a la IA, que solo podría inventarlas.
+ */
+export function addiAsCardStatement(read: AddiCreditRead): Record<string, unknown> {
+  const s = read.statement;
+  return {
+    institution: "Addi",
+    statement_date: s.statement_date,
+    due_date: s.due_date,
+    total_debt: s.payoff_amount,
+    total_payment: s.payoff_amount,
+    minimum_payment: s.amount_due,
+    rate_ea: s.rate_ea,
+    purchases: [],
+  };
+}
+
+export const ADDI_NO_INSTALLMENTS = "El extracto de Addi no trae el plan de cuotas de cada compra (cuántas cuotas ni cuánto queda por compra): revísalas en la app de Addi.";
+export const ADDI_NO_LINES = "El extracto de Addi no trae la lista de movimientos del mes (compras y pagos), solo el detalle del pago mínimo, así que no hay nada que cruzar. Revisa los movimientos en la app de Addi.";

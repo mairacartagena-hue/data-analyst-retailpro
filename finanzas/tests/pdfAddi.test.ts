@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import type { PdfTextItem } from "@/lib/capture/pdf/rows";
 import { parseAddiCreditStatement, parseCop, parseLongDate } from "@/lib/capture/pdf/addiCredit";
 import { readLocalCreditStatement } from "@/lib/capture/creditStatementLocal";
+import { readLocalCardStatement } from "@/lib/capture/cardStatementLocal";
 
 // Extracto sintético con la misma disposición del de Addi (posiciones en puntos como las entrega pdf.js: x a la izquierda,
 // y hacia arriba). Nombres, comercios, IDs y valores son inventados.
@@ -88,5 +89,19 @@ describe("lectura local del extracto de Addi", () => {
   it("un PDF que no es de Addi no se toca", () => {
     expect(parseAddiCreditStatement(statement().filter((it) => !it.text.includes("addi")))).toBeNull();
     expect(readLocalCreditStatement([at(1, 700, 40, "Banco Cualquiera"), at(1, 690, 40, "Saldo a capital")])).toBeNull();
+  });
+});
+
+describe("el extracto de Addi en la revisión de tarjetas", () => {
+  it("lee la deuda (pago total), el pago mínimo y las fechas; avisa que no trae cuotas por compra ni movimientos", () => {
+    const r = readLocalCardStatement(statement(), "2026-10-12");
+    expect(r?.bank).toBe("Addi");
+    expect(r?.lines).toBeNull();
+    const { installmentsNote, ...rest } = r!.statement;
+    expect(rest).toEqual({
+      institution: "Addi", statementDate: "2026-10-10", dueDate: "2026-10-17", totalDebt: 1500000, totalPayment: 1500000,
+      minimumPayment: 170001, rateEa: 30, purchases: [], rawPurchases: 0,
+    });
+    expect(typeof installmentsNote).toBe("string");
   });
 });

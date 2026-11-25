@@ -1,9 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireApiMember } from "@/lib/supabase/server";
 import { readCardStatement, readCardStatementLines } from "@/lib/capture/cardStatementGemini";
-import { readCardStatementLocal } from "@/lib/capture/cardStatementLocal";
+import { LockedPdfError, readCardStatementLocal, type LocalCardRead } from "@/lib/capture/cardStatementLocal";
 
-// Importar el extracto de una tarjeta de crédito y mostrar lo leído para revisarlo. Un PDF de un banco conocido (BBVA) se lee directo,
+// Importar el extracto de una tarjeta de crédito y mostrar lo leído para revisarlo. Un PDF de un formato conocido (BBVA, Addi) se lee directo,
 // sin IA; si es otro banco, una foto, o la lectura no cuadra con el resumen del propio extracto, lo lee Gemini.
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -23,7 +23,15 @@ export async function POST(req: NextRequest) {
   if (data.length > MAX_BASE64) return NextResponse.json({ ok: false, error: "El archivo es muy pesado (máximo ~3 MB)." }, { status: 413 });
   // mode "lines": segunda lectura (movimientos del periodo para cruzarlos con la app); por defecto, totales y compras diferidas
   const lines = body?.mode === "lines";
-  const local = await readCardStatementLocal({ data, mime }, today);
+  let local: LocalCardRead | null;
+  try {
+    local = await readCardStatementLocal({ data, mime }, today);
+  } catch (e) {
+    if (e instanceof LockedPdfError) return NextResponse.json({ ok: false, error: e.message }, { status: 422 });
+    throw e;
+  }
+  // Un extracto conocido sin lista de movimientos (Addi): se dice por qué, no se le pide a la IA que los invente
+  if (local && lines && !local.lines) return NextResponse.json({ ok: false, error: local.linesNote ?? "Este extracto no trae la lista de movimientos." }, { status: 422 });
   if (local) return NextResponse.json({ ok: true, source: "local", bank: local.bank, result: lines ? local.lines : local.statement });
   try {
     return NextResponse.json({ ok: true, source: "gemini", result: lines ? await readCardStatementLines({ data, mime }, today) : await readCardStatement({ data, mime }, today) });

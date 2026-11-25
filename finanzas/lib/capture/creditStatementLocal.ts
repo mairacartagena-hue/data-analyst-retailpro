@@ -6,6 +6,7 @@ import { sanitizeCreditStatement, type CreditStatementData } from "./creditState
 import { parseAddiCreditStatement } from "./pdf/addiCredit";
 import { extractPdfItems } from "./pdf/extract";
 import type { PdfTextItem } from "./pdf/rows";
+import { LockedPdfError } from "./cardStatementLocal";
 
 export interface LocalCreditRead {
   institution: string;
@@ -31,13 +32,14 @@ export function readLocalCreditStatement(items: PdfTextItem[]): LocalCreditRead 
   return null;
 }
 
-/** Igual, desde el archivo (base64). null si no es un PDF, no se pudo leer o no es un formato conocido: nunca lanza. */
+/** Igual, desde el archivo (base64). null si no es un PDF, no se pudo leer o no es un formato conocido. Solo lanza `LockedPdfError`. */
 export async function readCreditStatementLocal(file: { data: string; mime: string }): Promise<LocalCreditRead | null> {
   if (file.mime !== "application/pdf") return null;
   try {
     const items = await extractPdfItems(new Uint8Array(Buffer.from(file.data, "base64")));
     return readLocalCreditStatement(items);
   } catch (e) {
+    if (e instanceof Error && e.name === "PasswordException") throw new LockedPdfError();
     console.warn("[credit-statement] no se pudo leer el PDF directo, se usa Gemini:", e instanceof Error ? e.message : "error desconocido");
     return null;
   }
