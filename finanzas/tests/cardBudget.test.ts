@@ -212,3 +212,25 @@ describe("pago de la tarjeta con una diferencia de redondeo", () => {
     expect(cardDue(visa, -610_000, [short], nov, [item]).due).toBe(10_000);
   });
 });
+
+describe("deuda anterior con tasa: el presupuesto y la proyección usan la misma cuota fija", () => {
+  // REST CAFE de BBVA: 35 cuotas por pagar de $74.484,93 al 29,63 % E.A. (la tarjeta se registró con ese saldo diferido)
+  const rest: CardStatementItem = { id: "rest", account_id: "bbva", description: "REST CAFE NIN", purchase_date: "2026-08-23", amount: 75_982.87,
+    installments: 36, paid_installments: 1, remaining_balance: 74_484.93, rate_ea: 29.63 };
+  const bbva = acc("bbva", "CREDIT_CARD", { statement_day: 20, due_day: 5, opening_at: "2026-10-21T05:00:00.000Z", opening_balance: -74_484.93, budget_category_id: "cat-bbva", interest_rate_ea: 28.56 });
+
+  it("el capital de cada cuota sube y suma el saldo diferido", () => {
+    const plan = legacySchedule(bbva, [rest]);
+    expect(plan).toHaveLength(35);
+    expect(plan.reduce((a, c) => a + c.amount, 0)).toBe(Math.round(74_484.93));
+    expect(plan[34].amount).toBeGreaterThan(plan[0].amount);
+  });
+
+  it("coincide con el capital que proyecta la app mes a mes (mismo saldo, tasa y cuotas)", () => {
+    const plan = legacySchedule(bbva, [rest]);
+    const rows = projectCard(bbva, [], "2026-10-31", 4, [rest]);
+    // el primer pago de la deuda anterior es el 5-dic (corte del 20-nov); la proyección empieza ahí con la cuota 1 que falta
+    const dic = rows.find((r) => r.month === "2026-12")!;
+    expect(Math.abs(dic.capital - plan[0].amount)).toBeLessThanOrEqual(1);
+  });
+});

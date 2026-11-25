@@ -4,7 +4,7 @@
 // presupuesto de la tarjeta solo cuenta la parte de cada pago que cubre esa deuda anterior (nunca dos veces).
 
 import type { CardStatementItem, Transaction } from "@/lib/types";
-import { billingDue, payoffDates, pointsPayoffs, ROUNDING_TOLERANCE } from "./installments";
+import { amortize, billingDue, payoffDates, pointsPayoffs, ROUNDING_TOLERANCE } from "./installments";
 import { periodFor, type PeriodSettings } from "./periods";
 
 export interface LegacyCuota {
@@ -21,6 +21,7 @@ export interface LegacyCuota {
 type CardLike = {
   id: string;
   kind?: string;
+  interest_rate_ea?: number | null;
   statement_day?: number | null;
   due_day?: number | null;
   opening_at?: string | null;
@@ -56,7 +57,7 @@ function cutPlus(statementDay: number, cut: string, k: number): string {
 
 /**
  * Plan de la deuda anterior: el saldo al corte (deuda inicial − saldo diferido de las compras del extracto) en el pago
- * de ese extracto, y una cuota de capital de cada compra diferida por cada corte siguiente. Sin día de corte, de pago
+ * de ese extracto, y la parte de capital de la cuota de cada compra diferida por cada corte siguiente. Sin día de corte, de pago
  * o sin deuda inicial, vacío.
  */
 export function legacySchedule(
@@ -80,7 +81,8 @@ export function legacySchedule(
   for (const it of mine) {
     const left = it.installments - it.paid_installments;
     let bal = Math.round(it.remaining_balance);
-    const part = Math.round(bal / left);
+    // Capital de cada cuota con la misma cuota fija que usa la proyección (con la tasa de la compra o, si no, la de la tarjeta)
+    const plan = amortize(bal, left, it.rate_ea ?? card.interest_rate_ea);
     // Pagada en su totalidad: lo que faltaba se factura de una vez el día antes del pago (así ese pago lo cubre).
     // Si se pagó con puntos, lo que faltaba no se paga con plata: no se factura
     const paidOff = payoffs.get(it.id);
@@ -92,7 +94,7 @@ export function legacySchedule(
         bal = 0;
         break;
       }
-      const capital = k === left - 1 ? bal : Math.min(bal, part);
+      const capital = k === left - 1 ? bal : Math.min(bal, plan[k].capital);
       bal -= capital;
       byCut.set(cut, (byCut.get(cut) ?? 0) + capital);
     }

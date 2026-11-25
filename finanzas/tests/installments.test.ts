@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { addMonthsIso, cardDue, expandInstallments, graceShift, hasGrace, installmentCut, installmentPlan, installmentsOf, isCardAdvance, monthlyRate, projectCard, rateOf, splitEven, statementsDueIn, cutsBetween, statementItemsAfter, matchedWithItems, billingDue } from "@/lib/finance/installments";
+import { addMonthsIso, amortize, cardDue, expandInstallments, graceShift, hasGrace, installmentCut, installmentPlan, installmentsOf, isCardAdvance, monthlyRate, projectCard, rateOf, splitEven, statementsDueIn, cutsBetween, statementItemsAfter, matchedWithItems, billingDue } from "@/lib/finance/installments";
 import type { CardStatementItem } from "@/lib/types";
 import { spendingRows } from "@/lib/finance/spaces";
 import type { Transaction } from "@/lib/types";
+
+// Cuota fija (sistema francés) por la fórmula, para comprobar `installmentPlan` sin usarlo
+const pmt = (amount: number, n: number, ea: number) => {
+  const i = monthlyRate(ea);
+  return Math.round((amount * i) / (1 - Math.pow(1 + i, -n)));
+};
 
 const tx = (over: Partial<Transaction>): Transaction => ({
   id: "t1", kind: "EXPENSE", status: "CONFIRMED", occurred_on: "2026-10-15", amount: 1_200_000, description: "Nevera", merchant: null,
@@ -28,13 +34,24 @@ describe("intereses", () => {
     expect(monthlyRate(28)).toBeCloseTo(0.02079, 4);
     expect(monthlyRate(null)).toBe(0);
   });
-  it("capital fijo e intereses sobre el saldo que queda", () => {
+  it("cuota fija: pagas lo mismo cada mes, con el capital subiendo e intereses sobre el saldo", () => {
     const plan = installmentPlan(1_200_000, 12, "2026-10-15", 28);
+    const cuota = pmt(1_200_000, 12, 28);
     expect(plan).toHaveLength(12);
-    expect(plan.every((c) => c.capital === 100_000)).toBe(true);
+    // La misma cuota todos los meses; la última absorbe el redondeo
+    for (const c of plan.slice(0, 11)) expect(c.total).toBe(cuota);
+    expect(Math.abs(plan[11].total - cuota)).toBeLessThanOrEqual(12);
     expect(plan[0].interest).toBe(Math.round(1_200_000 * monthlyRate(28)));
-    expect(plan[11].interest).toBe(Math.round(100_000 * monthlyRate(28)));
+    expect(plan[0].capital).toBe(cuota - plan[0].interest);
+    // El interés baja y el capital sube; el capital suma exactamente la compra
+    expect(plan[11].interest).toBeLessThan(plan[0].interest);
+    expect(plan[11].capital).toBeGreaterThan(plan[0].capital);
+    expect(plan.reduce((a, c) => a + c.capital, 0)).toBe(1_200_000);
     expect(plan[11].date).toBe("2027-09-15");
+  });
+  it("sin tasa el capital se reparte parejo y el sobrante va en la primera cuota", () => {
+    expect(installmentPlan(1_200_000, 12, "2026-10-15", null).every((c) => c.capital === 100_000 && c.interest === 0)).toBe(true);
+    expect(installmentPlan(100_000, 3, "2026-10-15", 0).map((c) => c.capital)).toEqual([33_334, 33_333, 33_333]);
   });
   it("a 1 cuota no hay intereses", () => {
     expect(installmentPlan(500_000, 1, "2026-10-15", 28)[0].interest).toBe(0);
@@ -63,20 +80,24 @@ describe("tarjeta: lo que toca pagar en el periodo", () => {
   const card = { id: "visa", interest_rate_ea: 28 };
   const oct = { start: "2026-10-01", end: "2026-10-31" };
 
+  // Primera cuota de la compra a 12 cuotas de 1.200.000 al 28 % E.A.: cuota fija y la parte que es capital
+  const cuota = pmt(1_200_000, 12, 28);
+  const capital1 = cuota - Math.round(1_200_000 * monthlyRate(28));
+
   it("aparta la cuota del mes con sus intereses y no toda la deuda", () => {
     const d = cardDue(card, -1_200_000, [tx({})], oct);
     expect(d.debt).toBe(1_200_000);
-    expect(d.laterCapital).toBe(1_100_000);
-    expect(d.due).toBe(100_000 + Math.round(1_200_000 * monthlyRate(28)));
+    expect(d.laterCapital).toBe(1_200_000 - capital1);
+    expect(d.due).toBe(cuota);
   });
 
   it("las compras a 1 cuota se pagan completas", () => {
     const d = cardDue(card, -1_350_000, [tx({}), tx({ id: "t2", amount: 150_000, installments: 1 })], oct);
-    expect(d.due - d.interest).toBe(250_000);
+    expect(d.due - d.interest).toBe(150_000 + capital1);
   });
 
   it("después de pagar la cuota del mes no queda nada por pagar en el periodo", () => {
-    const d = cardDue(card, -1_100_000, [tx({})], oct);
+    const d = cardDue(card, -(1_200_000 - capital1), [tx({})], oct);
     expect(d.due - d.interest).toBe(0);
   });
 
@@ -293,8 +314,11 @@ describe("tasa por compra y proyección", () => {
     const rows = projectCard(card, [tx({ occurred_on: "2026-10-15", installments: 3, amount: 300_000, interest_rate_ea: null })], "2026-10-26", 5);
     expect(rows.map((r) => r.month)).toEqual(["2026-10", "2026-11", "2026-12", "2027-01", "2027-02"]);
     expect(rows.map((r) => r.purchases)).toEqual([1, 1, 1, 0, 0]);
-    expect(rows[0].capital).toBe(100_000);
-    expect(rows[2].capital).toBe(100_000);
+    // Cuota fija: la misma cada mes y el capital suma la compra
+    expect(rows[0].total).toBe(pmt(300_000, 3, 28));
+    expect(rows[1].total).toBe(pmt(300_000, 3, 28));
+    expect(Math.abs(rows[2].total - pmt(300_000, 3, 28))).toBeLessThanOrEqual(3);
+    expect(rows[0].capital + rows[1].capital + rows[2].capital).toBe(300_000);
     expect(rows[3].total).toBe(0);
   });
 
@@ -305,7 +329,8 @@ describe("tasa por compra y proyección", () => {
       tx({ id: "b", occurred_on: "2026-09-20", installments: 12, amount: 1_200_000 }),
     ], "2026-11-01", 2);
     expect(rows[0].purchases).toBe(2);
-    expect(rows[0].capital).toBe(100_000 + 100_000);
+    // La cuota 2 de la de 2 cuotas y la 3 de la de 12, cada una con su cuota fija
+    expect(Math.abs(rows[0].total - (pmt(200_000, 2, 28) + pmt(1_200_000, 12, 28)))).toBeLessThanOrEqual(3);
   });
 });
 
@@ -316,12 +341,14 @@ describe("compras del extracto (no son movimientos)", () => {
     installments: 36, paid_installments: 1, remaining_balance: 74_484.93, rate_ea: 29.63, ...over,
   });
 
-  it("aparecen en la proyección desde el mes siguiente, con el saldo repartido en las cuotas que faltan", () => {
+  it("aparecen en la proyección desde el mes siguiente, con el saldo en cuota fija sobre las cuotas que faltan", () => {
     const rows = projectCard(card, [], "2026-10-26", 4, [item({})]);
     expect(rows[0].purchases).toBe(0);
     expect(rows[1].purchases).toBe(1);
-    expect(rows[1].capital).toBe(Math.round(74_484.93 / 35));
     expect(rows[1].interest).toBe(Math.round(74_484.93 * monthlyRate(29.63)));
+    expect(rows[1].total).toBe(pmt(74_484.93, 35, 29.63));
+    // El capital sube mes a mes (la cuota es la misma)
+    expect(rows[2].capital).toBeGreaterThan(rows[1].capital);
   });
 
   it("no cuentan más cuotas de las que faltan y el último mes cierra el saldo", () => {
@@ -362,8 +389,8 @@ describe("avances de la tarjeta a cuotas", () => {
   it("aparta la cuota del mes con sus intereses y no todo el avance", () => {
     const d = cardDue(card, -600_000, [advance()], oct);
     expect(d.debt).toBe(600_000);
-    expect(d.laterCapital).toBe(500_000);
-    expect(d.due).toBe(100_000 + Math.round(600_000 * monthlyRate(28)));
+    expect(d.laterCapital).toBe(600_000 - (pmt(600_000, 6, 28) - Math.round(600_000 * monthlyRate(28))));
+    expect(d.due).toBe(pmt(600_000, 6, 28));
   });
 
   it("usa la tasa del avance y no la de la tarjeta", () => {
@@ -485,5 +512,35 @@ describe("cuota 0 (gracia) y vencimiento por corte", () => {
     const d = cardDue({ ...bbva, interest_rate_ea: 0 }, -247_590, cda, dec, []);
     expect(d.due).toBe(123_795);
     expect(d.laterCapital).toBe(123_795);
+  });
+});
+
+describe("amortización con cuota fija", () => {
+  it("el capital suma exactamente el saldo, también con centavos, y la última cuota absorbe el redondeo", () => {
+    for (const [saldo, n, ea] of [[74_484.93, 35, 29.63], [247_590, 2, 28.56], [1_000, 7, 33], [4_000_000, 48, 25]] as const) {
+      const plan = amortize(saldo, n, ea);
+      expect(plan).toHaveLength(n);
+      expect(Math.abs(plan.reduce((a, c) => a + c.capital, 0) - saldo)).toBeLessThan(0.001);
+      expect(plan.every((c) => c.capital >= 0 && c.interest >= 0)).toBe(true);
+    }
+  });
+  it("la cuota (capital + intereses) es la misma cada mes, salvo la última", () => {
+    const plan = amortize(2_530_000, 24, 33);
+    const cuota = pmt(2_530_000, 24, 33);
+    for (const c of plan.slice(0, 23)) expect(c.capital + c.interest).toBe(cuota);
+    expect(Math.abs(plan[23].capital + plan[23].interest - cuota)).toBeLessThanOrEqual(24);
+  });
+  it("sin tasa o a una cuota no hay intereses; el sobrante va primero solo si se pide", () => {
+    expect(amortize(100_000, 3, 0, true).map((c) => c.capital)).toEqual([33_334, 33_333, 33_333]);
+    expect(amortize(100_000, 3, 0).map((c) => c.capital)).toEqual([33_333, 33_333, 33_334]);
+    expect(amortize(500_000, 1, 28)).toEqual([{ capital: 500_000, interest: 0 }]);
+    expect(amortize(500_000, 0, 28)).toEqual([]);
+  });
+  it("se acerca al capital que cobra BBVA en el extracto (el banco calcula el interés por días)", () => {
+    // CDA motos: 247.590 a 2 cuotas, 28,56 % E.A. El banco cobró 122.610,27 de capital en la cuota 1
+    expect(Math.abs(amortize(247_590, 2, 28.56)[0].capital - 122_610.27) / 122_610.27).toBeLessThan(0.002);
+    // REST CAFE: 74.484,93 a 35 cuotas, 29,63 %: el banco cobró 1.487,57 de capital en la cuota 2; con capital fijo eran 2.128
+    const capital = amortize(74_484.93, 35, 29.63)[0].capital;
+    expect(Math.abs(capital - 1_487.57) / 1_487.57).toBeLessThan(0.05);
   });
 });

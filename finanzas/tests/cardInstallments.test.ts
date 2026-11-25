@@ -157,10 +157,12 @@ describe("cargo del mes: la cuota que factura el extracto por cada compra", () =
   it("con tasa en la tarjeta, la app espera cuota más intereses", () => {
     const plan = installmentPlan(300_000, 3, "2026-10-24", 28);
     expect(plan[0].interest).toBeGreaterThan(5_000);
-    const [ok] = checkInstallments(withRate(28), [tv], [], [p({ monthlyCharge: plan[0].total })], "2026-11-20");
+    // El saldo diferido que queda es la compra menos el capital de esa cuota fija
+    const saldo = 300_000 - plan[0].capital;
+    const [ok] = checkInstallments(withRate(28), [tv], [], [p({ monthlyCharge: plan[0].total, remainingBalance: saldo })], "2026-11-20");
     expect(ok.verdict).toBe("OK");
     // El extracto cobra solo la cuota sin intereses → la app tiene los intereses de más (o el banco no los cobró)
-    const [d] = checkInstallments(withRate(28), [tv], [], [p({ monthlyCharge: 100_000 })], "2026-11-20");
+    const [d] = checkInstallments(withRate(28), [tv], [], [p({ monthlyCharge: 100_000, remainingBalance: saldo })], "2026-11-20");
     expect(d.diffs).toEqual([{ field: "charge", app: plan[0].total, extract: 100_000 }]);
   });
 
@@ -380,9 +382,10 @@ describe("extracto de BBVA: cargo solo con el capital y periodo de gracia", () =
   });
 
   it("aun con solo capital se marca un saldo que ya bajó más de lo que la app amortizó, o un cargo mayor al esperado", () => {
-    // 100.000 de saldo cuando la app espera 123.795 (cuota de más pagada) y el cargo cuadra con el capital descontado
+    // 100.000 de saldo cuando la app espera 125.091 (cuota fija de 127.737, de la que 122.499 son capital; cuota de más pagada) y el cargo
+    // cuadra con el capital descontado. El banco real dejó 124.979,73: a 111 pesos de lo que espera la app.
     const [a] = checkInstallments(bbva, [cda], [], [{ ...cdaRow, remainingBalance: 100_000, balanceAtCut: 222_610.27 }], "2026-11-20");
-    expect(a.diffs).toEqual([{ field: "balance", app: 123_795, extract: 100_000 }]);
+    expect(a.diffs).toEqual([{ field: "balance", app: 125_091, extract: 100_000 }]);
     // Un cargo por encima de lo que la app espera con intereses no es un "solo capital": se marca
     const esperado = installmentPlan(247_590, 2, "2026-10-24", 28.56)[0].total;
     const [b] = checkInstallments(bbva, [cda], [], [{ ...cdaRow, monthlyCharge: esperado + 20_000, remainingBalance: 247_590 - esperado - 20_000, balanceAtCut: undefined }], "2026-11-20");
@@ -411,7 +414,7 @@ describe("extracto de BBVA: cargo solo con el capital y periodo de gracia", () =
   it("el periodo de gracia no aplica a planes de 2 cuotas: ahí el primer corte ya cobra la cuota 1", () => {
     const ikea = tx({ id: "ikea", description: "Ikea cali", amount: 170_950, installments: 2, occurred_on: "2026-10-24" });
     const [c] = checkInstallments(bbva, [ikea], [], [row({ description: "IKEA CALI", purchaseDate: "2026-10-24", amount: 170_950, paidInstallments: 0, remainingBalance: 170_950 })], "2026-11-20");
-    expect(c.diffs).toEqual([{ field: "current", app: 1, extract: 0 }, { field: "balance", app: 85_475, extract: 170_950 }]);
+    expect(c.diffs).toEqual([{ field: "current", app: 1, extract: 0 }, { field: "balance", app: 86_370, extract: 170_950 }]);
   });
 
   it("una compra registrada con 1 cuota que el banco difirió a 2 sigue marcándose (error real de la app)", () => {
