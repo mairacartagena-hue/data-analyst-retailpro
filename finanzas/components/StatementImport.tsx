@@ -1,23 +1,23 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, FileUp, HelpCircle, Landmark, PlusCircle, Trash2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, FileUp, HelpCircle, History, Landmark, PlusCircle, Trash2 } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { useShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { ErrorText, Select } from "@/components/ui/input";
 import { Sheet } from "@/components/ui/sheet";
 import { SwitchRow } from "@/components/ui/switch";
-import type { Account } from "@/lib/types";
+import type { Account, ReconcilingItem } from "@/lib/types";
 import { CHANNEL_LABEL } from "@/lib/types";
 import { formatCop } from "@/lib/finance/money";
 import { formatDay } from "@/lib/finance/periods";
-import { monthRange } from "@/lib/finance/reconcile";
+import { cycleRange, monthRange } from "@/lib/finance/reconcile";
 import { ensureCategory } from "@/lib/finance/ensureCategory";
 import { readStatementFile } from "@/lib/finance/statementFile";
 import {
-  BANK_CATEGORY, INTEREST_CATEGORY, UNKNOWN_CATEGORY, bankCharges, closingBalance, isBankLine, parseStatementRows, reconcileStatement, registerPayload,
-  type AppEntry, type ColumnMap, type LineKind, type StatementLine,
+  BANK_CATEGORY, INTEREST_CATEGORY, UNKNOWN_CATEGORY, bankCharges, carryOverStatus, closingBalance, coveredRange, isBankLine, parseStatementRows, reconcileStatement, registerPayload,
+  type AppEntry, type CarryStatus, type ColumnMap, type LineKind, type StatementLine,
 } from "@/lib/finance/statement";
 import { cn, errMsg } from "@/lib/utils";
 
@@ -25,15 +25,28 @@ const KIND_LABEL: Record<LineKind, string> = {
   GMF: "4x1000", INTEREST_IN: "Interés a favor", INTEREST_OUT: "Interés cobrado", FEE: "Gasto bancario", OTHER: "",
 };
 
+const CARRY_LABEL: Record<CarryStatus, string> = {
+  FOUND: "ya aparece en este extracto",
+  NOT_FOUND: "no aparece: revisa si el banco la cobra en el siguiente o si hay un error",
+  GONE: "el movimiento ya no está en la app",
+  UNKNOWN: "no se puede comprobar con este extracto",
+};
+
 const signed = (n: number) => `${n < 0 ? "−" : "+"}${formatCop(Math.abs(n))}`;
 
-/** Importa el extracto del banco (CSV) y lo cruza con la app: faltantes, duplicados, 4x1000, intereses y gastos bancarios. */
-export function StatementImport({ account, month, onBalance, onStatus }: { account: Account; month: string; onBalance: (v: number) => void; onStatus?: (s: string | null) => void }) {
+/**
+ * Importa el extracto del banco (CSV) y lo cruza con la app: faltantes, duplicados, 4x1000, intereses y gastos bancarios.
+ * En las tarjetas con día de corte se compara el ciclo del extracto (no el mes calendario) y se comprueba si las partidas
+ * conciliatorias del cierre anterior (`carryOver`) ya aparecen en este extracto.
+ */
+export function StatementImport({ account, month, onBalance, onStatus, carryOver }: { account: Account; month: string; onBalance: (v: number) => void; onStatus?: (s: string | null) => void; carryOver?: ReconcilingItem[] }) {
   const state = useFinance();
   const { transactions, supabase, reload, uvt, me } = state;
   const { openPayment } = useShell();
-  const range = monthRange(month);
   const isCard = account.kind === "CREDIT_CARD";
+  const byCycle = isCard && !!account.statement_day;
+  const base = isCard ? cycleRange(account.statement_day, month) : monthRange(month);
+  const scope = byCycle ? "ciclo" : "mes";
 
   const [open, setOpen] = useState(false);
   const [rows, setRows] = useState<string[][] | null>(null);
@@ -47,6 +60,8 @@ export function StatementImport({ account, month, onBalance, onStatus }: { accou
   const [notice, setNotice] = useState<string | null>(null);
 
   const parsed = useMemo(() => (rows === null ? null : parseStatementRows(rows, { map, flip, purchasesPositive, isCard, yearHint: Number(month.slice(0, 4)) })), [rows, map, flip, purchasesPositive, isCard, month]);
+  // Tarjetas: el ciclo del extracto recortado a lo que cubre el archivo (si trae el mes calendario, solo la parte que se cruza con el ciclo)
+  const range = useMemo(() => (byCycle && parsed ? coveredRange(base, parsed.lines, parsed.period) : base), [byCycle, parsed, base.start, base.end]); // eslint-disable-line react-hooks/exhaustive-deps
   const inMonth = useMemo(() => (parsed?.lines ?? []).filter((l) => l.date >= range.start && l.date <= range.end), [parsed, range.start, range.end]);
   const rec = useMemo(() => (parsed ? reconcileStatement(account, transactions, parsed.lines, range) : null), [parsed, account, transactions, range.start, range.end]); // eslint-disable-line react-hooks/exhaustive-deps
   const charges = useMemo(() => bankCharges(account, inMonth, uvt), [account, inMonth, uvt]);
@@ -54,13 +69,15 @@ export function StatementImport({ account, month, onBalance, onStatus }: { accou
   const inflow = inMonth.filter((l) => l.amount > 0).reduce((a, l) => a + l.amount, 0);
   const outflow = inMonth.filter((l) => l.amount < 0).reduce((a, l) => a - l.amount, 0);
 
+  const carry = useMemo(() => (carryOver?.length ? carryOverStatus(carryOver, transactions, rec, range) : []), [carryOver, transactions, rec, range.start, range.end]); // eslint-disable-line react-hooks/exhaustive-deps
+  const carryMissing = carry.filter((c) => c.status === "NOT_FOUND").length;
   const duplicateIds = new Set((rec?.duplicates ?? []).map((d) => d.entry.tx.id));
   const onlyInApp = (rec?.extra ?? []).filter((e) => !duplicateIds.has(e.tx.id));
   const bankMissing = (rec?.missing ?? []).filter(isBankLine);
 
   const status = !rec ? null
-    : rec.missing.length + rec.duplicates.length === 0 ? "Revisado: no falta ni sobra ningún movimiento"
-    : `Revisado: ${[rec.missing.length && `${rec.missing.length} falta${rec.missing.length === 1 ? "" : "n"} en la app`, rec.duplicates.length && `${rec.duplicates.length} repetido${rec.duplicates.length === 1 ? "" : "s"}`].filter(Boolean).join(" · ")}`;
+    : rec.missing.length + rec.duplicates.length + carryMissing === 0 ? "Revisado: no falta ni sobra ningún movimiento"
+    : `Revisado: ${[rec.missing.length && `${rec.missing.length} falta${rec.missing.length === 1 ? "" : "n"} en la app`, rec.duplicates.length && `${rec.duplicates.length} repetido${rec.duplicates.length === 1 ? "" : "s"}`, carryMissing && `${carryMissing} partida${carryMissing === 1 ? "" : "s"} del cierre anterior sin aparecer`].filter(Boolean).join(" · ")}`;
   useEffect(() => { onStatus?.(status); }, [status]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function pickFile(file: File | undefined) {
@@ -154,7 +171,7 @@ export function StatementImport({ account, month, onBalance, onStatus }: { accou
               <FileUp size={18} /> {fileName || "Elegir el extracto (Excel o CSV)"}
               <input type="file" accept=".csv,.txt,.xlsx,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="sr-only" onChange={(e) => { void pickFile(e.target.files?.[0]); e.target.value = ""; }} />
             </label>
-            <p className="text-xs text-muted">El archivo se lee en tu celular; no se sube a ningún lado. Descárgalo desde la página o app de tu banco (extracto en Excel .xlsx o CSV). Si trae varios meses, se compara solo el mes que estás cerrando.</p>
+            <p className="text-xs text-muted">El archivo se lee en tu celular; no se sube a ningún lado. Descárgalo desde la página o app de tu banco (extracto en Excel .xlsx o CSV). Si trae varios meses, se compara solo {byCycle ? "el ciclo" : "el mes"} que estás cerrando.</p>
           </div>
 
           <ErrorText>{error}</ErrorText>
@@ -167,9 +184,10 @@ export function StatementImport({ account, month, onBalance, onStatus }: { accou
           {parsed && (
             <>
               <div className="rounded-2xl border border-border bg-surface p-3 text-sm">
-                <p className="font-semibold">{inMonth.length} movimiento{inMonth.length === 1 ? "" : "s"} del mes en el extracto</p>
+                <p className="font-semibold">{inMonth.length} movimiento{inMonth.length === 1 ? "" : "s"} del {scope} en el extracto</p>
+                {byCycle && <p className="text-xs text-muted">Fechas que se comparan: {formatDay(range.start)} – {formatDay(range.end)} (ciclo de la tarjeta)</p>}
                 <p className="num text-muted">Entró {formatCop(inflow)} · Salió {formatCop(outflow)}</p>
-                {rec && rec.outOfRange > 0 && <p className="text-xs text-muted">{rec.outOfRange} línea{rec.outOfRange === 1 ? "" : "s"} de otros meses no se comparan.</p>}
+                {rec && rec.outOfRange > 0 && <p className="text-xs text-muted">{rec.outOfRange} línea{rec.outOfRange === 1 ? "" : "s"} de otros {byCycle ? "ciclos" : "meses"} no se comparan.</p>}
                 {parsed.skipped > 0 && <p className="text-xs text-muted">{parsed.skipped} fila{parsed.skipped === 1 ? "" : "s"} sin fecha o valor (títulos, totales) se ignoraron.</p>}
                 {closing !== null && (
                   <button className="mt-2 text-xs font-medium text-olive underline" onClick={() => { onBalance(Math.abs(closing)); setNotice(`Usé ${formatCop(Math.abs(closing))} como ${isCard ? "deuda" : "saldo"} del banco.`); }}>
@@ -260,6 +278,26 @@ export function StatementImport({ account, month, onBalance, onStatus }: { accou
                 </section>
               )}
 
+              {carry.length > 0 && (
+                <section className="space-y-1">
+                  <h3 className={cn("flex items-center gap-1.5 text-sm font-semibold", carryMissing > 0 && "text-warning")}><History size={15} /> Partidas del cierre anterior ({carry.length})</h3>
+                  <p className="text-xs text-muted">Eran movimientos que el banco todavía no había cobrado al cerrar el mes pasado. Deberían venir en este extracto.</p>
+                  <div className="divide-y divide-border">
+                    {carry.map((c, i) => (
+                      <div key={c.item.transaction_id ?? `sin-mov-${i}`} className="flex items-center gap-2 py-2 text-sm">
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate font-medium">{c.item.description}</span>
+                          <span className={cn("block text-xs", c.status === "NOT_FOUND" ? "text-warning" : "text-muted")}>
+                            {c.item.occurred_on ? `${formatDay(c.item.occurred_on)} · ` : ""}{CARRY_LABEL[c.status]}
+                          </span>
+                        </span>
+                        <span className="num shrink-0 font-semibold">{signed(c.item.amount)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
               <section className="space-y-2 rounded-2xl border border-border bg-surface p-3 text-sm">
                 <h3 className="flex items-center gap-1.5 font-semibold"><Landmark size={15} /> Cobros del banco en el extracto</h3>
                 {charges.gmf.applies ? (
@@ -283,7 +321,7 @@ export function StatementImport({ account, month, onBalance, onStatus }: { accou
                 </dl>
               </section>
 
-              {rec.missing.length === 0 && rec.duplicates.length === 0 && (
+              {rec.missing.length === 0 && rec.duplicates.length === 0 && carryMissing === 0 && (
                 <p className="text-xs text-muted">Todo el extracto está en la app. Ahora cierra la cuenta con el saldo del banco.</p>
               )}
             </>

@@ -22,7 +22,7 @@ import { Collapsible } from "@/components/ui/collapsible";
 import { InfoNote } from "@/components/ui/info-note";
 import type { Account } from "@/lib/types";
 import { ACCOUNT_KIND_LABEL } from "@/lib/types";
-import { acceptDrift, accountStatement, effectOn, gmfEstimate, monthRange, reconciliationDrift, shiftMonth, type GmfMode } from "@/lib/finance/reconcile";
+import { acceptDrift, accountStatement, cycleRange, effectOn, gmfEstimate, monthRange, reconciliationDrift, shiftMonth, type GmfMode } from "@/lib/finance/reconcile";
 import { formatCop, parseCop } from "@/lib/finance/money";
 import { addDays, monthName, periodFor, todayBogota } from "@/lib/finance/periods";
 import { statusesFor } from "@/lib/finance/derive";
@@ -201,8 +201,7 @@ function AccountClose({ account, month, open, onToggle }: { account: Account; mo
 
   // Partidas conciliatorias: movimientos del mes que están en la app pero no en el saldo del banco o del extracto.
   // En tarjetas se sugieren los posteriores al día de corte (el banco los factura en el próximo extracto).
-  const cutDate = isCard && account.statement_day
-    ? `${month}-${String(Math.min(account.statement_day, Number(range.end.slice(8)))).padStart(2, "0")}` : null;
+  const cutDate = isCard && account.statement_day ? cycleRange(account.statement_day, month).end : null;
   const savedIds = (rec?.reconciling_items ?? []).flatMap((i) => (i.transaction_id ? [i.transaction_id] : []));
   const defaultPicked = (rec?.reconciling_items?.length ? savedIds : cutDate ? st.items.filter((t) => t.occurred_on > cutDate).map((t) => t.id) : []).join(",");
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -239,6 +238,13 @@ function AccountClose({ account, month, open, onToggle }: { account: Account; mo
   }
 
   const items = rec?.status === "RECONCILED" ? rec.reconciling_items ?? [] : [];
+  // Partidas del cierre anterior: movimientos que el banco todavía no había cobrado; deberían venir en el extracto de este mes
+  const prevKey = monthRange(shiftMonth(month, -1)).start;
+  const prevItems = useMemo(
+    () => reconciliations.find((r) => r.account_id === account.id && r.month === prevKey && r.status === "RECONCILED")?.reconciling_items ?? [],
+    [reconciliations, account.id, prevKey],
+  );
+  const prevTotal = prevItems.reduce((a, i) => a + i.amount, 0);
 
   /** Guarda el cierre tal cual: conciliada si cuadra; si no, queda "con diferencia" sin tocar el saldo. */
   async function markReconciled() {
@@ -338,12 +344,18 @@ function AccountClose({ account, month, open, onToggle }: { account: Account; mo
             <dt className="font-semibold">{isDebt ? "Deuda según la app" : "Saldo según la app"}</dt><dd className="num text-right font-semibold">{formatCop(appValue)}</dd>
           </dl>
           {st.pending > 0 && <p className="text-xs text-warning">{st.pending} movimiento{st.pending === 1 ? "" : "s"} de esta cuenta siguen por revisar.</p>}
+          {!isCredit && prevItems.length > 0 && (
+            <p className="text-xs text-muted">
+              Del cierre anterior vienen {prevItems.length} partida{prevItems.length === 1 ? "" : "s"} conciliatoria{prevItems.length === 1 ? "" : "s"} ({formatCop(Math.abs(prevTotal))}):
+              {" "}el banco las cobra en el extracto de este mes. Si la deuda cuadra ya están incluidas; para comprobarlas una por una, sube el extracto en “Revisar los movimientos”.
+            </p>
+          )}
 
           {isCard && <p className="text-xs text-muted">Puedes revisar la tarjeta contra el banco de dos formas. Son independientes: haz solo la que necesites, las dos, o en el orden que quieras. No hace falta el paso 1 para hacer el paso 2.</p>}
           {!isCredit && (
             <ReconcileStep step={isCard ? 1 : undefined} icon={<ListChecks size={15} />} title="Revisar los movimientos" done={movesStatus}
               question={`¿Están todas tus ${isCard ? "compras y pagos" : "entradas y salidas"}? Sube el Excel o CSV de movimientos del banco y te digo cuáles faltan en la app o están repetidos.`}>
-              <StatementImport key={month} account={account} month={month} onBalance={(v) => setBank(String(v))} onStatus={setMovesStatus} />
+              <StatementImport key={month} account={account} month={month} onBalance={(v) => setBank(String(v))} onStatus={setMovesStatus} carryOver={prevItems} />
             </ReconcileStep>
           )}
           {isCard && (
