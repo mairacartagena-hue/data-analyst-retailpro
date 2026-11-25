@@ -6,6 +6,7 @@ import type { Account, CardStatement, CardStatementItem, Transaction } from "@/l
 import type { CardStatementPurchase } from "@/lib/capture/cardStatement";
 import { accountStatement } from "./reconcile";
 import { addDays } from "./periods";
+import { VALUE_ONLY_MIN, VALUE_WINDOW_DAYS, sameMerchant } from "./statement";
 import { billingCut, cutsBetween, installmentPlan, installmentsOf, isCardAdvance, matchedWithItems, payoffDates, projectCard, rateOf, statementItemsAfter } from "./installments";
 
 /** Diferencias de hasta $1.000 se toman como iguales (redondeos e intereses de centavos). */
@@ -115,6 +116,8 @@ export interface InstallmentCheck {
   source?: "APP" | "ITEM";
   tx?: Transaction;
   item?: CardStatementItem;
+  /** La compra se unió al movimiento por valor idéntico aunque las fechas difieren mucho: días de diferencia. */
+  dateGap?: number;
   diffs: InstallmentDiff[];
 }
 
@@ -170,8 +173,10 @@ function compareWith(p: ExtractPurchase, appInstallments: number, e: { current: 
  * `cutDate` es el corte del extracto; sin él (o sin día de corte en la tarjeta) solo se compara el total de cuotas.
  * `links`: vínculos hechos a mano (posición de la compra en `purchases` → id del movimiento de la app), para cuando el valor o la
  * fecha no coinciden y el cruce automático no las unió. Un vínculo manda sobre el cruce automático.
+ * Las compras que quedan sin pareja se unen por VALOR idéntico aunque la fecha difiera hasta `VALUE_WINDOW_DAYS` días (`dateGap`);
+ * `apart` (`posición|id del movimiento`) son las parejas por valor que la persona separó.
  */
-export function checkInstallments(account: Account, txs: Transaction[], items: CardStatementItem[], purchases: ExtractPurchase[], cutDate: string | null, links: Record<number, string> = {}): InstallmentCheck[] {
+export function checkInstallments(account: Account, txs: Transaction[], items: CardStatementItem[], purchases: ExtractPurchase[], cutDate: string | null, links: Record<number, string> = {}, apart: readonly string[] = []): InstallmentCheck[] {
   const sd = account.statement_day ?? null;
   const cut = cutDate && /^\d{4}-\d{2}-\d{2}$/.test(cutDate) ? cutDate : null;
   const mine = txs.filter((t) => t.account_id === account.id);
@@ -180,25 +185,57 @@ export function checkInstallments(account: Account, txs: Transaction[], items: C
   const out: InstallmentCheck[] = [];
   // Movimientos que la persona vinculó a mano: ninguna otra compra se los lleva sola
   const reserved = new Set(Object.values(links));
+  // Parejas que la persona separó ("esta no es"): clave `posición|movimiento`
+  const separated = new Set(apart);
+  const isPurchaseTx = (t: Transaction) => t.kind === "EXPENSE" || isCardAdvance(t);
 
+  const slots: InstallmentCheck[] = [];
+  const pending: number[] = [];
+  const pair = (p: ExtractPurchase, index: number, tx: Transaction, how: { linked?: boolean; dateGap?: number }): InstallmentCheck => {
+    used.add(tx.id);
+    const e = expectedForTx(tx, account, cut);
+    const diffs = compareWith(p, e.n, e, how.linked ? tx.amount : undefined);
+    return { verdict: diffs.length ? "DIFFERS" : "OK", index, ...(how.linked ? { linked: true } : {}), ...(how.dateGap !== undefined ? { dateGap: how.dateGap } : {}), purchase: p, source: "APP", tx, diffs };
+  };
+
+  // 1) Mismo valor y fecha (hasta 1 día): la pareja de siempre
   purchases.forEach((p, index) => {
     const linkedTx = links[index] ? mine.find((t) => t.id === links[index]) : undefined;
     const item = linkedTx ? undefined : knownItem(p, myItems, account.id);
     if (item) {
       const diffs = compareWith(p, item.installments, expectedForItem(item, account, cut));
-      out.push({ verdict: diffs.length ? "DIFFERS" : "OK", index, purchase: p, source: "ITEM", item, diffs });
+      slots[index] = { verdict: diffs.length ? "DIFFERS" : "OK", index, purchase: p, source: "ITEM", item, diffs };
       for (const t of mine) if (Math.abs(t.amount - item.amount) <= 1 && daysApart(t.occurred_on, item.purchase_date) <= 1) used.add(t.id);
       return;
     }
     const tx = linkedTx ?? mine
-      .filter((t) => !reserved.has(t.id) && (t.kind === "EXPENSE" || isCardAdvance(t)) && Math.abs(t.amount - p.amount) <= 1 && daysApart(t.occurred_on, p.purchaseDate) <= 1)
+      .filter((t) => !reserved.has(t.id) && isPurchaseTx(t) && Math.abs(t.amount - p.amount) <= 1 && daysApart(t.occurred_on, p.purchaseDate) <= 1)
       .sort((a, b) => daysApart(a.occurred_on, p.purchaseDate) - daysApart(b.occurred_on, p.purchaseDate) || Math.abs(a.amount - p.amount) - Math.abs(b.amount - p.amount))[0];
-    if (!tx) { out.push({ verdict: "ONLY_EXTRACT", index, purchase: p, diffs: [] }); return; }
-    used.add(tx.id);
-    const e = expectedForTx(tx, account, cut);
-    const diffs = compareWith(p, e.n, e, linkedTx ? tx.amount : undefined);
-    out.push({ verdict: diffs.length ? "DIFFERS" : "OK", index, ...(linkedTx ? { linked: true } : {}), purchase: p, source: "APP", tx, diffs });
+    if (!tx) { pending.push(index); return; }
+    slots[index] = pair(p, index, tx, { linked: !!linkedTx });
   });
+
+  // 2) Por valor: lo que sigue sin pareja y vale exactamente lo mismo se une aunque la fecha difiera mucho (la app la dejó en
+  // un mes y el banco la facturó en el siguiente). Los más cercanos en fecha primero, uno a uno, sin tocar movimientos ya usados.
+  const candidates: { index: number; tx: Transaction; gap: number; diff: number }[] = [];
+  for (const index of pending) {
+    const p = purchases[index];
+    for (const t of mine) {
+      if (used.has(t.id) || reserved.has(t.id) || !isPurchaseTx(t) || separated.has(`${index}|${t.id}`)) continue;
+      const diff = Math.abs(t.amount - p.amount);
+      const gap = daysApart(t.occurred_on, p.purchaseDate);
+      if (diff > 1 || gap > VALUE_WINDOW_DAYS) continue;
+      if (p.amount < VALUE_ONLY_MIN && !sameMerchant(p.description, `${t.description ?? ""} ${t.merchant ?? ""}`)) continue;
+      candidates.push({ index, tx: t, gap, diff });
+    }
+  }
+  candidates.sort((a, b) => a.gap - b.gap || a.diff - b.diff || a.index - b.index);
+  for (const c of candidates) {
+    if (slots[c.index] || used.has(c.tx.id)) continue;
+    slots[c.index] = pair(purchases[c.index], c.index, c.tx, { dateGap: c.gap });
+  }
+  for (const index of pending) slots[index] ??= { verdict: "ONLY_EXTRACT", index, purchase: purchases[index], diffs: [] };
+  for (const c of slots) if (c) out.push(c);
 
   // En la app y no en el extracto: compras a cuotas hechas antes del corte, ya facturadas y con cuotas por pagar todavía
   if (sd && cut) {

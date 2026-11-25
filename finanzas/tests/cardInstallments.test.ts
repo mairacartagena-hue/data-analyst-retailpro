@@ -222,8 +222,8 @@ describe("vincular a mano una compra del extracto con la de la app", () => {
   const late = p({ purchaseDate: "2026-10-29" });
   const cut = "2026-11-20";
 
-  it("sin vínculo quedan como dos pendientes; con vínculo se comparan de verdad", () => {
-    const auto = checkInstallments(account, [tv], [], [late], cut);
+  it("separada del cruce por valor quedan como dos pendientes; con vínculo se comparan de verdad", () => {
+    const auto = checkInstallments(account, [tv], [], [late], cut, {}, ["0|tv"]);
     expect(auto.map((c) => c.verdict).sort()).toEqual(["ONLY_APP", "ONLY_EXTRACT"]);
     const linked = checkInstallments(account, [tv], [], [late], cut, { 0: "tv" });
     expect(linked).toHaveLength(1);
@@ -283,5 +283,75 @@ describe("vincular a mano una compra del extracto con la de la app", () => {
     const checks = checkInstallments(account, [], [], [p({ description: "A", amount: 900_000 }), p({ description: "B", amount: 310_000 }), p({ description: "C", amount: 300_000, installments: 3 })], cut);
     const out = onlyExtractCandidates(checks, { amount: 305_000, occurred_on: "2026-10-24" });
     expect(out.map((c) => c.purchase?.description)).toEqual(["B", "C", "A"]);
+  });
+});
+
+
+describe("cruce por valor: la app la dejó en una fecha y el extracto en otra", () => {
+  const cut = "2026-11-20";
+
+  it("mismo valor con 5 días de diferencia: se unen solas y no queda una pendiente de cada lado", () => {
+    const out = checkInstallments(account, [tv], [], [p({ purchaseDate: "2026-10-29" })], cut);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({ verdict: "OK", source: "APP", dateGap: 5, index: 0 });
+    expect(out[0].tx?.id).toBe("tv");
+    expect(out[0].linked).toBeUndefined();
+  });
+
+  it("la app en octubre y el extracto en noviembre: hasta 45 días; más allá no se une", () => {
+    const oct = tx({ id: "oct", description: "NEVERA", amount: 700_000, installments: 7, occurred_on: "2026-10-05" });
+    const nov = checkInstallments(account, [oct], [], [p({ description: "NEVERA", amount: 700_000, installments: 7, purchaseDate: "2026-11-18" })], cut);
+    expect(nov[0]).toMatchObject({ source: "APP", dateGap: 44 });
+    expect(nov[0].tx?.id).toBe("oct");
+    const far = checkInstallments(account, [oct], [], [p({ description: "NEVERA", amount: 700_000, installments: 7, purchaseDate: "2026-11-25" })], cut);
+    expect(far.find((c) => c.index === 0)).toMatchObject({ verdict: "ONLY_EXTRACT" });
+    expect(far.find((c) => c.index === 0)?.tx).toBeUndefined();
+  });
+
+  it("el valor tiene que ser el mismo: con otro valor no se une sola (eso es un vínculo a mano)", () => {
+    const out = checkInstallments(account, [tv], [], [p({ purchaseDate: "2026-10-29", amount: 310_000 })], cut);
+    expect(out.map((c) => c.verdict).sort()).toEqual(["ONLY_APP", "ONLY_EXTRACT"]);
+  });
+
+  it("la fecha exacta sigue mandando: no hay dateGap cuando se unen por fecha", () => {
+    const [c] = checkInstallments(account, [tv], [], [p()], cut);
+    expect(c.dateGap).toBeUndefined();
+  });
+
+  it("uno a uno: dos compras iguales del extracto y un solo movimiento; se lo queda la más cercana", () => {
+    const out = checkInstallments(account, [tv], [], [p({ purchaseDate: "2026-11-10" }), p({ purchaseDate: "2026-10-28" })], cut);
+    const byIndex = Object.fromEntries(out.filter((c) => c.index !== undefined).map((c) => [c.index, c.verdict]));
+    expect(byIndex).toEqual({ 0: "ONLY_EXTRACT", 1: "OK" });
+  });
+
+  it("no le quita a otra compra el movimiento que ya unió por fecha", () => {
+    const out = checkInstallments(account, [tv], [], [p(), p({ purchaseDate: "2026-11-05" })], cut);
+    const byIndex = Object.fromEntries(out.filter((c) => c.index !== undefined).map((c) => [c.index, c.verdict]));
+    expect(byIndex).toEqual({ 0: "OK", 1: "ONLY_EXTRACT" });
+  });
+
+  it("valores bajos: hace falta que coincida el comercio", () => {
+    const cafe = tx({ id: "cafe", description: "Juan Valdez", amount: 12_000, installments: 3, occurred_on: "2026-10-10" });
+    const other = checkInstallments(account, [cafe], [], [p({ description: "RESTAURANTE EL SOL", amount: 12_000, purchaseDate: "2026-10-30" })], cut);
+    expect(other.find((c) => c.index === 0)).toMatchObject({ verdict: "ONLY_EXTRACT" });
+    expect(other.find((c) => c.index === 0)?.tx).toBeUndefined();
+    const same = checkInstallments(account, [cafe], [], [p({ description: "JUAN VALDEZ CALLE 85", amount: 12_000, purchaseDate: "2026-10-30" })], cut);
+    expect(same[0]).toMatchObject({ source: "APP", dateGap: 20 });
+    expect(same[0].tx?.id).toBe("cafe");
+  });
+
+  it("separar la pareja la deshace sin afectar a las demás", () => {
+    const tv2 = tx({ id: "tv2", description: "TV", amount: 300_000, installments: 3, occurred_on: "2026-10-26" });
+    const purchases = [p({ purchaseDate: "2026-10-29" })];
+    const pairOf = (apart: string[]) => checkInstallments(account, [tv, tv2], [], purchases, cut, {}, apart).find((c) => c.index === 0)?.tx?.id;
+    expect(pairOf([])).toBe("tv2");
+    // Separada de tv2, queda con tv (el siguiente más cercano)
+    expect(pairOf(["0|tv2"])).toBe("tv");
+  });
+
+  it("un movimiento vinculado a mano a otra compra no se ofrece al cruce por valor", () => {
+    const out = checkInstallments(account, [tv], [], [p({ purchaseDate: "2026-10-29" }), p({ description: "OTRA", amount: 999_000 })], cut, { 1: "tv" });
+    const byIndex = Object.fromEntries(out.filter((c) => c.index !== undefined).map((c) => [c.index, c.verdict]));
+    expect(byIndex[0]).toBe("ONLY_EXTRACT");
   });
 });

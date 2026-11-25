@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, FileUp, HelpCircle, History, Landmark, Link2, PlusCircle, Trash2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, FileUp, HelpCircle, History, Landmark, Link2, PlusCircle, Scale, Trash2 } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { useShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
@@ -20,7 +20,7 @@ import { shrink, toBase64 } from "@/lib/capture/file";
 import type { CardLinesData } from "@/lib/capture/cardStatement";
 import { parsedFromCardLines } from "@/lib/finance/cardLines";
 import {
-  BANK_CATEGORY, INTEREST_CATEGORY, UNKNOWN_CATEGORY, appCandidatesFor, bankCharges, carryOverStatus, closingBalance, coveredRange, isBankLine, lineCandidatesFor, parseStatementRows, reconcileStatement, registerPayload, withManualLinks,
+  BANK_CATEGORY, INTEREST_CATEGORY, UNKNOWN_CATEGORY, VALUE_WINDOW_DAYS, appCandidatesFor, appEntryOf, bankCharges, carryOverStatus, closingBalance, coveredRange, isBankLine, lineCandidatesFor, parseStatementRows, reconcileStatement, registerPayload, withManualLinks,
   type AppEntry, type CarryStatus, type ColumnMap, type LineKind, type ManualLink, type StatementLine,
 } from "@/lib/finance/statement";
 import { cn, errMsg } from "@/lib/utils";
@@ -31,7 +31,7 @@ const KIND_LABEL: Record<LineKind, string> = {
 
 const CARRY_LABEL: Record<CarryStatus, string> = {
   FOUND: "ya aparece en este extracto",
-  NOT_FOUND: "no aparece: revisa si el banco la cobra en el siguiente o si hay un error",
+  NOT_FOUND: "no aparece en el extracto, ni con el mismo valor en otra fecha: revisa si el banco la cobra en el siguiente o vincúlala si vino con otro valor",
   GONE: "el movimiento ya no está en la app",
   UNKNOWN: "no se puede comprobar con este extracto",
 };
@@ -65,6 +65,8 @@ export function StatementImport({ account, month, onBalance, onStatus, carryOver
   const [pdf, setPdf] = useState<CardLinesData | null>(null);
   /** Vínculos hechos a mano entre una línea del extracto y un movimiento de la app que no se unieron solos. Valen mientras el extracto está abierto. */
   const [links, setLinks] = useState<ManualLink[]>([]);
+  /** Parejas que el cruce por valor unió con fechas muy distintas y la persona separó ("esta no es"). */
+  const [apart, setApart] = useState<ManualLink[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -73,11 +75,14 @@ export function StatementImport({ account, month, onBalance, onStatus, carryOver
   // Tarjetas: el ciclo del extracto recortado a lo que cubre el archivo (si trae el mes calendario, solo la parte que se cruza con el ciclo)
   const range = useMemo(() => (byCycle && parsed ? coveredRange(base, parsed.lines, parsed.period) : base), [byCycle, parsed, base.start, base.end]); // eslint-disable-line react-hooks/exhaustive-deps
   const inMonth = useMemo(() => (parsed?.lines ?? []).filter((l) => l.date >= range.start && l.date <= range.end), [parsed, range.start, range.end]);
-  const auto = useMemo(() => (parsed ? reconcileStatement(account, transactions, parsed.lines, range) : null), [parsed, account, transactions, range.start, range.end]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Las partidas del cierre anterior pueden estar fechadas antes del ciclo (la app las dejó en octubre y el banco las cobró en noviembre): se cruzan por valor
+  const carryTxIds = useMemo(() => (carryOver ?? []).flatMap((i) => (i.transaction_id ? [i.transaction_id] : [])), [carryOver]);
+  const auto = useMemo(() => (parsed ? reconcileStatement(account, transactions, parsed.lines, range, 3, { carryTxIds, apart }) : null), [parsed, account, transactions, range.start, range.end, carryTxIds, apart]); // eslint-disable-line react-hooks/exhaustive-deps
   // El resultado con los vínculos manuales: todo lo de abajo (totales, estado, partidas del cierre anterior) parte de este
   const rec = useMemo(() => (auto ? withManualLinks(auto, links, account, transactions) : null), [auto, links, account, transactions]);
   const accountTxs = useMemo(() => transactions.filter((t) => t.account_id === account.id || t.to_account_id === account.id), [transactions, account.id]);
   const manual = (rec?.matched ?? []).filter((m) => m.manual && m.entry);
+  const byValue = (rec?.matched ?? []).filter((m) => m.dateGap !== undefined && !m.manual && m.entry);
   const charges = useMemo(() => bankCharges(account, inMonth, uvt), [account, inMonth, uvt]);
   const closing = useMemo(() => (parsed ? closingBalance(parsed.raw.filter((l) => l.date >= range.start && l.date <= range.end)) : null), [parsed, range.start, range.end]);
   const inflow = inMonth.filter((l) => l.amount > 0).reduce((a, l) => a + l.amount, 0);
@@ -86,7 +91,9 @@ export function StatementImport({ account, month, onBalance, onStatus, carryOver
   const carry = useMemo(() => (carryOver?.length ? carryOverStatus(carryOver, transactions, rec, range) : []), [carryOver, transactions, rec, range.start, range.end]); // eslint-disable-line react-hooks/exhaustive-deps
   const carryMissing = carry.filter((c) => c.status === "NOT_FOUND").length;
   const duplicateIds = new Set((rec?.duplicates ?? []).map((d) => d.entry.tx.id));
-  const onlyInApp = (rec?.extra ?? []).filter((e) => !duplicateIds.has(e.tx.id));
+  // Las partidas del cierre anterior se muestran en su propia sección: aquí no deben salir otra vez
+  const carryIds = new Set(carry.flatMap((c) => (c.item.transaction_id ? [c.item.transaction_id] : [])));
+  const onlyInApp = (rec?.extra ?? []).filter((e) => !duplicateIds.has(e.tx.id) && !carryIds.has(e.tx.id));
   const bankMissing = (rec?.missing ?? []).filter(isBankLine);
 
   // PDF: si lo leído no suma lo que dice el resumen del extracto, puede faltar algún movimiento y "no falta nada" no sería confiable
@@ -107,6 +114,7 @@ export function StatementImport({ account, month, onBalance, onStatus, carryOver
       setRows(await readStatementFile(file));
       setPdf(null);
       setLinks([]);
+      setApart([]);
       setFileName(file.name);
       setMap({});
       setFlip(false);
@@ -129,6 +137,7 @@ export function StatementImport({ account, month, onBalance, onStatus, carryOver
       if (!body.ok || !body.result) throw new Error(body.error ?? "No se pudo leer el extracto.");
       setPdf(body.result);
       setLinks([]);
+      setApart([]);
       setRows(null);
       setFileName(file.name);
     } catch (e) {
@@ -309,6 +318,25 @@ export function StatementImport({ account, month, onBalance, onStatus, carryOver
                 </p>
               )}
 
+              {byValue.length > 0 && (
+                <section className="space-y-1">
+                  <h3 className="flex items-center gap-1.5 text-sm font-semibold"><Scale size={15} /> Unidos por valor con otra fecha ({byValue.length})</h3>
+                  <p className="text-xs text-muted">Valen exactamente lo mismo, pero la app los tiene en una fecha y el extracto en otra (hasta {VALUE_WINDOW_DAYS} días). Si alguno no es la misma compra, sepáralo.</p>
+                  <div className="divide-y divide-border">
+                    {byValue.map((m) => (
+                      <div key={m.line.id} className="flex items-center gap-2 py-2 text-sm">
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate font-medium">{m.line.description || "Sin descripción"}</span>
+                          <span className="block truncate text-xs text-muted">Extracto {formatDay(m.line.date)} · app {formatDay(m.entry!.date)} ({m.dateGap} días) · {m.entry!.tx.description || m.entry!.tx.merchant || "Movimiento"}</span>
+                        </span>
+                        <span className="num shrink-0 text-right text-xs">{signed(m.line.amount)}</span>
+                        <Button size="sm" variant="outline" onClick={() => setApart((a) => [...a, { lineId: m.line.id, txId: m.entry!.tx.id }])}>Separar</Button>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
               {manual.length > 0 && (
                 <section className="space-y-1">
                   <h3 className="flex items-center gap-1.5 text-sm font-semibold"><Link2 size={15} /> Vinculados a mano ({manual.length})</h3>
@@ -331,7 +359,7 @@ export function StatementImport({ account, month, onBalance, onStatus, carryOver
               {rec.missing.length > 0 && (
                 <section className="space-y-1">
                   <h3 className="flex items-center gap-1.5 text-sm font-semibold"><PlusCircle size={15} /> Faltan en la app ({rec.missing.length})</h3>
-                  <p className="text-xs text-muted">Están en el extracto y no los encontré en la app (mismo valor, hasta 3 días de diferencia). Si alguno sí está en la app con otro valor o nombre, vincúlalo con su movimiento.</p>
+                  <p className="text-xs text-muted">Están en el extracto y no los encontré en la app (ni con el mismo valor en otra fecha). Si alguno sí está en la app con otro valor o nombre, vincúlalo con su movimiento.</p>
                   {bankMissing.length > 0 && (
                     <Button size="sm" className="w-full" onClick={registerBankLines} disabled={busy}>
                       {busy ? "Registrando…" : `Registrar los ${bankMissing.length} del banco (4x1000, intereses, cuotas)`}
@@ -393,17 +421,29 @@ export function StatementImport({ account, month, onBalance, onStatus, carryOver
                   <h3 className={cn("flex items-center gap-1.5 text-sm font-semibold", carryMissing > 0 && "text-warning")}><History size={15} /> Partidas del cierre anterior ({carry.length})</h3>
                   <p className="text-xs text-muted">Eran movimientos que el banco todavía no había cobrado al cerrar el mes pasado. Deberían venir en este extracto.</p>
                   <div className="divide-y divide-border">
-                    {carry.map((c, i) => (
-                      <div key={c.item.transaction_id ?? `sin-mov-${i}`} className="flex items-center gap-2 py-2 text-sm">
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate font-medium">{c.item.description}</span>
-                          <span className={cn("block text-xs", c.status === "NOT_FOUND" ? "text-warning" : "text-muted")}>
-                            {c.item.occurred_on ? `${formatDay(c.item.occurred_on)} · ` : ""}{CARRY_LABEL[c.status]}
-                          </span>
-                        </span>
-                        <span className="num shrink-0 font-semibold">{signed(c.item.amount)}</span>
-                      </div>
-                    ))}
+                    {carry.map((c, i) => {
+                      const tx = c.status === "NOT_FOUND" ? transactions.find((t) => t.id === c.item.transaction_id) : undefined;
+                      const entry = tx ? appEntryOf(account, tx) : null;
+                      return (
+                        <div key={c.item.transaction_id ?? `sin-mov-${i}`}>
+                          <div className="flex items-center gap-2 py-2 text-sm">
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate font-medium">{c.item.description}</span>
+                              <span className={cn("block text-xs", c.status === "NOT_FOUND" ? "text-warning" : "text-muted")}>
+                                {c.item.occurred_on ? `${formatDay(c.item.occurred_on)} · ` : ""}{CARRY_LABEL[c.status]}
+                                {c.status === "FOUND" && c.line ? ` (${formatDay(c.line.date)})` : ""}
+                              </span>
+                            </span>
+                            <span className="num shrink-0 font-semibold">{signed(c.item.amount)}</span>
+                          </div>
+                          {entry && rec && (
+                            <LinkSelect label="Está en el extracto: elegir cuál"
+                              options={lineCandidatesFor(entry, rec, 8, VALUE_WINDOW_DAYS).map((l) => ({ value: l.id, label: `${formatDay(l.date)} · ${(l.description || "Sin descripción").slice(0, 28)} · ${signed(l.amount)}` }))}
+                              onPick={(lineId) => setLinks((k) => [...k, { lineId, txId: entry.tx.id }])} />
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </section>
               )}

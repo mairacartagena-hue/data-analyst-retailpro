@@ -26,12 +26,12 @@ const diffValue = (field: InstallmentDiff["field"], n: number) => (field === "ba
  * Si el cruce automático no unió una compra que sí es la misma (valor o fecha distintos), se vincula a mano desde aquí:
  * el vínculo vale mientras tengas el extracto abierto y deja ver en qué se diferencian.
  */
-function InstallmentChecks({ account, checks, onLink, onUnlink }: { account: Account; checks: InstallmentCheck[]; onLink: (index: number, txId: string) => void; onUnlink: (index: number) => void }) {
+function InstallmentChecks({ account, checks, onLink, onUnlink, onSeparate }: { account: Account; checks: InstallmentCheck[]; onLink: (index: number, txId: string) => void; onUnlink: (index: number) => void; onSeparate: (index: number, txId: string) => void }) {
   const { openTransaction } = useShell();
   const { transactions, cardItems } = useFinance();
   const needs = checks.filter((c) => c.verdict !== "OK");
   // Las vinculadas se muestran aunque cuadren, para poder deshacer el vínculo
-  const bad = checks.filter((c) => c.verdict !== "OK" || c.linked);
+  const bad = checks.filter((c) => c.verdict !== "OK" || c.linked || c.dateGap !== undefined);
   const ok = checks.length - needs.length;
   // Movimientos que ya tienen su pareja: no se ofrecen para vincular
   const taken = useMemo(() => {
@@ -63,6 +63,12 @@ function InstallmentChecks({ account, checks, onLink, onUnlink }: { account: Acc
                 <p className="text-muted">
                   Vinculada a mano con {txLabel(c.tx)} de la app.{" "}
                   <button className="text-olive underline" onClick={() => onUnlink(c.index!)}>Deshacer</button>
+                </p>
+              )}
+              {c.dateGap !== undefined && c.tx && c.purchase && (
+                <p className="text-muted">
+                  Unida por valor: la app la tiene el {formatDay(c.tx.occurred_on)} y el extracto el {formatDay(c.purchase.purchaseDate)} ({c.dateGap} días).{" "}
+                  <button className="text-olive underline" onClick={() => onSeparate(c.index!, c.tx!.id)}>Separar</button>
                 </p>
               )}
               {c.diffs.map((d) => (
@@ -111,6 +117,8 @@ export function CardStatementPdf({ account, onBalance, onStatus, crossCheck = fa
   const [extracted, setExtracted] = useState<CardStatementPurchase[]>([]);
   // Vínculos hechos a mano: posición de la compra en el extracto → movimiento de la app. Valen mientras el extracto está abierto.
   const [links, setLinks] = useState<Record<number, string>>({});
+  // Parejas por valor con fechas muy distintas que la persona separó (`posición|movimiento`)
+  const [apart, setApart] = useState<string[]>([]);
 
   const purchases = read?.purchases ?? [];
   const inCard = (p: CardStatementPurchase) => !!knownItem(p, cardItems, account.id);
@@ -122,8 +130,8 @@ export function CardStatementPdf({ account, onBalance, onStatus, crossCheck = fa
   const already = purchases.length - fresh.length;
   const cutDate = /^\d{4}-\d{2}-\d{2}$/.test(draft.cut) ? draft.cut : null;
   const checks = useMemo(
-    () => (crossCheck && read ? checkInstallments(account, transactions, cardItems, extracted, cutDate, links) : []),
-    [crossCheck, read, account, transactions, cardItems, extracted, cutDate, links],
+    () => (crossCheck && read ? checkInstallments(account, transactions, cardItems, extracted, cutDate, links, apart) : []),
+    [crossCheck, read, account, transactions, cardItems, extracted, cutDate, links, apart],
   );
 
   async function pick(file: File | undefined) {
@@ -133,6 +141,7 @@ export function CardStatementPdf({ account, onBalance, onStatus, crossCheck = fa
     setRead(null);
     setExtracted([]);
     setLinks({});
+    setApart([]);
     if (!navigator.onLine) return setErr("Sin conexión: para leer el extracto necesitas internet.");
     setBusy(true);
     try {
@@ -199,7 +208,8 @@ export function CardStatementPdf({ account, onBalance, onStatus, crossCheck = fa
               {checks.length > 0 && (
                 <InstallmentChecks account={account} checks={checks}
                   onLink={(index, txId) => setLinks((l) => ({ ...l, [index]: txId }))}
-                  onUnlink={(index) => setLinks((l) => Object.fromEntries(Object.entries(l).filter(([k]) => Number(k) !== index)))} />
+                  onUnlink={(index) => setLinks((l) => Object.fromEntries(Object.entries(l).filter(([k]) => Number(k) !== index)))}
+                  onSeparate={(index, txId) => setApart((a) => [...a, `${index}|${txId}`])} />
               )}
             </>
           )}
