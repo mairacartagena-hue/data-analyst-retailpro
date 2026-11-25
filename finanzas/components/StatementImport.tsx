@@ -151,16 +151,16 @@ export function StatementImport({ account, month, onBalance, onStatus, carryOver
 
   // El extracto que se subió en el otro paso: se lee aquí también
   useEffect(() => {
-    if (incoming && isCard) { setError(null); setNotice(null); void readCardPdf(incoming); }
+    if (incoming && isCard) void pickFile(incoming, true);
   }, [incoming]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function pickFile(file: File | undefined) {
+  async function pickFile(file: File | undefined, fromOtherStep = false) {
     if (!file) return;
     setError(null);
     setNotice(null);
     const isDoc = file.type === "application/pdf" || file.type.startsWith("image/") || /\.(pdf|jpe?g|png|webp|heic|heif)$/i.test(file.name);
     if (isDoc && isCard) {
-      onFile?.(file);
+      if (!fromOtherStep) onFile?.(file);
       return readCardPdf(file);
     }
     if (file.size > 5_000_000) return setError("El archivo es muy grande (más de 5 MB). ¿Es el extracto en CSV o Excel?");
