@@ -5,16 +5,18 @@ import { FileUp } from "lucide-react";
 import { useFinance } from "@/lib/data/FinanceProvider";
 import { useShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { AmountInput } from "@/components/AmountInput";
 import { LinkSelect } from "@/components/LinkSelect";
 import { ManualCrossCheck, StatementCrossCheck, StatementFields, emptyDraft, statementOf, type StatementDraft } from "@/components/CardStatements";
 import { ReviewRow, type RowTone } from "@/components/ReviewRow";
 import type { Account } from "@/lib/types";
 import type { CardStatementData, CardStatementPurchase } from "@/lib/capture/cardStatement";
-import { checkInstallments, checkMonthlyCharges, checkStatement, diffVerdict, installmentFix, knownItem, onlyExtractCandidates, purchaseLinkCandidates, registeredTx, type ChargeCheck, type InstallmentCheck, type InstallmentDiff, type InstallmentFix, type InstallmentVerdict } from "@/lib/finance/cardStatements";
+import { appDebtAt, checkInstallments, checkMonthlyCharges, checkStatement, diffVerdict, installmentFix, knownItem, onlyExtractCandidates, purchaseLinkCandidates, registeredTx, STATEMENT_TOLERANCE, type ChargeCheck, type InstallmentCheck, type InstallmentDiff, type InstallmentFix, type InstallmentVerdict } from "@/lib/finance/cardStatements";
 import { editPayload } from "@/lib/finance/txEdit";
 import { installmentsOf, matchedWithItems } from "@/lib/finance/installments";
 import { openingDay } from "@/lib/finance/cardBudget";
-import { formatCop } from "@/lib/finance/money";
+import { formatCop, parseCop } from "@/lib/finance/money";
 import { formatDay, todayBogota } from "@/lib/finance/periods";
 import { shrink, toBase64 } from "@/lib/capture/file";
 import { cn, errMsg } from "@/lib/utils";
@@ -32,13 +34,31 @@ const diffValue = (field: InstallmentDiff["field"], n: number) => (field === "ba
 /** Addi: lo que cobra este mes de cada compra contra la cuota que la app espera de esa compra. */
 function ChargeChecks({ checks }: { checks: ChargeCheck[] }) {
   const { openTransaction } = useShell();
-  const ok = checks.filter((c) => c.verdict === "OK").length;
+  const { supabase, reload } = useFinance();
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const good = (c: ChargeCheck) => c.verdict === "OK" || c.verdict === "UPDATED";
+  const ok = checks.filter(good).length;
   const needs = checks.length - ok;
   const status = (c: ChargeCheck) =>
-    c.verdict === "OK" ? `Cuota ${c.installment} de ${c.of}: cuadra${c.item ? " con el proyectado" : ""}`
+    c.verdict === "UPDATED" ? `Ya actualizada con este extracto o uno más nuevo (cuota ${c.installment} de ${c.of})`
+    : c.verdict === "OK" ? `Cuota ${c.installment} de ${c.of}: cuadra${c.item ? " con el proyectado" : ""}`
     : c.verdict === "DIFFERS" ? `Cuota ${c.installment} de ${c.of}: ${c.item ? "el proyectado" : "la app"} espera ${formatCop(c.appCharge ?? 0)}`
     : c.verdict === "NO_CHARGE" ? `En la app no le toca cuota en este corte (${c.of} cuota${c.of === 1 ? "" : "s"}): revisa el número de cuotas o la fecha`
     : "No encontré la compra en la app ni en el proyectado (misma fecha o mismo valor de cuota)";
+
+  async function apply(c: ChargeCheck) {
+    if (!c.update) return;
+    setBusyId(c.update.id);
+    setErr(null);
+    const { error } = await supabase.from("card_statement_items").update({
+      paid_installments: c.update.paid, remaining_balance: c.update.remaining, as_of: c.update.asOf,
+    }).eq("id", c.update.id);
+    setBusyId(null);
+    if (error) return setErr(errMsg(error));
+    void reload();
+  }
+
   return (
     <div className="space-y-1.5">
       <p className="font-medium">Cuotas del mes: extracto vs. app</p>
@@ -53,10 +73,21 @@ function ChargeChecks({ checks }: { checks: ChargeCheck[] }) {
               <span className="min-w-0 truncate font-medium">{formatDay(c.line.purchaseDate)} · {c.line.description}</span>
               <span className="num shrink-0">{formatCop(c.extractCharge)}</span>
             </div>
-            <p className={cn(c.verdict === "OK" ? "text-olive" : "text-warning")}>{status(c)}</p>
+            <p className={cn(good(c) ? "text-olive" : "text-warning")}>{status(c)}</p>
             {c.line.fees > 0 && <p className="text-muted">Además cobra {formatCop(Math.round(c.line.fees))} de fianza y otros cargos (se revisan en Movimientos).</p>}
             {c.item && c.verdict === "DIFFERS" && (
-              <p className="text-muted">Los intereses y la cuota dependen de las cuotas que faltan: revisa en la tarjeta, en las compras a cuotas del proyectado, las cuotas pagadas y el saldo pendiente de esta compra (Addi cobra como si faltaran menos).</p>
+              <p className="text-muted">El proyectado calcula la cuota con el saldo y las cuotas que faltan; Addi la calcula a su manera y puede salir distinta. Al actualizar, el saldo pasa a ser el que Addi realmente cobra.</p>
+            )}
+            {c.item && c.cuts !== undefined && c.cuts > 1 && !c.update && (
+              <p className="text-muted">Esta compra lleva {c.cuts} cortes sin actualizar: actualízala primero con los extractos de los meses anteriores.</p>
+            )}
+            {c.update && (
+              <div className="space-y-1">
+                <Button size="sm" variant="outline" disabled={busyId !== null} onClick={() => void apply(c)}>
+                  {busyId === c.update.id ? "Actualizando…" : "Actualizar el proyectado con este extracto"}
+                </Button>
+                <p className="text-muted">Queda en cuota {c.update.paid} de {c.of} y saldo pendiente {formatCop(c.update.remaining)} (hoy {formatCop(Math.round(c.item?.remaining_balance ?? 0))}).</p>
+              </div>
             )}
             {c.tx && c.verdict !== "OK" && (
               <Button size="sm" variant="ghost" onClick={() => openTransaction(c.tx)}>Abrir la compra de la app</Button>
@@ -64,6 +95,36 @@ function ChargeChecks({ checks }: { checks: ChargeCheck[] }) {
           </li>
         ))}
       </ul>
+      {err && <p className="text-danger">{err}</p>}
+    </div>
+  );
+}
+
+/** Addi no imprime el saldo de capital y su "pago total" trae también intereses y cargos: se compara contra lo que la persona ve en la app de Addi. */
+function CapitalCheck({ account, charges }: { account: Account; charges: number }) {
+  const { transactions } = useFinance();
+  const [value, setValue] = useState("");
+  const [date, setDate] = useState(todayBogota());
+  const capital = parseCop(value);
+  const app = capital === null ? null : appDebtAt(account, transactions, date);
+  const diff = capital === null || app === null ? null : Math.round(app - capital);
+  return (
+    <div className="space-y-2 rounded-xl border border-border bg-surface p-3">
+      <p className="font-medium">Saldo de capital en la app de Addi</p>
+      <p className="text-muted">El extracto de Addi no trae el saldo de capital y su “pago total” incluye intereses y cargos, así que no se compara con la deuda de la app. Escribe el saldo de capital que ves en la app de Addi y el día en que lo miraste.</p>
+      <div className="grid grid-cols-2 gap-2">
+        <AmountInput value={value} onChange={setValue} placeholder="Saldo de capital" />
+        <Input type="date" value={date} max={todayBogota()} onChange={(e) => e.target.value && setDate(e.target.value)} />
+      </div>
+      {diff !== null && app !== null && (
+        <p className={cn("rounded-lg px-2 py-1", Math.abs(diff) <= STATEMENT_TOLERANCE || (charges > 0 && Math.abs(diff - charges) <= STATEMENT_TOLERANCE) ? "bg-olive-soft" : "bg-warning-soft")}>
+          {Math.abs(diff) <= STATEMENT_TOLERANCE
+            ? `Cuadra: al ${formatDay(date)} la app debe ${formatCop(Math.round(app))}, igual al capital de Addi.`
+            : charges > 0 && Math.abs(diff - charges) <= STATEMENT_TOLERANCE
+              ? `Cuadra: la app debe ${formatCop(Math.round(app))}, ${formatCop(diff)} más que el capital. Son los intereses y la fianza de este extracto (${formatCop(Math.round(charges))}), que ya están en la app y se pagan con la cuota.`
+              : `Al ${formatDay(date)} la app debe ${formatCop(Math.round(app))}: ${formatCop(Math.abs(diff))} ${diff > 0 ? "más" : "menos"} que el capital de Addi.${diff > 0 ? " Si no es de intereses o fianza sin pagar, falta registrar un pago o sobra una compra." : " Falta registrar una compra o un cargo."}`}
+        </p>
+      )}
     </div>
   );
 }
@@ -214,7 +275,7 @@ export function CardStatementPdf({ account, onBalance, onStatus, crossCheck = fa
     if (c.debtDiff !== null && !diffVerdict(c.debtDiff).ok) bad.push(`la deuda de la app es ${formatCop(Math.abs(c.debtDiff))} ${c.debtDiff > 0 ? "mayor" : "menor"}`);
     if (c.minimumDiff !== null && !diffVerdict(c.minimumDiff).ok) bad.push("la cuota del mes no coincide con el pago mínimo");
     if (bad.length > 0) return { text: bad.join(" · ").replace(/^./, (ch) => ch.toUpperCase()), tone: "warn" };
-    if (c.debtDiff === null) return { text: "El extracto no trae la deuda para comparar", tone: "idle" };
+    if (c.debtDiff === null) return { text: read.debtIsPayoff ? "Addi no trae el saldo de capital: escríbelo abajo para compararlo" : "El extracto no trae la deuda para comparar", tone: "idle" };
     return { text: "La deuda coincide con la app", tone: "ok" };
   }, [read, account, draft, transactions, cardItems]);
 
@@ -247,8 +308,9 @@ export function CardStatementPdf({ account, onBalance, onStatus, crossCheck = fa
       setRead(r);
       setExtracted(r.purchases);
       const s = (v?: number) => (v === undefined ? "" : String(v));
-      setDraft({ cut: r.statementDate ?? "", due: r.dueDate ?? "", minimum: s(r.minimumPayment), total: s(r.totalPayment), debt: s(r.totalDebt) });
-      if (r.totalDebt !== undefined) onBalance?.(r.totalDebt);
+      // El "pago total" de Addi trae intereses y cargos además del capital: no es la deuda con que se compara la de la app
+      setDraft({ cut: r.statementDate ?? "", due: r.dueDate ?? "", minimum: s(r.minimumPayment), total: s(r.totalPayment), debt: r.debtIsPayoff ? "" : s(r.totalDebt) });
+      if (r.totalDebt !== undefined && !r.debtIsPayoff) onBalance?.(r.totalDebt);
       onStatus?.(`Extracto leído${body.source === "local" ? " directo del PDF" : ""}: revisa el cruce de la deuda abajo`);
     } catch (e) {
       setErr(errMsg(e));
@@ -296,7 +358,7 @@ export function CardStatementPdf({ account, onBalance, onStatus, crossCheck = fa
     const instRow = busy && !read ? reading : failed
       ?? (!read ? { text: idleNote ?? "Sube el extracto para comparar las compras a cuotas", tone: "idle" as RowTone }
         : chargeChecks ? (() => {
-          const bad = chargeChecks.filter((c) => c.verdict !== "OK").length;
+          const bad = chargeChecks.filter((c) => c.verdict !== "OK" && c.verdict !== "UPDATED").length;
           return bad === 0
             ? { text: `Las ${chargeChecks.length} cuota${chargeChecks.length === 1 ? "" : "s"} del mes cuadran`, tone: "ok" as RowTone }
             : { text: `${bad} por revisar · ${chargeChecks.length - bad} cuadra${chargeChecks.length - bad === 1 ? "" : "n"}`, tone: "warn" as RowTone };
@@ -317,6 +379,7 @@ export function CardStatementPdf({ account, onBalance, onStatus, crossCheck = fa
               <p className="text-muted">Esto es lo que leí del extracto; puedes corregirlo. No se guarda.</p>
               <StatementFields value={draft} onChange={setDraft} />
               <StatementCrossCheck account={account} draft={draft} />
+              {read.debtIsPayoff && <CapitalCheck account={account} charges={(read.chargeLines ?? []).reduce((a, l) => a + l.interest + l.fees, 0)} />}
             </>
           ) : !err && month ? <ManualCrossCheck account={account} month={month} /> : null}
         </ReviewRow>

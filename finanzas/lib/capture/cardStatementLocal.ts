@@ -46,7 +46,7 @@ export function readLocalCardStatement(items: PdfTextItem[], today: string): Loc
     const lines = sanitizeCardLines(addiAsCardLines(addi), today);
     return {
       bank: "Addi",
-      statement: { ...statement, chargeLines: addiChargeLines(addi) },
+      statement: { ...statement, chargeLines: addiChargeLines(addi), debtIsPayoff: true },
       lines: { ...lines, chargesOnly: true, note: ADDI_LINES_NOTE },
     };
   }

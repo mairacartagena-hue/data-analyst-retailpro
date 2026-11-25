@@ -7,7 +7,7 @@ import type { CardChargeLine, CardStatementPurchase } from "@/lib/capture/cardSt
 import { accountStatement } from "./reconcile";
 import { addDays } from "./periods";
 import { VALUE_ONLY_MIN, VALUE_WINDOW_DAYS, sameMerchant } from "./statement";
-import { billingCut, cutsBetween, graceShift, hasGrace, installmentPlan, installmentsOf, isCardAdvance, matchedWithItems, payoffDates, projectCard, rateOf, statementItemsAfter } from "./installments";
+import { billingCut, cutsBetween, graceShift, hasGrace, installmentPlan, installmentsOf, isCardAdvance, matchedWithItems, monthlyRate, payoffDates, projectCard, rateOf, statementItemsAfter } from "./installments";
 
 /** Diferencias de hasta $1.000 se toman como iguales (redondeos e intereses de centavos). */
 export const STATEMENT_TOLERANCE = 1000;
@@ -363,7 +363,20 @@ export interface ChargeCheck {
   /** Cuota del mes (capital + intereses) según la app, y según el extracto. */
   appCharge: number | null;
   extractCharge: number;
-  verdict: "OK" | "DIFFERS" | "ONLY_EXTRACT" | "NO_CHARGE";
+  /** UPDATED: la compra del proyectado ya se actualizó con este extracto (o uno posterior). */
+  verdict: "OK" | "DIFFERS" | "ONLY_EXTRACT" | "NO_CHARGE" | "UPDATED";
+  /** Cortes que la compra del proyectado lleva sin aplicar hasta este extracto (1 = el de este extracto). */
+  cuts?: number;
+  /** Lo que se guarda en la compra del proyectado para dejarla como la dice este extracto (solo si le falta justo este corte). */
+  update?: ChargeUpdate;
+}
+
+/** Estado de una compra del proyectado después de aplicarle el cobro de un extracto: una cuota más y el capital abonado menos de saldo. */
+export interface ChargeUpdate {
+  id: string;
+  paid: number;
+  remaining: number;
+  asOf: string;
 }
 
 /**
@@ -379,10 +392,11 @@ export function checkMonthlyCharges(account: Account, txs: Transaction[], items:
   const mine = txs.filter((t) => t.account_id === account.id && (t.kind === "EXPENSE" || isCardAdvance(t)) && t.status !== "PENDING_REVIEW");
   const myItems = items.filter((i) => i.account_id === account.id);
   const used = new Set<string>();
-  const rank: Record<ChargeCheck["verdict"], number> = { DIFFERS: 0, ONLY_EXTRACT: 1, NO_CHARGE: 2, OK: 3 };
-  const verdictOf = (appCharge: number | null, extractCharge: number): ChargeCheck["verdict"] =>
+  const rank: Record<ChargeCheck["verdict"], number> = { DIFFERS: 0, ONLY_EXTRACT: 1, NO_CHARGE: 2, OK: 3, UPDATED: 4 };
+  const verdictOf = (appCharge: number | null, extractCharge: number): Exclude<ChargeCheck["verdict"], "UPDATED"> =>
     appCharge === null ? "NO_CHARGE" : Math.abs(appCharge - extractCharge) <= chargeTolerance(extractCharge) ? "OK" : "DIFFERS";
   const out: (ChargeCheck | null)[] = lines.map(() => null);
+  const sd = account.statement_day ?? null;
 
   // 1) Compra de la app del mismo día (±1)
   lines.forEach((line, index) => {
@@ -403,15 +417,34 @@ export function checkMonthlyCharges(account: Account, txs: Transaction[], items:
   // 2) Lo que sigue sin pareja, con el proyectado de la tarjeta: son compras de antes de la app (fecha = la del registro), así que se
   // unen por comercio o por una cuota parecida (hasta 10 %: la cuota de la app puede salir distinta por el número de cuotas que faltan,
   // y eso se informa como diferencia, no como "no encontrada"). Las más parecidas primero, una a una.
-  const pairs: { index: number; item: CardStatementItem; charge: number | null; current: number | null; dist: number; merchant: boolean }[] = [];
+  const pairs: { index: number; item: CardStatementItem; charge: number | null; current: number | null; dist: number; merchant: boolean; upToDate: boolean; cuts: number }[] = [];
   lines.forEach((line, index) => {
     if (out[index]) return;
     const extractCharge = Math.round(line.capital + line.interest);
     for (const item of myItems) {
-      const e = expectedForItem(item, account, cut);
-      const dist = e.charge === null ? Number.MAX_SAFE_INTEGER : Math.abs(e.charge - extractCharge);
+      // Ya actualizada con este extracto (o uno posterior): su saldo es el de después de la cuota. Se reconoce porque el interés de
+      // esta cuota es el del saldo de antes (saldo de ahora + capital abonado); sin tasa, porque el capital es el de una cuota pareja.
+      const upToDate = !!(cut && item.as_of && item.as_of >= cut);
+      const from = item.as_of ?? account.opening_at?.slice(0, 10) ?? null;
+      const cuts = sd && cut && from ? cutsBetween(sd, from, cut) : 0;
+      let charge: number | null = null;
+      let current: number | null = null;
+      let dist: number;
+      if (upToDate) {
+        const rate = item.rate_ea ?? account.interest_rate_ea ?? null;
+        dist = rate && rate > 0
+          ? Math.abs((item.remaining_balance + line.capital) * monthlyRate(rate) - line.interest)
+          : Math.abs(item.amount / item.installments - line.capital);
+        current = item.paid_installments;
+      } else {
+        const e = expectedForItem(item, account, cut);
+        charge = e.charge === null ? null : Math.round(e.charge);
+        current = e.current;
+        dist = e.charge === null ? Number.MAX_SAFE_INTEGER : Math.abs(e.charge - extractCharge);
+      }
       const merchant = sameMerchant(line.description, item.description);
-      if (merchant || dist <= Math.max(STATEMENT_TOLERANCE, extractCharge * 0.1)) pairs.push({ index, item, charge: e.charge === null ? null : Math.round(e.charge), current: e.current, dist, merchant });
+      const near = upToDate ? dist <= chargeTolerance(extractCharge) : dist <= Math.max(STATEMENT_TOLERANCE, extractCharge * 0.1);
+      if (merchant || near) pairs.push({ index, item, charge, current, dist, merchant, upToDate, cuts });
     }
   });
   pairs.sort((a, b) => Number(b.merchant) - Number(a.merchant) || a.dist - b.dist || a.index - b.index);
@@ -421,7 +454,15 @@ export function checkMonthlyCharges(account: Account, txs: Transaction[], items:
     usedItems.add(c.item.id);
     const line = lines[c.index];
     const extractCharge = Math.round(line.capital + line.interest);
-    out[c.index] = { line, item: c.item, installment: c.current, of: c.item.installments, appCharge: c.charge, extractCharge, verdict: verdictOf(c.charge, extractCharge) };
+    if (c.upToDate) {
+      out[c.index] = { line, item: c.item, installment: c.current, of: c.item.installments, appCharge: null, extractCharge, verdict: "UPDATED" };
+      continue;
+    }
+    // Se puede actualizar solo si a la compra le falta justo este corte: con más, faltan los extractos de los meses de antes
+    const update: ChargeUpdate | undefined = cut && c.cuts === 1
+      ? { id: c.item.id, paid: Math.min(c.item.installments, c.item.paid_installments + 1), remaining: Math.max(0, Math.round(c.item.remaining_balance - line.capital)), asOf: cut }
+      : undefined;
+    out[c.index] = { line, item: c.item, installment: c.current, of: c.item.installments, appCharge: c.charge, extractCharge, verdict: verdictOf(c.charge, extractCharge), cuts: c.cuts, ...(update ? { update } : {}) };
   }
 
   return lines.map((line, index): ChargeCheck => out[index]
