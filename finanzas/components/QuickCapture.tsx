@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Camera, Loader2, Mic, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { parsePhrase, type CaptureOption, type CaptureResult } from "@/lib/capture/phrase";
+import { isCompleteCapture, parsePhrase, type CaptureOption, type CaptureResult } from "@/lib/capture/phrase";
 import { todayBogota } from "@/lib/finance/periods";
 import { shrink } from "@/lib/capture/file";
 
@@ -79,7 +79,9 @@ export function QuickCapture({
     const local = parsePhrase(said, ctx());
     let result = local;
     let fromGemini = false;
-    if (!offline) {
+    // Si la lectura local ya trae monto, descripción y categoría, no se gasta el cupo de la IA
+    const localEnough = isCompleteCapture(local);
+    if (!offline && !localEnough) {
       try {
         const g = await ask({ text: said });
         if (g && (g.amount || g.description)) {
@@ -96,7 +98,7 @@ export function QuickCapture({
     setText("");
     onResult(result, "voice");
     setNote(result.amount
-      ? `“${said}”${fromGemini ? "" : " · leído sin internet"}. Revisa los datos antes de guardar.`
+      ? `“${said}”${fromGemini ? "" : localEnough && !offline ? " · leído sin IA" : " · leído sin internet"}. Revisa los datos antes de guardar.`
       : `“${said}”. No encontré el monto: escríbelo abajo.`);
   }
 

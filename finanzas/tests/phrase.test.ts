@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findSpokenAmount, parsePhrase } from "@/lib/capture/phrase";
+import { findSpokenAmount, isCompleteCapture, parsePhrase } from "@/lib/capture/phrase";
 import { sanitizeCapture } from "@/lib/capture/sanitize";
 
 const ctx = {
@@ -74,5 +74,25 @@ describe("respuesta de Gemini", () => {
   it("la categoría de un ingreso sale de la lista de ingresos", () => {
     expect(sanitizeCapture({ kind: "INCOME", category_id: "sal" }, g).categoryId).toBe("sal");
     expect(sanitizeCapture({ kind: "INCOME", category_id: "mer" }, g).categoryId).toBeUndefined();
+  });
+});
+
+describe("¿la lectura local alcanza sin Gemini?", () => {
+  it("monto, descripción y categoría: alcanza", () => {
+    expect(isCompleteCapture(parsePhrase("gasté 45 mil en mercado con nequi", ctx))).toBe(true);
+  });
+
+  it("sin categoría se le pide a Gemini", () => {
+    expect(isCompleteCapture(parsePhrase("gasté 45 mil en el Éxito", ctx))).toBe(false);
+  });
+
+  it("sin monto no alcanza", () => {
+    expect(isCompleteCapture(parsePhrase("almuerzo en restaurantes", ctx))).toBe(false);
+    expect(isCompleteCapture({})).toBe(false);
+  });
+
+  it("una transferencia necesita las dos cuentas", () => {
+    expect(isCompleteCapture(parsePhrase("pasé 200 mil de ahorros bancolombia a nequi", ctx))).toBe(true);
+    expect(isCompleteCapture({ kind: "TRANSFER", amount: 200_000, accountId: "nequi" })).toBe(false);
   });
 });
